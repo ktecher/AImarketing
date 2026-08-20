@@ -15,6 +15,7 @@ type Review = {
 
 const HOW_SURE: Record<string, string> = {
   sku: 'you named the SKU',
+  category: 'matched the category it sits in',
   lexical: 'matched on the words',
   meaning: 'matched on meaning — check this is the right product',
 }

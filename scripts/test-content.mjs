@@ -124,3 +124,15 @@ const RUNON = { sku: 'Y', name_en: 'Thing 16GB RAM 99 Series', brand: 'B', categ
 ok('bare digits are not matched across a gap',   !numOf('save 1699 today', RUNON).pass)
 ok('"3D" is still blocked — not a quantity, but the check cannot tell',
    !numOf('a 3D soundscape', MBP).pass)
+
+// A bare number must BE one of the numbers in the name, not sit inside one.
+// includes('4') is true of "14-inch", "512GB" and "M4 Max", which is how the
+// assistant came to answer "how many laptops do you have" with "I have 4".
+const SPECS = { sku: 'S1', name_en: 'Asus Vivobook 15, Ryzen 5, 16GB RAM, 512GB SSD, 14-inch',
+                brand: 'ASUS', category: 'Standard Laptops', price_now: 149.9, price_was: 199.9 }
+ok('a number that is in the name passes',      numOf('It has 16GB RAM', SPECS).pass)
+ok('another one in the name passes',           numOf('512GB of storage', SPECS).pass)
+ok('a digit merely INSIDE a number is caught', !numOf('We have 4 in stock', SPECS).pass,
+   'the name holds 15, 5, 16, 512 and 14 — none of them is 4')
+ok('a digit inside 14-inch is caught',         !numOf('Just 1 left', SPECS).pass)
+ok('an invented count is caught',              !numOf('We have 23 laptops', SPECS).pass)

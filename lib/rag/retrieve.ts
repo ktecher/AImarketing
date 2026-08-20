@@ -23,18 +23,47 @@ export type Hit = {
   /** How well this row matched. Not a judgement about the row — see rule 4. */
   relevance: number
   /** Why this row came back, so a rep reading the transcript can tell. */
-  why: 'sku' | 'lexical' | 'meaning'
+  why: 'sku' | 'category' | 'lexical' | 'meaning'
 }
 
-/** Fields a customer's words could plausibly match. Never the spare columns. */
+/** Fields a customer's words could plausibly match. */
 const SEARCHABLE = ['sku', 'name_en', 'name_ar', 'display_name', 'brand', 'category', 'description_en']
+
+/**
+ * The sheet's own category tree, used to FIND rows and never to speak from.
+ *
+ * "Do you sell laptops?" returned no MacBook, because the sheet files them under
+ * the category "MacBook Pro" and neither that nor "Apple MacBook Pro 16, M4 Pro
+ * Chip" contains the word laptop. The path does:
+ *
+ *   Computers & Tablets > Laptops > Apple MacBook > MacBook Pro
+ *   Computers & Tablets > Laptop Accessories > ... > Laptop Sleeves
+ *
+ * which is also the only thing in the sheet that separates a laptop from a
+ * laptop sleeve. D48 calls the spare columns hazards, and they are — for
+ * SPEAKING. This is retrieval: finding a row is not a claim about it, and the
+ * chat's fact sheet still refuses to offer any of this to the model.
+ */
+const PATH_COLUMNS = ['Category Path', 'Category path', 'category_path']
+
+function categoryPath(p: Row): string {
+  // `flatten` in lib/template/columns spreads the sheet's spare columns to the
+  // top level, so the path is p['Category Path'] and not p.extra['Category
+  // Path']. Both are checked: a row that has not been flattened still resolves.
+  const extra = (p.extra ?? {}) as Record<string, unknown>
+  for (const k of PATH_COLUMNS) if (p[k]) return String(p[k])
+  for (const k of PATH_COLUMNS) if (extra[k]) return String(extra[k])
+  return ''
+}
 
 const norm = (v: string) =>
   v.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 
 /** The text of a row, for matching and for embedding. Identity fields first. */
 export function rowText(p: Row): string {
-  return SEARCHABLE.map((k) => String(p[k] ?? '')).filter(Boolean).join(' · ')
+  return [...SEARCHABLE.map((k) => String(p[k] ?? '')), categoryPath(p)]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /**
@@ -71,6 +100,70 @@ async function vectorFor(texts: string[]): Promise<number[][]> {
   return texts.map((t) => vectors.get(t) as number[])
 }
 
+/** Singular and plural are the same shelf. "laptop" and "Laptops" must meet. */
+const stem = (v: string) => norm(v).replace(/s$/, '')
+
+/**
+ * Words that carry no product meaning, so their presence does not make a
+ * question specific. Everything a customer says around the thing they want.
+ */
+const ASIDES = new Set([
+  'do', 'doe', 'you', 'your', 'we', 'the', 'thi', 'that', 'any', 'some', 'and', 'or',
+  'have', 'ha', 'got', 'get', 'sell', 'selling', 'stock', 'carry', 'offer', 'available',
+  'what', 'which', 'i', 'me', 'my', 'want', 'need', 'looking', 'look', 'for', 'there',
+  'are', 'is', 'in', 'of', 'a', 'an', 'pleas', 'kind', 'type', 'sort', 'show', 'list',
+])
+
+/**
+ * Rows under a category the question names.
+ *
+ * "Do you sell laptops?" is not a similarity question, and answering it by
+ * similarity put a Laptop Sleeve first and no MacBook anywhere — the sleeve
+ * says "laptop" three times and a MacBook never says it at all. The sheet's own
+ * tree settles it: laptops sit under `> Laptops >`, sleeves under
+ * `> Laptop Accessories >`. Matching the SEGMENT rather than the string is what
+ * keeps the accessory out.
+ */
+function byCategory(question: string, products: Row[]): Hit[] {
+  const asked = new Set(terms(question).map(stem))
+  if (!asked.size) return []
+
+  // Every segment of every path, so "Laptops" is a node and not a substring.
+  const segments = new Set<string>()
+  for (const p of products) {
+    for (const seg of categoryPath(p).split('>')) {
+      const t = stem(seg)
+      if (t) segments.add(t)
+    }
+  }
+
+  // A segment matches only when the question contains ALL of its words, so
+  // "laptop sleeves" reaches "Laptop Sleeves" and not only "Laptops".
+  const matched = [...segments]
+    .map((seg) => ({ seg, words: seg.split(' ').filter(Boolean) }))
+    .filter(({ words }) => words.length > 0 && words.every((w) => asked.has(stem(w))))
+  if (!matched.length) return []
+
+  // Most specific wins. "Do you sell laptop sleeves" matches both "laptop" and
+  // "laptop sleeve"; answering with every laptop would be answering a different
+  // question.
+  const deepest = Math.max(...matched.map((m) => m.words.length))
+  const named = matched.filter((m) => m.words.length === deepest).map((m) => m.seg)
+
+  // And only when the question is ABOUT the category rather than merely
+  // containing its name. "How much is the Asus Vivobook 15 Laptop, AMD Ryzen 5"
+  // says laptop too, and answering it with twenty laptops — MacBooks first —
+  // is worse than the gap this was written to close.
+  const leftover = [...asked].filter(
+    (t) => !ASIDES.has(t) && !named.some((seg) => seg.split(' ').includes(t)),
+  )
+  if (leftover.length) return []
+
+  return products
+    .filter((p) => categoryPath(p).split('>').some((seg) => named.includes(stem(seg))))
+    .map((p) => ({ sku: String(p.sku), row: p, relevance: 1, why: 'category' as const }))
+}
+
 /**
  * The rows to answer from, best first.
  *
@@ -98,7 +191,14 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
 
   // A confident lexical match needs no model. "Do you have the Anker 542" is
   // answered by the words, and a round trip to the embedder buys nothing.
-  if ((lex[0]?.relevance ?? 0) >= 0.75) return lex.slice(0, limit)
+  const CONFIDENT_PRODUCT = 0.75
+  if ((lex[0]?.relevance ?? 0) >= CONFIDENT_PRODUCT) return lex.slice(0, limit)
+
+  // Only once no single product is the obvious answer. "How much is the Asus
+  // Vivobook 15 laptop" names a category word too, and must not come back with
+  // twenty laptops instead of the one that was asked about.
+  const category = byCategory(question, products)
+  if (category.length) return category.slice(0, limit)
 
   let semantic: Hit[] = []
   try {

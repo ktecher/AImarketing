@@ -35,7 +35,7 @@ export type Review = {
   /** Named honestly, with the reason. Silence here would read as a pass. */
   not_assessed: string[]
   /** The row the draft was checked against, so a human can disagree with it. */
-  matched: { sku: string; name: string; confidence: 'sku' | 'lexical' | 'meaning' } | null
+  matched: { sku: string; name: string; confidence: 'sku' | 'category' | 'lexical' | 'meaning' } | null
 }
 
 export type ReviewOptions = { channel?: string; lang?: 'en' | 'ar' }
