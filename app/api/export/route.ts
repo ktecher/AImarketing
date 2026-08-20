@@ -1,7 +1,6 @@
 import JSZip from 'jszip'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
-import { buildTemplateSvg, readSlots } from '@/lib/template/svg'
-import { fonts, fontDir, loadOverrides, loadTemplate, productImage } from '@/lib/template/store'
+import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
 import { importedProducts } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
 import { readJson } from '@/lib/http'
@@ -26,10 +25,8 @@ export async function POST(req: Request) {
   const dir = fontDir()
   const overrides = loadOverrides(id)
 
-  const artwork = /<image[^>]*id="artwork"[^>]*(?:xlink:)?href="([^"]+)"/.exec(template.svg)?.[1] ?? ''
-  const size = /<svg[^>]*width="(\d+)"[^>]*height="(\d+)"/.exec(template.svg)
-  const [tw, th] = [size ? +size[1] : 0, size ? +size[2] : 0]
-  void readSlots
+  const shape = templateShape(template.svg)
+  const [tw, th] = [shape.width, shape.height]
 
   const all = importedProducts()
   const rows: ProductValues[] = skus?.length ? all.filter((p) => skus.includes(String(p.sku))) : all
@@ -47,12 +44,7 @@ export async function POST(req: Request) {
 
   for (const p of rows) {
     const sku = String(p.sku ?? '')
-    const mine = overrides[sku]
-
-    const svg = mine
-      ? buildTemplateSvg({ name: template.manifest.name, width: tw, height: th, background: artwork, slots: mine.boxes })
-      : template.svg
-    const manifest = mine ? { ...template.manifest, slots: mine.slots } : template.manifest
+    const { svg, manifest, overridden } = layoutFor(template, shape, overrides[sku])
 
     const { svg: rendered, report, templateFaults } = renderProduct(svg, manifest, p, f, {
       mode: 'auto',
@@ -67,7 +59,7 @@ export async function POST(req: Request) {
     if (wanted.includes('jpg') && png) zip.file(`jpg/${safeName(sku, name, 'jpg')}`, await toJpg(png))
     if (wanted.includes('pdf') && png) zip.file(`pdf/${safeName(sku, name, 'pdf')}`, await toPdf(png, tw, th))
 
-    if (!mine && !faults.length && templateFaults.length) {
+    if (!overridden && !faults.length && templateFaults.length) {
       faults = templateFaults.map((r) =>
         r.literalText
           ? `${r.slot}: printing the same words on every design — "${r.literalText.printing}" — instead of each product's ${r.literalText.insteadOf}. Clear that slot's text in the layout editor.`

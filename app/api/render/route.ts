@@ -1,7 +1,6 @@
 import { Resvg } from '@resvg/resvg-js'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
-import { buildTemplateSvg, readSlots } from '@/lib/template/svg'
-import { fonts, fontDir, loadOverrides, loadTemplate, productImage } from '@/lib/template/store'
+import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
 import { importedProducts } from '@/lib/template/columns'
 import { readJson } from '@/lib/http'
 
@@ -18,10 +17,7 @@ export async function POST(req: Request) {
   const dir = fontDir()
   const overrides = loadOverrides(String(templateId ?? 'brand-poster'))
 
-  const artwork = /<image[^>]*id="artwork"[^>]*(?:xlink:)?href="([^"]+)"/.exec(template.svg)?.[1] ?? ''
-  const size = /<svg[^>]*width="(\d+)"[^>]*height="(\d+)"/.exec(template.svg)
-  const [tw, th] = [size ? +size[1] : 0, size ? +size[2] : 0]
-  const baseBoxes = readSlots(template.svg)
+  const shape = templateShape(template.svg)
 
   // No products given means "the catalogue we last imported".
   const all: ProductValues[] = Array.isArray(products) && products.length
@@ -36,14 +32,8 @@ export async function POST(req: Request) {
     const sku = String(p.sku ?? '')
     const image = productImage(sku)
 
-    // A product with an exception is rendered from its own layout; everything
-    // else follows the template.
-    const mine = overrides[sku]
-    const svgForProduct = mine
-      ? buildTemplateSvg({ name: template.manifest.name, width: tw, height: th, background: artwork, slots: mine.boxes })
-      : template.svg
-    const manifestForProduct = mine ? { ...template.manifest, slots: mine.slots } : template.manifest
-    void baseBoxes
+    const { svg: svgForProduct, manifest: manifestForProduct, overridden } =
+      layoutFor(template, shape, overrides[sku])
 
     const { svg, report, templateFaults: faults } = renderProduct(svgForProduct, manifestForProduct, p, f, {
       mode: 'auto',
@@ -63,7 +53,7 @@ export async function POST(req: Request) {
 
     return {
       sku, name: p.name_en ?? p.name_ar ?? sku, report, png, faults,
-      overridden: Boolean(mine),
+      overridden,
       svg: format === 'svg' ? svg : undefined,
     }
   })

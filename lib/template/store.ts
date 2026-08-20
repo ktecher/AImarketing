@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadFont, type LoadedFont } from './layout'
-import type { Manifest, Slot, SlotBox } from './svg'
+import { buildTemplateSvg, type Manifest, type Slot, type SlotBox } from './svg'
 
 const root = process.cwd()
 
@@ -114,6 +114,49 @@ export function saveOverride(id: string, sku: string, override: Override | null)
   if (override) all[sku] = override
   else delete all[sku]
   writeFileSync(overridePath(id), JSON.stringify(all, null, 2))
+}
+
+/**
+ * The template's own artwork and pixel size, read from its SVG once.
+ *
+ * Both the render route and the export route need these to rebuild a product's
+ * SVG from its own boxes, and both had their own copy of these two regexes and
+ * the `mine ? … : template` selection below. Identical copies, which is the
+ * latent form of the fault D32/D38/D39 record: a value with one true derivation
+ * computed a second time by hand, with nothing but output comparison to catch
+ * the drift. One derivation, two callers.
+ */
+export type TemplateShape = { artwork: string; width: number; height: number }
+
+export function templateShape(svg: string): TemplateShape {
+  const artwork = /<image[^>]*id="artwork"[^>]*(?:xlink:)?href="([^"]+)"/.exec(svg)?.[1] ?? ''
+  const size = /<svg[^>]*width="(\d+)"[^>]*height="(\d+)"/.exec(svg)
+  return { artwork, width: size ? +size[1] : 0, height: size ? +size[2] : 0 }
+}
+
+/**
+ * The SVG and manifest one product renders from.
+ *
+ * A product with a saved exception is rebuilt from its own boxes; everything
+ * else follows the template unchanged.
+ */
+export function layoutFor(
+  template: Template,
+  shape: TemplateShape,
+  override: Override | undefined,
+): { svg: string; manifest: Manifest; overridden: boolean } {
+  if (!override) return { svg: template.svg, manifest: template.manifest, overridden: false }
+  return {
+    svg: buildTemplateSvg({
+      name: template.manifest.name,
+      width: shape.width,
+      height: shape.height,
+      background: shape.artwork,
+      slots: override.boxes,
+    }),
+    manifest: { ...template.manifest, slots: override.slots },
+    overridden: true,
+  }
 }
 
 /** Product photo as a data URI, so a rendered SVG is one self-contained file. */
