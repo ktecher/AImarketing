@@ -20,10 +20,18 @@ data/uploads/
 # prices are competitive information; the rule is the same as for the sheet.
 data/state/
 
-# Brand fonts are licensed; keep the licence note, not the files
+# Fonts are excluded BY DEFAULT, because a brand face may carry a commercial
+# licence that forbids redistribution. The OFL 1.1 families below are re-included
+# by name, with their licence text beside them, so a clone renders out of the box.
+# A new font dropped into this folder stays excluded until somebody checks it.
 data/fonts/*
 !data/fonts/.gitkeep
 !data/fonts/LICENCE-NOTES.md
+!data/fonts/OFL-Cairo.txt
+!data/fonts/OFL-Tajawal.txt
+!data/fonts/Cairo-Variable.ttf
+!data/fonts/Tajawal-Regular.ttf
+!data/fonts/Tajawal-Bold.ttf
 
 # Generated output
 renders/

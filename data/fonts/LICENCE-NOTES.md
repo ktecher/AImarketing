@@ -1,6 +1,24 @@
 # Fonts
 
-Font files are not committed. Download them here.
+## What is committed, and what is not
+
+Cairo and Tajawal **are** committed, with their `OFL-*.txt` beside them. Both are
+SIL OFL 1.1, which permits redistribution as long as the licence travels with the
+font — so a clone of this repo renders without a download step. Tajawal's licence
+is also stated inside the font file itself: *"This Font Software is licensed under
+the SIL Open Font License, Version 1.1"*, © 2017 Boutros International.
+
+**Noto Naskh Arabic is NOT committed.** It is OFL 1.1 like the others, but no copy
+of its licence is on this machine and the font file carries no licence string to
+verify against. Redistributing an OFL font without its licence is the one thing
+the licence actually forbids. Nothing binds Noto today — every template slot uses
+Cairo — so a clone is complete without it. To add it, download the family and its
+`OFL.txt` together, drop both here, and add two `!data/fonts/…` lines to
+`.gitignore`.
+
+`.gitignore` excludes this folder by default and re-includes those files **by
+name**. That is deliberate: a brand face dropped in here stays out of git until
+somebody has checked its licence, which is the answer to the two questions below.
 
 ## Open licence options — all SIL OFL 1.1
 
