@@ -115,13 +115,21 @@ export type Overwrite = { sku: string; field: string; yours: string; sheet: stri
  * D32, D38 and D39 record. One function.
  */
 export function sameValue(a: unknown, b: unknown): boolean {
-  const x = a === null || a === undefined ? '' : String(a)
-  const y = b === null || b === undefined ? '' : String(b)
-  if (x === y) return true
-  if (!x || !y) return false
-  const m = Number(x), n = Number(y)
-  return Number.isFinite(m) && Number.isFinite(n) && m === n
+  const blank = (v: unknown) => v === null || v === undefined || v === ''
+  if (blank(a) && blank(b)) return true
+  return String(a) === String(b)
 }
+
+/**
+ * A price, as every path must produce it: three decimals, or empty.
+ *
+ * The one function that decides what a price LOOKS like when it is being
+ * compared or stored. Display is `formatKwd`, which adds " KD" — deliberately
+ * separate, because a stored value carrying a currency word is a value that
+ * cannot be compared to a number.
+ */
+export const canonicalPrice = (v: unknown): string =>
+  v === null || v === undefined || String(v).trim() === '' ? '' : Number(v).toFixed(3)
 
 export async function upsert(
   products: ProductRow[], by = 'sheet',
@@ -132,9 +140,25 @@ export async function upsert(
 
   // What is there now, so the import can say which of YOUR corrections it is
   // about to replace. Read before anything is written, obviously.
+  //
+  // Every field cast to text, NOT `to_jsonb(products)`. Postgres is consistent
+  // — the column, sheet_values and to_jsonb all say "5.500" — but to_jsonb
+  // makes price_now a JSON *number*, and JSON.parse hands JavaScript 5.5 while
+  // the same price from sheet_values arrives as the string "5.500". One price,
+  // two representations, and every untouched row compared unequal to itself.
+  //
+  // The fix is one representation rather than a comparison that tolerates two.
+  // Prices are canonical three-decimal text on every path that reads them:
+  // `numeric::text` here, `.toFixed(3)` on the way in, `numeric` out of pg in
+  // the table. `sameValue` is exact string equality because it can be.
   const before = new Map(
     (await query<{ sku: string; row: Record<string, unknown>; sheet_values: Record<string, string | null> }>(
-      `select sku, to_jsonb(products) - 'embedding' as row, sheet_values from products`,
+      `select sku, sheet_values,
+              jsonb_build_object(
+                'name_en', name_en, 'name_ar', name_ar, 'display_name', display_name,
+                'category', category, 'description_en', description_en,
+                'price_now', price_now::text, 'price_was', price_was::text) as row
+         from products`,
     )).map((r) => [String(r.sku), r]),
   )
 
@@ -146,7 +170,7 @@ export async function upsert(
     // and JSON.parse hands JavaScript 5.5 back, so a row nobody had touched
     // compared unequal to itself and read as hand-edited. Postgres agreed with
     // itself; only the client disagreed, which is the worst place to find out.
-    const money = (v: number | undefined) => (v === undefined || v === null ? null : v.toFixed(3))
+    const money = (v: number | undefined) => (v === undefined || v === null ? null : canonicalPrice(v))
     const incoming: Record<string, unknown> = {
       name_en: p.name_en ?? null, name_ar: p.name_ar ?? null,
       display_name: p.display_name ?? null, category: p.category ?? null,

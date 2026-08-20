@@ -74,6 +74,38 @@ ok('identity and the tree are in it',    t.includes('A Thing') && t.includes('A 
 ok('a price is not',                     !/\d+\.\d{3}/.test(t),
    'embedding a price means re-embedding the catalogue on every sale')
 
+console.log('\n--- one representation of a price, on every path ---')
+// Postgres was always consistent. The break was `to_jsonb(products)`, which
+// makes price_now a JSON NUMBER: JSON.parse hands JavaScript 5.5 while the same
+// price from sheet_values arrives as the string "5.500". Every untouched row
+// compared unequal to itself, and a re-import claimed to have overwritten 119
+// corrections nobody had made. The fix is one representation, not a comparison
+// that tolerates two.
+const { canonicalPrice, sameValue } = await import('../lib/catalogue.ts')
+
+ok('a price is always three decimals', canonicalPrice(5.5) === '5.500')
+ok('a string price too',              canonicalPrice('5.5') === '5.500')
+ok('and one already formatted',       canonicalPrice('5.500') === '5.500')
+ok('nothing is empty, never 0.000',   canonicalPrice(null) === '' && canonicalPrice('') === '')
+
+await clean()
+await upsert([{ row: 2, sku: SKU, name_en: 'Canon', brand: 'B', category: 'C', price_now: 5.5, price_was: 20.9 }])
+const [canon] = await query(
+  `select price_now::text as col,
+          sheet_values->>'price_now' as sheet,
+          (jsonb_build_object('p', price_now::text))->>'p' as built
+     from products where sku=$1`, [SKU])
+ok('the column, sheet_values and a built object agree',
+   canon.col === canon.sheet && canon.sheet === canon.built,
+   JSON.stringify(canon))
+ok('and that agreement is exact, not tolerated',
+   sameValue(canon.col, canon.sheet) && canon.col === '5.500')
+
+// The trap, kept as an assertion so nobody reintroduces it.
+const [loose] = await query(`select (to_jsonb(products))->'price_now' as n from products where sku=$1`, [SKU])
+ok('to_jsonb still returns a number — this is why it is not used',
+   typeof loose.n === 'number' && String(loose.n) === '5.5')
+
 await clean()
 console.log(`\n${failed ? `${failed} FAILED` : 'catalogue holds'}`)
 process.exit(failed ? 1 : 0)

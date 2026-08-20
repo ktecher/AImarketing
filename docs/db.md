@@ -136,7 +136,7 @@ before the first row existed.
 | `sku` as primary key | Upsert by SKU. A re-imported sheet **updates** a product rather than creating a second one |
 | A row the sheet omits is **left alone** | A supplier sending a partial price list must not empty the shop |
 | `in_stock` a real column | Not a spare sheet column. The assistant may speak this and may not speak those — D48 |
-| `sheet_values jsonb` | What the last sheet supplied, so a hand edit is visible and reversible. Prices stored as TEXT: jsonb keeps 5.500 as a number and JSON.parse hands JavaScript 5.5, so an untouched row compared unequal to itself |
+| `sheet_values jsonb` | What the last sheet supplied, so a hand edit is visible and reversible. Prices stored as **text** — see below |
 | `category_path` stored | The sheet's own tree. The only thing separating a laptop from a laptop sleeve, and how "do you sell laptops" finds a MacBook whose name never says laptop |
 
 ### Deliberately absent, and not oversights
@@ -167,10 +167,30 @@ supplied, so:
 - the import reports *"this sheet replaced 4 fields you had edited"*, listing them
 - the **edited by hand** filter shows everything that disagrees with your supplier
 
-`sameValue()` is the only comparison, used by the import and the table alike.
-Two of them in two files drifted immediately: a re-import once claimed to have
-overwritten **119** corrections that were never made, because one side had the
-price as `5.5` and the other as `"5.500"`.
+### One representation of a price, everywhere
+
+A re-import once claimed to have overwritten **119** corrections nobody had
+made. Postgres was consistent throughout — the column, `sheet_values` and
+`to_jsonb` all say `5.500`. The break was in what reaches JavaScript:
+
+```
+to_jsonb(products)->'price_now'   JSON number  5.500  ->  JS gets 5.5
+sheet_values->'price_now'         JSON string "5.500" ->  JS gets "5.500"
+```
+
+One price, two representations, so every untouched row compared unequal to
+itself. The first fix was a comparison that tolerated both — which works, and
+leaves the second representation alive to cause the next bug.
+
+The real fix is **one representation**. Prices are canonical three-decimal text
+on every path that stores or compares them: `canonicalPrice()` on the way in,
+`price_now::text` on the way out, never `to_jsonb(products)`. `sameValue()` is
+exact string equality because it can be, and a test asserts the three paths
+agree — including one that asserts `to_jsonb` still returns a number, so nobody
+reintroduces it by accident.
+
+Display is separate and always was: `formatKwd` adds the `KD`. A stored value
+carrying a currency word is a value that cannot be compared to a number.
 
 **Deleting is real.** A later sheet carrying the same SKU brings the product
 back, and the import says so — suppliers keep discontinued items in their files
