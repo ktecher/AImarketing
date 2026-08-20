@@ -161,7 +161,7 @@ export function isProductIdentity(word: string, values: Record<string, unknown>)
   // one. `includes('4')` is true of "14-inch", "512GB" and "M4 Max", so the
   // assistant answered "how many laptops do you have" with "I have 4 laptops"
   // — a figure it invented, waved through by a substring match. There are 23.
-  if (/^\d+$/.test(w)) return (identity.match(/\d+/g) ?? []).includes(w)
+  if (/^\d+$/.test(w)) return (identity.match(/\d+/g) as string[] | null ?? []).includes(w)
 
   if (identity.includes(w)) return true
 

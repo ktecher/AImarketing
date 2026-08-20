@@ -8,12 +8,25 @@ State of the project as of 2026-08-20. Read `CLAUDE.md` for the rules, `docs/dec
 
 ```sh
 brew services start ollama          # models already pulled, ~19 GB on disk
+brew services start postgresql@17   # the full catalogue lives here
+createdb aimarketing && npm run db:migrate
 npm run dev                         # http://localhost:3000
 npm test                            # 165 assertions across 6 suites
 npm run typecheck
 ```
 
-Postgres 17.11 is installed and running via Homebrew but **nothing writes to it yet** — the catalogue lives in `data/state/last-import.json` and templates are files in `data/templates/`. That is deliberate: no schema is committed until the real column vocabulary has settled.
+**There are two catalogues, and the difference matters.**
+
+| | |
+|---|---|
+| **The campaign sheet** | ~60 rows, a file, changes weekly. Loaded on *Designs*. What the posters and the copy are about. Nobody wants to render five thousand posters |
+| **The full catalogue** | Everything the shop sells, in Postgres, uploaded and edited on *Products*. The assistant and the advisor read it, because a customer or a caption can be about anything in stock |
+
+Before this split the assistant only knew the sixty products in the current campaign, and escalated on everything else — correctly, and uselessly.
+
+The database exists for **writes**, not size. A person editing one price must not rewrite twenty megabytes, and two people editing must not lose one of each other's changes. The vectors surviving a restart is the second reason: 60 rows embed in 2.2s, but 5,000 take about three minutes and 20 MB, and re-deriving that on every restart is the thing a `real[]` column exists to stop.
+
+Templates are still files in `data/templates/`.
 
 ---
 
@@ -28,6 +41,10 @@ Postgres 17.11 is installed and running via Homebrew but **nothing writes to it 
 | `/import` | The detailed import view — column mapping and every skipped row |
 | `/typography` | The layout engine on its own, for testing a string against a box |
 | `/studio` — **Content** | Pick a product, pick a channel, get slogans, captions, hashtags and a video script. Edit, approve, copy |
+| `/products` — **Products** | The full catalogue. Upload it, search it, change a price, fix a name, mark something out of stock |
+| `/chat` — **Assistant** | Grounded catalogue answers, or a person |
+| `/sales` — **Inbox** | Every conversation, with what the assistant retrieved and cited. Silent takeover |
+| `/advisor` — **Advisor** | Paste a draft, see what the catalogue disagrees with |
 
 - **Excel import** — finds the header row under a title block, parses `"KD 89.750"`, matches embedded photos to rows by anchor, skips and reports rather than aborting. Verified on 60 real Retailer products: 0 errors, 0 warnings, 60/60 photos matched.
 - **Layout engine** (`lib/template/layout.ts`, pure) — HarfBuzz shaping, bidi runs, wrap-then-shrink-then-truncate auto-fit, outline mode for Arabic.
@@ -149,7 +166,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **295 assertions, 0 failures**, 9 suites |
+| `npm test` | **317 assertions, 0 failures**, 10 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |

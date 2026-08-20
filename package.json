@@ -8,12 +8,14 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/make-fixture.mjs && tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs && tsx scripts/test-chat.mjs && tsx scripts/test-advisor.mjs",
+    "test": "tsx scripts/make-fixture.mjs && tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs && tsx scripts/test-chat.mjs && tsx scripts/test-advisor.mjs && tsx scripts/test-catalogue.mjs",
     "render:demo": "tsx scripts/render-demo.mjs",
-    "template:build": "tsx scripts/make-template-svg.mjs"
+    "template:build": "tsx scripts/make-template-svg.mjs",
+    "db:migrate": "psql -d aimarketing -v ON_ERROR_STOP=1 -f db/001_products.sql"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "@types/pg": "^8.23.1",
     "bidi-js": "^1.0.3",
     "cheerio": "^1.2.0",
     "exceljs": "^4.4.0",
@@ -21,6 +23,7 @@
     "jszip": "^3.10.1",
     "next": "^16.3.1",
     "pdfkit": "^0.19.1",
+    "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sharp": "^0.35.3",

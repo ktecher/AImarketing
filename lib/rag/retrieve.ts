@@ -13,6 +13,7 @@
  */
 
 import { cosine, embed } from '@/lib/ai/generate'
+import { forRetrieval, searchText } from '@/lib/catalogue'
 import { importedProducts } from '@/lib/template/columns'
 
 export type Row = Record<string, unknown>
@@ -61,6 +62,10 @@ const norm = (v: string) =>
 
 /** The text of a row, for matching and for embedding. Identity fields first. */
 export function rowText(p: Row): string {
+  // The catalogue table embeds with searchText; a row from Postgres must be
+  // described the same way here or its stored vector and a freshly computed one
+  // would disagree about the same product.
+  if (p.category_path !== undefined) return searchText(p as never)
   return [...SEARCHABLE.map((k) => String(p[k] ?? '')), categoryPath(p)]
     .filter(Boolean)
     .join(' · ')
@@ -171,8 +176,37 @@ function byCategory(question: string, products: Row[]): Hit[] {
  * that product and nothing else, and burying it under semantic neighbours is
  * how a bot answers about the wrong item.
  */
+/**
+ * The rows to search: the full catalogue when one is loaded, the campaign sheet
+ * otherwise.
+ *
+ * Two different things, and the assistant wants the bigger one — a customer can
+ * ask about anything the shop sells, not only what this week's posters are
+ * about. Designs and the content studio keep reading the sheet directly and are
+ * untouched by this.
+ *
+ * Vectors come back with the row when the catalogue is in Postgres, so a
+ * restart costs nothing. The sheet path still embeds on first use, which is two
+ * seconds at sixty rows and the reason the database exists at five thousand.
+ */
+async function corpus(): Promise<{ rows: Row[]; vectors: Map<string, number[]> }> {
+  try {
+    const catalogue = await forRetrieval()
+    if (catalogue.length) {
+      const vectors = new Map<string, number[]>()
+      for (const r of catalogue) if (r.embedding?.length) vectors.set(String(r.sku), r.embedding)
+      // Prices arrive from `numeric` as strings. Everything downstream does
+      // Number() on them, and formatKwd is the only thing that prints one.
+      return { rows: catalogue as unknown as Row[], vectors }
+    }
+  } catch {
+    // No database, no migration, or Postgres is down. The sheet still answers.
+  }
+  return { rows: importedProducts(), vectors: new Map() }
+}
+
 export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
-  const products = importedProducts()
+  const { rows: products, vectors: stored } = await corpus()
   if (!products.length) return []
 
   const asked = norm(question)
@@ -202,14 +236,23 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
 
   let semantic: Hit[] = []
   try {
-    const texts = products.map((p) => rowText(p))
-    const [qv, ...rest] = await vectorFor([question, ...texts])
-    semantic = products.map((p, i) => ({
-      sku: String(p.sku),
-      row: p as Row,
-      relevance: cosine(qv, rest[i]),
-      why: 'meaning' as const,
-    }))
+    // Only the question needs embedding when the catalogue brought its vectors.
+    // Rows without one are skipped rather than embedded inline: a page load
+    // must not turn into minutes of model time, and the Products tab has a
+    // button that works through the queue.
+    const missing = products.filter((p) => !stored.has(String(p.sku)))
+    const texts = missing.map((p) => rowText(p))
+    const [qv, ...fresh] = await vectorFor([question, ...texts])
+    missing.forEach((p, i) => stored.set(String(p.sku), fresh[i]))
+
+    semantic = products
+      .filter((p) => stored.has(String(p.sku)))
+      .map((p) => ({
+        sku: String(p.sku),
+        row: p as Row,
+        relevance: cosine(qv, stored.get(String(p.sku)) as number[]),
+        why: 'meaning' as const,
+      }))
   } catch {
     // The embedder being down must not make the assistant silent. Lexical hits
     // still answer most questions; nothing at all escalates, which is correct.

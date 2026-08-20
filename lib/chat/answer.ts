@@ -108,6 +108,12 @@ export function factSheet(hits: Hit[]): string {
     .map(({ sku, row }) => {
       const lines = [`SKU ${sku}`]
       for (const f of SPEAKABLE) if (row[f]) lines.push(`  ${f}: ${row[f]}`)
+      // Stock is a real column on the catalogue, not one of the sheet's spare
+      // ones, so the assistant may say it. "Is it in stock" is one of the
+      // questions the whole pillar exists to stop a person answering by hand.
+      if (row.in_stock !== undefined) {
+        lines.push(`  availability: ${row.in_stock ? 'in stock' : 'OUT OF STOCK — say so plainly'}`)
+      }
       for (const f of PRICE_FIELDS) {
         if (f === 'discount_pct' ? Number(row.price_was) > Number(row.price_now) : row[f] !== undefined) {
           lines.push(`  ${f}: write {${f}:${sku}}`)
