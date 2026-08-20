@@ -643,3 +643,29 @@ Four memories were also written to the user's durable memory: the project and it
 **Provenance travels.** `Written by` reads "you" for a line somebody edited and "model" otherwise, alongside the model name and prompt version — so an odd line months later can be traced to how it was asked for.
 
 **Reverse this if** the team wants copy per channel in a scheduler's own import format. That is a second exporter beside this one, not a change to it.
+
+---
+
+## D52 — `/import` and `/typography` are deleted, not just unlinked
+
+**Decided.** Both pages and `app/api/typography` are removed. Designs is the only
+door to loading a sheet, and the layout editor is the only door to typography.
+
+**Why.** D40 kept `/import` as "the detailed view, reached when the column mapping
+needs checking" — but Designs already shows that mapping and every skipped row
+behind *check them*, and the layout editor already carries font, size, alignment,
+line height, shrink floor and Arabic text mode per slot, plus font upload. Two
+doors into one workflow is the thing D40 set out to remove, and keeping the second
+one open finished the job halfway.
+
+The routes had no inbound links at all until a sidebar rebuild listed them under a
+"Tools" group. That is how a merged page comes back: not by anyone deciding to
+un-merge it, but by a later change re-surfacing a route that was never deleted.
+Leaving them reachable-but-unlinked would let it happen again.
+
+`app/api/typography` goes with the page — nothing else called it. `/api/import`
+stays; Designs uses it.
+
+**Reverses if.** Somebody needs the layout engine on its own to debug a shaping
+bug without a template around it. That is a script, not a page — `scripts/` is
+where the other one-off probes live.

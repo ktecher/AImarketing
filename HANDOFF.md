@@ -42,8 +42,6 @@ Templates are still files in `data/templates/`.
 |---|---|
 | `/templates` — **Designs** | The workspace. Load a sheet, pick or add a template, render, download |
 | `/templates/[id]/edit` | Layout editor: drag, resize, bind columns, per-slot typography, per-product overrides |
-| `/import` | The detailed import view — column mapping and every skipped row |
-| `/typography` | The layout engine on its own, for testing a string against a box |
 | `/studio` — **Content** | Pick a product, pick a channel, get slogans, captions, hashtags and a video script. Edit, approve, copy |
 | `/products` — **Products** | The full catalogue. Upload it, search it, change a price, fix a name, mark something out of stock |
 | `/chat` — **Assistant** | Grounded catalogue answers, or a person |

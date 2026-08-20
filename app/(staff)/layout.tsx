@@ -14,7 +14,10 @@ import { usePathname } from 'next/navigation'
  * Grouped rather than listed. Seven flat links is a list you read every time;
  * four groups of two is a shape you learn once.
  */
-const GROUPS: { title: string; items: { href: string; label: string; hint: string }[] }[] = [
+const GROUPS: {
+  title: string
+  items: { href: string; label: string; hint: string; external?: boolean }[]
+}[] = [
   {
     title: 'Catalogue',
     items: [
@@ -33,17 +36,29 @@ const GROUPS: { title: string; items: { href: string; label: string; hint: strin
     title: 'Customers',
     items: [
       { href: '/sales', label: 'Inbox', hint: 'what the assistant could not answer' },
+      // Opens in a new tab, and that is not a detail. /chat is the PUBLIC
+      // widget: it has no sidebar, so navigating there in this tab strands you
+      // on a page with no way back. It is listed because staff need to see what
+      // a customer sees, and a link buried in the footer is not findable.
+      { href: '/chat', label: 'Customer widget', hint: 'what a customer sees ↗', external: true },
       { href: '/campaigns', label: 'Campaigns', hint: 'the loop' },
     ],
   },
-  {
-    title: 'Tools',
-    items: [
-      { href: '/import', label: 'Import', hint: 'column mapping, skipped rows' },
-      { href: '/typography', label: 'Typography', hint: 'a string against a box' },
-    ],
-  },
 ]
+
+/*
+ * No "Tools" group, and this is deliberate — I added one and it was wrong.
+ *
+ * /import and /typography were folded into the Designs workspace in an earlier
+ * session and should not come back as their own tabs. Designs already loads a
+ * sheet and shows the column mapping and every skipped row ("check them"), and
+ * the layout editor already carries font, size, alignment, line height, shrink
+ * floor and Arabic text mode per slot, plus font upload. Listing them again
+ * offers two doors into one workflow, which is the thing the merge removed.
+ *
+ * The routes still answer if typed, which is useful when debugging the layout
+ * engine on its own. They are not navigation.
+ */
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
   const path = usePathname()
@@ -90,9 +105,15 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
               // startsWith, so /templates/brand-poster/edit still lights up
               // Designs. Landing on a sub-page with nothing selected reads as
               // having navigated out of the app.
-              const on = path === n.href || path.startsWith(`${n.href}/`)
+              const on = !n.external && (path === n.href || path.startsWith(`${n.href}/`))
               return (
-                <a key={n.href} href={n.href} className={on ? 'on' : ''} aria-current={on ? 'page' : undefined}>
+                <a
+                  key={n.href}
+                  href={n.href}
+                  className={on ? 'on' : ''}
+                  aria-current={on ? 'page' : undefined}
+                  {...(n.external ? { target: '_blank', rel: 'noreferrer' } : {})}
+                >
                   <b>{n.label}</b>
                   <span>{n.hint}</span>
                 </a>
@@ -105,7 +126,6 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           {/* The claim the whole project rests on, kept in view rather than in
               a README nobody has open. */}
           <span className="local">local only</span>
-          <a href="/chat" target="_blank" rel="noreferrer">the customer widget ↗</a>
         </div>
       </aside>
 
