@@ -3,6 +3,7 @@
 // header, prices as text, a duplicate SKU, a missing name, blank rows, and
 // embedded images anchored to some rows but not others.
 import ExcelJS from 'exceljs'
+import { mkdirSync } from 'node:fs'
 
 const wb = new ExcelJS.Workbook()
 const ws = wb.addWorksheet('Products')
@@ -37,5 +38,7 @@ for (const row of [5, 6]) {
   ws.addImage(id, { tl: { col: 9, row: row - 1 }, ext: { width: 40, height: 40 } })
 }
 
+// data/samples is gitignored, so a fresh clone has no such directory.
+mkdirSync('data/samples', { recursive: true })
 await wb.xlsx.writeFile('data/samples/fixture-messy.xlsx')
 console.log('wrote data/samples/fixture-messy.xlsx')

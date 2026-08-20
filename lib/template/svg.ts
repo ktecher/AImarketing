@@ -105,8 +105,4 @@ ${rects}
 }
 
 /** Strips the slot rectangles from a rendered file — they are scaffolding. */
-export function removeSlotRects(svg: string): string {
-  const $ = load(svg, { xmlMode: true })
-  $('#slots').remove()
-  return $.xml()
-}
+

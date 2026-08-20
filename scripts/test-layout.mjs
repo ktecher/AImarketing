@@ -1,9 +1,17 @@
 // Layout regressions are invisible until you are looking at 200 bad posts.
 // These assertions are the substitute for looking.
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 const L = await import('../lib/template/layout.ts')
 
-const cairo = L.loadFont(readFileSync('data/fonts/Cairo-Variable.ttf'))
+// data/fonts is gitignored — the brand face may be a commercial licence — so a
+// fresh clone has no font files. Say that, rather than an ENOENT on a path.
+const FONT = 'data/fonts/Cairo-Variable.ttf'
+if (!existsSync(FONT)) {
+  console.error(`\nMissing ${FONT}.\n\nFont files are not committed. ` +
+    `See data/fonts/LICENCE-NOTES.md for which families to download.\n`)
+  process.exit(1)
+}
+const cairo = L.loadFont(readFileSync(FONT))
 let failed = 0
 const ok = (label, cond, detail = '') => {
   console.log(`${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? '   ' + detail : ''}`)

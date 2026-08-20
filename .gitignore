@@ -9,7 +9,11 @@ dist/
 .env*.local
 
 # Company data — never committed, never leaves this machine
-data/samples/
+# A trailing-slash pattern excludes the DIRECTORY, and git will not descend into
+# an excluded directory — so `!data/samples/.gitkeep` below could never re-include
+# the keepfile, and a fresh clone had no data/samples at all. Exclude the
+# contents, not the directory.
+data/samples/*
 data/uploads/
 !data/samples/.gitkeep
 # The imported catalogue and every draft written about it. Real SKUs and real

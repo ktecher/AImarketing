@@ -209,10 +209,7 @@ export function requiredHeight(size: number, lines = 1, lineHeight = 1.35): numb
   return Math.ceil(size * lineHeight * lines) + 6
 }
 
-/** Whether a box can hold what its own settings ask of it. */
-export function boxFits(height: number, size: number, lines = 1, lineHeight = 1.35): boolean {
-  return height >= requiredHeight(size, lines, lineHeight)
-}
+
 
 export type Fitted = {
   lines: string[]

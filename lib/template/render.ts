@@ -103,6 +103,17 @@ export function renderProduct(
   if (!values.display_name) values.display_name = values.name_en
 
   const boxes = new Map(readSlots(templateSvg).map((b) => [b.id, b]))
+  // Every render path arrives here — the render route, the export route, the
+  // editor preview and the batch script. With no font files the first slot dies
+  // on `undefined.font`, which says nothing about the cause: data/fonts is
+  // gitignored, so a fresh clone has none until somebody downloads them.
+  if (!Object.keys(fonts).length) {
+    throw new Error(
+      'No fonts are installed. data/fonts is empty, and the files are not committed — ' +
+        'see data/fonts/LICENCE-NOTES.md for which families to download and why they are self-hosted.',
+    )
+  }
+
   const report: SlotReport[] = []
   const painted: string[] = []
   const resolved: Record<string, string> = {}
