@@ -1,0 +1,46 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+
+.env
+.env.local
+.env*.local
+
+# Company data — never committed, never leaves this machine
+data/samples/
+data/uploads/
+!data/samples/.gitkeep
+# The imported catalogue and every draft written about it. Real SKUs and real
+# prices are competitive information; the rule is the same as for the sheet.
+data/state/
+
+# Brand fonts are licensed; keep the licence note, not the files
+data/fonts/*
+!data/fonts/.gitkeep
+!data/fonts/LICENCE-NOTES.md
+
+# Generated output
+renders/
+*.zip
+
+.DS_Store
+*.log
+.omc/
+
+# Agent working notes — real prices, real SKUs. Same rule as the sheet.
+.scratch/
+
+# Scraped product pages — real names, prices, discounts, live URLs and photos.
+# Same rule as the sheet: competitive information, never committed.
+retailer-products/
+
+# Brand artwork is embedded in the template SVG, and the overrides carry real
+# SKUs. `npx tsx scripts/make-template-svg.mjs` rebuilds the poster from
+# data/samples/, so a clone regenerates what it needs.
+data/templates/*.svg
+data/templates/*.overrides.json
+
+# Build artifact, rewritten by every typecheck
+tsconfig.tsbuildinfo
