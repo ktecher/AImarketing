@@ -129,9 +129,9 @@ A spec figure and a superlative also used to be filed under the same heading; fa
 
 **1. No Kuwaiti voice in the copy.** What the studio writes is competent English retail copy with nothing local in it, because there are no exemplars to few-shot from. Item 4 on the waiting list below, not a modelling problem — and now the largest gap in the pillar.
 
-**2. Arabic names are the only thing still flagging the poster.** 27 of 60, median 74 characters against English's 66. `display_name` is an English column and does not touch them. `display_name_ar` would need a second reviewing pass, and no open model can judge whether a shortened Kuwaiti name still reads right — so this is human work, or the Arabic slot gets more room.
+**2. Arabic names are the only thing still flagging the poster — and it is the sheet, not the app.** 27 of 60. The `name_ar` column holds SPEC SENTENCES, not names: 46 of 60 are over 45 characters and the longest is 231, comma-separated processor/RAM/SSD/screen. No layout change fixes that — a bigger slot fits more spec dump. Either the sheet's Arabic column gets real names, or a designer drops the Arabic slot from the template, which takes one click in the layout editor and is a legitimate choice.
 
-**3. No database.** Everything is files: the catalogue, the templates, the per-product overrides, the short names, and the content drafts. Fine at 60 products, and the schema decisions in `docs/decisions.md` (message provenance, `assets.bound_values`, `campaign_id`, approval `status`, upsert-by-SKU) are all irrecoverable if rows get written without them. Docker is available whenever this is worth doing.
+**3. Most stores are still files.** Postgres holds `products` and `assets` only. The campaign sheet, short names, content drafts, chat conversations and templates are all files — see `docs/db.md` for what each future table's FIRST migration must carry, because those columns are irrecoverable.
 
 **4. Memory at ~200 products.** The export holds every buffer, then the ZIP, then a copy — roughly 1.5 GB peak. Accepted at current scale, recorded in D39. This is the one problem a per-batch limit would actually solve.
 
@@ -168,7 +168,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **317 assertions, 0 failures**, 10 suites |
+| `npm test` | **332 assertions, 0 failures**, 11 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |
@@ -219,28 +219,69 @@ catalogue data, so version control was never going to be the answer.
 
 ---
 
+## Where the last session stopped
+
+Everything below is committed and pushed to `ktecher/AImarketing` (private).
+Twenty commits, `879b2e5` to `3a96532`.
+
+**Six of seven screens are built. `/campaigns` is the last stub.**
+
+The way of working that produced this, and the one to keep: **grill the module
+to a shared understanding, build it, then grill the next.** Every defect found
+that day came from using the thing, never from the test suite — the HP name on
+sixty posters, a scrambled model number, every chat answer escalating, a correct
+price called invented, "I have 4 laptops" when there are 23. 332 assertions did
+not catch one of them.
+
+**What Products settled**, and what to read before touching it: D53 (two
+catalogues), D55 (Price and Sale price), D56 (last write wins, visibly), D57
+(one representation of a price). `docs/db.md` is the runbook.
+
+**Still owed by the user**, unchanged and now the binding constraint on two
+pillars: the social export (gates the advisor's other half), 30–50 approved
+Arabic posts (the studio's largest gap), high-resolution artwork, and the brand
+Arabic font's outlining licence.
+
+---
+
 ## What to do next, in order
 
-**1. Use it for real, for half an hour.** Load the sheet, shorten the names,
-write copy for five products you would actually post, and take the designs out.
-Nothing in this document is worth as much as the list of complaints that
-produces. CLAUDE.md's bar for finishing a pillar is *a real colleague used it for
-real work*, and that has not happened yet for the content studio.
+**1. Use it for real, for half an hour.** Still not done, still the highest-value
+item, and now more so: six screens exist and **not one has been used for real work
+by anyone but the machine that built it.** CLAUDE.md's bar for finishing a pillar
+is *a real colleague used it for real work*. Load a sheet, write copy for five
+products you would actually post, take the designs out, ask the assistant five
+real questions, paste a draft into the advisor.
 
-**2. Fix the three short names.** 36 characters each, one over the limit. They are
-sitting in the edit boxes under *Designs → shorten names for posters*. Two minutes.
+**2. The Kuwaiti advisor.** Agreed and specified but not built. `knowledge/kuwait/`
+already holds 194 lines with no screen: the retail calendar (National Day,
+Liberation Day, Hala Febrayer, Ramadan, Eid), tone and dialect, how prices and
+offers are written here, channels, and the compliance guardrails.
 
-**3. Decide what happens to Arabic on the poster.** 27 of 60 designs still flag,
-all of them `name_ar`. Two honest options and they are not equivalent: a
-`display_name_ar` column with a second human reviewing pass — no open model can
-judge whether a shortened Kuwaiti name still reads right — or give the Arabic slot
-more room in the template and accept smaller type. The second is an afternoon; the
-first is real recurring human work.
+Three things the grilling settled, and they must survive:
+- **The trends half is impossible.** No internet, by rule 1. A model asked what is
+  trending this week will answer confidently and be wrong. `vision.md`: *"a system
+  that pretends otherwise will confidently recommend a dead sound."* Build the
+  calendar and the conventions; give the user a box for this week's specifics.
+- **Religion is a hard line.** Ramadan offers and Eid hours are fine. A campaign
+  built around a religious occasion as a theme is a blocker the advisor refuses.
+  Show every occasion WITH what may and may not be done beside it.
+- **It is not Campaigns.** Different feature, different tab.
 
-**4. Then pick the next pillar, and only then.** The advisor is gated on the social
-export (item 3 below) and changes shape entirely without it. The sales assistant is
-not gated on anything and is the larger build. Four pillars at 70% is still the
-most likely way this fails.
+**3. Campaigns, as originally framed and no larger.** The user confirmed the
+original scope: an id stamped on a poster, a caption, a conversation and a lead,
+so that afterwards you can ask *"we promoted these twelve products; what did
+customers ask about, and what could the bot not answer?"* `vision.md` calls that
+return leg the most valuable byproduct in the system. CLAUDE.md: **four columns,
+guard it against your future self** — it grows into scheduling, budgets, statuses
+and approval workflows, and that is a CRM.
+
+**4. Smaller things, already agreed:**
+- The drift banner tells you to download designs again and gives you no button.
+- Chat conversations and content drafts are still files; `docs/db.md` lists what
+  their first migration must carry.
+- ~1.5 GB peak on export at 200 products (D39).
+- No user identity anywhere — every edit and takeover is `'a colleague'`.
 
 **Not yet:** the database. It is four JSON files at 60 products, and the studio is
 what settles the column vocabulary. The signal to move is a second consumer needing
@@ -260,6 +301,16 @@ installed and ready when it is.
 
 ---
 
+## Things that will bite you — the newest ones first
+
+- **A value that reaches JavaScript through `to_jsonb` is not the value Postgres has.** `to_jsonb(products)->'price_now'` is a JSON number, so `JSON.parse` returns `5.5` where the column says `5.500`. This printed 119 false "we overwrote your correction" reports. D57. One representation, never a tolerant comparison.
+- **A node script does not load `.env`; Next does.** The catalogue suite connected to the wrong server, failed to authenticate, and **skipped** — seventeen assertions quietly stopped running while the total still looked healthy. A suite that skips silently is worse than one that fails.
+- **`docker compose down -v` is the only command that destroys the catalogue.** `down`, `restart`, quitting Docker and rebooting all keep it. `npm run backup` exists and its restore has actually been run against a destroyed volume.
+- **A merged page comes back when a later change lists its route.** `/import` and `/typography` were folded into Designs, left reachable-but-unlinked, and a sidebar rebuild listed them again under a "Tools" group. Deleted now. D52.
+- **The customer widget is public.** `/chat` deliberately has no sidebar. Anything added to the root layout appears to customers.
+- **A category question is not a similarity question.** "Do you sell laptops" returned no MacBook and put a laptop *sleeve* first, because the sheet files MacBooks under "MacBook Pro" and a sleeve says "laptop" three times. The sheet's `Category Path` is the only thing that separates them.
+- **A bare number must BE one of the numbers in the product's name, not appear inside one.** `includes('4')` is true of "14-inch", "512GB" and "M4 Max" — which is how the assistant answered "how many laptops do you have" with "I have 4".
+
 ## Scripts
 
 ```sh
@@ -270,6 +321,10 @@ npx tsx scripts/render-catalogue.mjs       # whole sheet → renders/, with a re
 npx tsx scripts/make-template-svg.mjs      # rebuild the brand poster template
 npx tsx scripts/measure-safe-area.mjs <f>  # largest clear rectangle in artwork
 npx tsx scripts/check-fonts.mjs            # every template font resolves
+
+npm run backup                             # everything not in git, dated folder
+npm run restore backups/<folder>           # tested by destroying the volume
+npm run db:up / db:migrate / db:down       # Postgres in Docker
 ```
 
 ---

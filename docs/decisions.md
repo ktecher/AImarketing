@@ -669,3 +669,141 @@ stays; Designs uses it.
 **Reverses if.** Somebody needs the layout engine on its own to debug a shaping
 bug without a template around it. That is a script, not a page — `scripts/` is
 where the other one-off probes live.
+
+---
+
+## D53 — Two catalogues, and which one each pillar reads
+
+**Decided.** The **campaign sheet** (`data/state/last-import.json`, a file, ~60
+rows) says WHICH products a promotion is about. The **catalogue** (Postgres
+`products`, everything the shop sells) says WHAT THEY COST and whether they are
+in stock. Designs and the content studio read the sheet. The assistant and the
+advisor read the catalogue. `campaignProducts()` overlays the editable fields —
+price, name, short name, stock — onto the sheet rows and nothing else.
+
+**Why.** Conflating them was a real bug in two directions. The assistant knew
+only the sixty products in the current campaign and escalated on everything
+else — correct, and useless. And the sheet said `19.9` while the catalogue said
+`19.900` for the same product, so editing a price on the Products tab changed
+nothing on a poster, which would have made "12 designs are out of date"
+describe a price the design never read.
+
+**Reverses if.** Somebody wants posters for the whole catalogue, which is not
+what a promotion is.
+
+---
+
+## D54 — Postgres, and what actually justified it
+
+**Decided.** Postgres 17 in Docker (`pgvector/pgvector:pg17`, pinned, bound to
+127.0.0.1) holds `products` and `assets`. Everything else stays a file.
+
+**Why.** **Writes**, not size. Editing one price must not rewrite twenty
+megabytes and two people editing must not lose one of each other's changes.
+Second: vectors surviving a restart — measured, 60 rows embed in 2.2s but 5,000
+take about three minutes and 20 MB, and in memory that cost is paid again on
+every restart.
+
+**What did NOT justify it.** "A second consumer needs to query across products"
+was the trigger HANDOFF named, and it was the weaker argument. Neither did any
+bug found that day: the missing MacBooks were an unread column and the invented
+"4 laptops" was a substring comparison.
+
+**Docker over Homebrew** for three concrete reasons: pgvector was not installed
+at all (`pg_available_extensions` had no `vector` row); a clone runs one command
+instead of installing a database by hand; and a pinned tag cannot be dragged to
+Postgres 18 by an unrelated `brew upgrade`, which CLAUDE.md warns about by name.
+
+**Reverses if.** Never for `products`. The remaining file stores move when they
+have the same problem — concurrent writes — not before.
+
+---
+
+## D55 — Price and sale price, not "now" and "was"
+
+**Decided.** The Products tab shows **Price** and **Sale price**. Leave the sale
+price empty and the product simply costs what it costs — the poster prints one
+figure with no strike-through and no discount badge. `price_now`/`price_was`
+are unchanged everywhere else; `asShopPrices`/`asRenderPrices` is the only place
+the two vocabularies meet.
+
+**Why.** "Now" and "was" is poster language. A product that costs 20 is not "now
+20", it is 20 — and it never was anything else. Renaming the schema to save two
+labels would be a migration touching the renderer, the assistant, the advisor
+and the drift check, for no gain.
+
+Also: a sale price that is not below the price is not a sale and is not stored
+as one, or the poster strikes through a figure identical to the one beside it.
+
+**Reverses if.** Never. This is vocabulary, and the shop's is the right one.
+
+---
+
+## D56 — Last write wins, and it has to be visible
+
+**Decided.** A hand fix beats the sheet that came before it; a newer sheet beats
+the fix that came before IT. `products.sheet_values` records what the last sheet
+supplied, so an edited field carries a mark whose hover says what the sheet
+said, the import reports which corrections it replaced, and an **edited by hand**
+filter lists everything that disagrees with the supplier.
+
+**Why.** Both simpler alternatives fail. "The sheet always wins" throws away a
+correction made after reviewing it. "Hand edits always win" means a real price
+change never lands for any product anyone has ever touched. The most recent
+action winning is what a person expects and needs no rule to remember — but
+doing it silently is how somebody re-fixes the same field three weeks running
+and never learns their supplier's file is the problem.
+
+**Nothing saves on its own.** Edits stage, a bar counts them, Save writes all of
+them in one transaction or none.
+
+**Reverses if.** Never per-field-precedence. If people find themselves undoing
+the same overwrite repeatedly, the upgrade is remembering per-field intent, not
+changing who wins.
+
+---
+
+## D57 — One representation of a price, not a tolerant comparison
+
+**Decided.** Prices are canonical three-decimal text on every path that stores
+or compares them: `canonicalPrice()` in, `price_now::text` out, never
+`to_jsonb(products)`. `sameValue()` is exact string equality.
+
+**Why.** A re-import claimed to have overwritten **119** corrections nobody had
+made. Postgres was consistent throughout — the column, `sheet_values` and
+`to_jsonb` all say `5.500`. The break was in what reached JavaScript:
+`to_jsonb` makes it a JSON *number*, so `JSON.parse` returns `5.5`, while
+`sheet_values` holds the string `"5.500"`.
+
+The first fix made the comparison tolerate both. That works and leaves the
+second representation alive to cause the next bug. One representation is the
+fix; a test asserts the three paths agree, and another asserts `to_jsonb` STILL
+returns a number so reintroducing it fails a test rather than printing 119 false
+reports.
+
+**The general lesson, again.** This is D32/D38/D39 in a new costume: the same
+value derived two ways, with nothing but output comparison to catch the drift.
+
+**Reverses if.** Never.
+
+---
+
+## D58 — `assets.bound_values`, and what "stale" means
+
+**Decided.** `assets` records one row per product per template — the latest
+export is the one that is out there — holding **what the renderer actually
+painted**, slot by slot. Staleness is answered by re-rendering in memory and
+comparing, not by checking prices.
+
+**Why.** architecture.md calls this the sharpest gap in the system, and the
+Products tab is what turned it from theoretical into live: you can now change a
+price, and every poster already exported with the old one is wrong.
+
+Storing what was painted rather than the row it came from means the comparison
+never re-derives the formatting — the fault above. And re-rendering rather than
+comparing prices catches everything a slot binds: a fixed name, a shortened one,
+a product taken off sale. Measured: one price change surfaced the price **and**
+the discount badge, `-51%` to `-64%`, which a price-only check would have missed.
+
+**Reverses if.** Keeping every export rather than the latest, which answers "what
+did we send in June" — a question nobody has asked yet.
