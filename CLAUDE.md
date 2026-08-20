@@ -4,7 +4,7 @@ One system closing the loop between marketing and sales for a Kuwait retailer.
 
 Four pillars plus a loop: a **template studio** that fills brand designs from an Excel product sheet; a **content studio** that writes social copy from the same rows; a **creative advisor** that reviews drafts the team wrote; and a **sales chatbot** grounded in the catalog that hands hot leads to a human. A `campaign` record ties them together in both directions.
 
-Read `docs/vision.md` before changing anything about what this is for, and `docs/architecture.md` before changing how it works. Record every non-obvious decision in `docs/decisions.md` — it is append-only.
+Read `docs/vision.md` before changing anything about what this is for, and `docs/architecture.md` before changing how it works. Read `docs/db.md` before touching the schema — it carries the decisions no later migration can take back. Record every non-obvious decision in `docs/decisions.md` — it is append-only.
 
 ---
 

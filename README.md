@@ -16,6 +16,7 @@ unpublished draft reaches an outside service.
 | `docs/vision.md` | What this is for and what it will never do |
 | `docs/architecture.md` | How it works, and why each choice over the alternative |
 | `docs/decisions.md` | Append-only decision log with reversal conditions |
+| `docs/db.md` | The database: what is in it, why it exists, and what cannot be changed later |
 | `docs/demo-script.md` | The ten-minute walkthrough |
 | `PLAN.md` | The full planning document this was built from |
 

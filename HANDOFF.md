@@ -1,6 +1,6 @@
 # Handoff
 
-State of the project as of 2026-08-20. Read `CLAUDE.md` for the rules, `docs/decisions.md` for why anything is the way it is (append-only, 51 entries, each with a reversal condition), and this file for where things stand.
+State of the project as of 2026-08-20. Read `CLAUDE.md` for the rules, `docs/db.md` for the database, `docs/decisions.md` for why anything is the way it is (append-only, 51 entries, each with a reversal condition), and this file for where things stand.
 
 ---
 

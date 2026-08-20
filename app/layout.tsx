@@ -6,27 +6,18 @@ export const metadata = {
   description: 'Marketing and sales in one system, running entirely on this machine.',
 }
 
-const NAV = [
-  { href: '/products', label: 'Products' },
-  { href: '/templates', label: 'Designs' },
-  { href: '/studio', label: 'Studio' },
-  { href: '/advisor', label: 'Advisor' },
-  { href: '/chat', label: 'Assistant' },
-  { href: '/sales', label: 'Inbox' },
-  { href: '/campaigns', label: 'Campaigns' },
-]
-
+/**
+ * Deliberately bare.
+ *
+ * Staff navigation belongs to the (staff) group, not here. /chat is the public
+ * customer widget and this is its layout too — it was rendering the whole staff
+ * sidebar, so a customer asking the price of a stylus was shown the way into
+ * the Inbox and the product catalogue.
+ */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <nav>
-          <div>
-            <a className="brand" href="/">AImarketing</a>
-            {NAV.map((n) => <a key={n.href} href={n.href}>{n.label}</a>)}
-            <span className="local">local only</span>
-          </div>
-        </nav>
         {children}
       </body>
     </html>
