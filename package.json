@@ -13,7 +13,9 @@
     "template:build": "tsx scripts/make-template-svg.mjs",
     "db:migrate": "for f in db/*.sql; do docker compose exec -T db psql -U aimarketing -d aimarketing -v ON_ERROR_STOP=1 -f - < \"$f\" || exit 1; done",
     "db:up": "docker compose up -d --wait",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "backup": "tsx scripts/backup.mjs",
+    "restore": "tsx scripts/restore.mjs"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
