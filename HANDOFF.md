@@ -64,8 +64,22 @@ Postgres 17.11 is installed and running via Homebrew but **nothing writes to it 
 The other two pillars and the loop. Each has an honest stub page saying what it will do and what it is waiting on.
 
 - **Creative advisor** (`/advisor`) — v1 is *retrieval over the company's own past posts, with no model and no score*. Gated on whether Instagram/Snapchat insights export with **captions joined to per-post reach**. If they do not, this pillar changes shape entirely.
-- **Sales assistant** (`/chat`) and **inbox** (`/sales`) — grounded catalogue answers, escalation, silent takeover.
+- ~~**Sales assistant** (`/chat`) and **inbox** (`/sales`)~~ — **v1 works.** See below.
 - **Campaigns** (`/campaigns`) — the loop. `campaign_id` belongs in the first migration whenever a database arrives.
+
+---
+
+**The sales assistant, from a question to a person.**
+
+- **Retrieval** (`lib/rag/retrieve.ts`) — an exact SKU in the question wins outright; otherwise lexical scoring, and `bge-m3` cosine in TypeScript only when the words are not decisive. No pgvector at sixty rows, per `architecture.md`.
+- **The model never writes a figure.** It writes `{price_now:502037}` — the studio's trick plus a SKU, because one reply can span two products — and the catalogue fills it through `formatKwd`.
+- **Grounding is a set operation.** Cited SKUs must be a subset of what retrieval returned, checked with `isGrounded`, never asked of the model.
+- **Four ways to fail, all of them escalate**: nothing retrieved, a SKU that was not retrieved, a figure the model typed itself, a field with no value. The reason is named in the transcript, not softened into an apology.
+- **A figure in a retrieved row is not invented.** "Airpods 4" and "(SKU 561044)" are the answer. `bareNumber` reuses the copy guard's `isProductIdentity` — one definition of "is this the product's own name", not two.
+- **Provenance from the first message.** Every bot reply records `retrieved_ids`, `cited_ids`, model and prompt version, and the inbox prints them under the message. `sender ∈ customer | bot | rep` from the start, so adding a human did not change the shape.
+- **Silent takeover.** A rep replying takes the conversation; the assistant stops answering it and the customer is told nothing.
+
+**Measured:** answers a price, a two-variant question and a "what is this" correctly; escalates a returns-policy question and a RAM question. The second is correct and deliberate — spec figures live in a description paragraph, and `architecture.md` requires typed columns before those are answerable.
 
 ---
 
@@ -112,7 +126,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **217 assertions, 0 failures**, 7 suites |
+| `npm test` | **257 assertions, 0 failures**, 8 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |
@@ -231,6 +245,13 @@ app/api/names/route.ts   propose, check, save short names
 lib/excel/copy.ts        the approved-copy workbook
 app/api/export/copy      what is approved, and the download
 lib/snapshot.ts         a copy of what a destructive route is about to remove
+
+lib/rag/retrieve.ts     which catalogue rows a question is about
+lib/chat/answer.ts      grounded answer or escalation — rules 2 and 3, in TypeScript
+lib/chat/store.ts       conversations, in the shape `messages` will have
+app/api/chat/route.ts   the customer's side
+app/api/sales/route.ts  take over, reply, hand back
+scripts/test-chat.mjs   the chat guards, no model needed
 scripts/test-content.mjs  the copy guard, no model needed
 scripts/test-names.mjs    the short-name checks, no model needed
 scripts/test-snapshot.mjs the copy taken before a delete, and its pruning

@@ -149,7 +149,7 @@ const FAITH_POLITICS =
  * name on the box is not. Same reasoning as `isQuoted`: verify against the
  * source in TypeScript rather than trusting the writer.
  */
-function isProductIdentity(word: string, values: Record<string, unknown>): boolean {
+export function isProductIdentity(word: string, values: Record<string, unknown>): boolean {
   const identity = ['name_en', 'display_name', 'brand', 'category']
     .map((k) => String(values[k] ?? ''))
     .join(' ')
