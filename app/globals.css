@@ -72,7 +72,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .side-foot a:hover { color: var(--accent); }
 .local { font-size: 11px; color: var(--muted); }
 .shell-main { min-width: 0; }
-.shell-main main { max-width: 1000px; margin: 0; padding: 36px 32px 80px; }
+/* Centred in the space it has, in both states. Left-aligned, closing the
+   sidebar left the content pinned to the edge with the rest of a wide screen
+   empty beside it. */
+.shell-main main { max-width: 1000px; margin: 0 auto; padding: 36px 32px 80px; }
 .shell-main main.wide { max-width: none; }
 
 /* Narrow: the sidebar becomes a strip across the top rather than disappearing. */
@@ -407,7 +410,9 @@ input[type=search]:focus { outline: none; border-color: var(--accent); }
    wrapped onto its own line. */
 :root[data-side="off"] .shell { grid-template-columns: 1fr; }
 :root[data-side="off"] .side { display: none; }
-:root[data-side="off"] .shell-main main { padding-left: 52px; }
+/* Enough room for the toggle, taken symmetrically so the content stays
+   centred rather than nudged right by the button. */
+:root[data-side="off"] .shell-main main { padding-left: 52px; padding-right: 52px; }
 
 @media (max-width: 900px) {
   .side-toggle { position: static; margin-right: 4px; }
@@ -415,7 +420,7 @@ input[type=search]:focus { outline: none; border-color: var(--accent); }
   :root[data-side="off"] .side { display: flex; }
   :root[data-side="off"] .side .side-group,
   :root[data-side="off"] .side .side-foot { display: none; }
-  :root[data-side="off"] .shell-main main { padding-left: 20px; }
+  :root[data-side="off"] .shell-main main { padding-left: 20px; padding-right: 20px; }
 }
 
 /* --- Designs that have gone out of date --- */
