@@ -1,6 +1,7 @@
 import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { NextResponse } from 'next/server'
+import sharp from 'sharp'
 import { readForm, isResponse } from '@/lib/http'
 import { snapshot } from '@/lib/snapshot'
 import { parseWorkbook } from '@/lib/excel/parse'
@@ -105,6 +106,28 @@ export async function POST(req: Request) {
       await file.arrayBuffer(),
     )
 
+    // The photos the parser pulled out of the sheet, written by SKU. Without
+    // this the whole web path renders IMAGE MISSING on every design: the
+    // renderer reads data/samples/images/<sku>.png, and only the manual
+    // extract-images script ever wrote there. Normalised to PNG at a sane size,
+    // matching that script, because the renderer embeds these as data URIs.
+    let written = 0
+    try {
+      const photos = join(process.cwd(), 'data/samples/images')
+      mkdirSync(photos, { recursive: true })
+      for (const p of products) {
+        if (!p.image || !p.sku) continue
+        await sharp(p.image.buffer)
+          .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+          .png()
+          .toFile(join(photos, `${p.sku}.png`))
+        written++
+      }
+    } catch {
+      // A sheet whose photos will not convert still imports. The designs show
+      // the missing-image placeholder and the report says so per product.
+    }
+
     // Remember the sheet's shape so the template editor can offer the real
     // column names and preview against a real product rather than invented
     // placeholders. Just the vocabulary and one row — not the catalogue.
@@ -141,8 +164,8 @@ export async function POST(req: Request) {
       // Not being able to remember this is not a reason to fail the import.
     }
 
-    // Image buffers stay on the server; the client only needs to know one exists.
     return NextResponse.json({
+      photos: written,
       fileName: file.name,
       sheetName,
       headers,
