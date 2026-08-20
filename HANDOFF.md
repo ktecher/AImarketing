@@ -63,7 +63,7 @@ Postgres 17.11 is installed and running via Homebrew but **nothing writes to it 
 
 The other two pillars and the loop. Each has an honest stub page saying what it will do and what it is waiting on.
 
-- **Creative advisor** (`/advisor`) — v1 is *retrieval over the company's own past posts, with no model and no score*. Gated on whether Instagram/Snapchat insights export with **captions joined to per-post reach**. If they do not, this pillar changes shape entirely.
+- **Creative advisor** (`/advisor`) — **the ungated half works.** The checks — price against the catalogue, claim safety, compliance — need no post history and no model, and `architecture.md` calls the price check *"the most valuable check"*. Still waiting on the social export for the other half: the five most similar past posts with their real reach. Until it arrives that sits in `not_assessed`, named, rather than silently absent.
 - ~~**Sales assistant** (`/chat`) and **inbox** (`/sales`)~~ — **v1 works.** See below.
 - **Campaigns** (`/campaigns`) — the loop. `campaign_id` belongs in the first migration whenever a database arrives.
 
@@ -80,6 +80,19 @@ The other two pillars and the loop. Each has an honest stub page saying what it 
 - **Silent takeover.** A rep replying takes the conversation; the assistant stops answering it and the customer is told nothing.
 
 **Measured:** answers a price, a two-variant question and a "what is this" correctly; escalates a returns-policy question and a RAM question. The second is correct and deliberate — spec figures live in a description paragraph, and `architecture.md` requires typed columns before those are answerable.
+
+---
+
+**The creative advisor, v1 — no model, no score.**
+
+- `review(text, {channel, lang})` takes **text, not a draft object**, so the compiler enforces that the thing which writes copy is never the thing that judges it.
+- **The flagship check**: *your caption says 25.000 KD, the catalogue says 19.900 KD.* Numeric comparison, so `119.5`, `119.500` and `119,500` are one price written three ways — flagging a formatting difference as a wrong price is how a check loses the credibility that makes people act on it.
+- **Claim safety reuses `lib/content/guard`.** One definition of "is this claim safe", not a second that drifts from it.
+- **Advice versus checks**, per the architecture: advice tops out at "needs work"; only a check returns "problem". A superlative is a blocker, not a tone note.
+- **Rule 4 is asserted, not just intended.** A test greps the module and the page for `score`, `rating` and `grade` outside comments and fails if any appears.
+- **`not_assessed` is printed.** Trend fit, hook and clarity, comparison to past posts, and — for an Arabic draft — whether it reads Kuwaiti or reads translated. Silence there would read as a pass.
+
+**Measured** on a deliberately bad caption: four blockers, each quoting its own span, three ranked fixes with the wrong price first.
 
 ---
 
@@ -126,7 +139,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **257 assertions, 0 failures**, 8 suites |
+| `npm test` | **281 assertions, 0 failures**, 9 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |
@@ -252,6 +265,10 @@ lib/chat/store.ts       conversations, in the shape `messages` will have
 app/api/chat/route.ts   the customer's side
 app/api/sales/route.ts  take over, reply, hand back
 scripts/test-chat.mjs   the chat guards, no model needed
+
+lib/advisor/review.ts   review(text) — checks, blockers, ranked fixes, not_assessed
+app/api/advisor/route.ts  only the text crosses this line
+scripts/test-advisor.mjs  price drift, and rule 4 asserted by grep
 scripts/test-content.mjs  the copy guard, no model needed
 scripts/test-names.mjs    the short-name checks, no model needed
 scripts/test-snapshot.mjs the copy taken before a delete, and its pruning
