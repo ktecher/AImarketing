@@ -101,3 +101,26 @@ ok('name filled from the row',         fill('{name_en} is here.', ROW) === 'HP P
 ok('a price with no value stays a token', fill('Was {price_was}.', PLAIN) === 'Was {price_was}.')
 ok('one formatter, three decimals',    formatKwd(12.5) === '12.500 KD' && formatKwd('KD 449.5') === '449.500 KD')
 ok('nothing is not zero',              formatKwd(undefined) === '' && formatKwd('') === '')
+
+// --- a token spelled without the title's spaces ---
+//
+// "#M4Pro" is the product's own "M4 Pro", closed up as a hashtag. Blocking it
+// blocked all eight hashtags, which are approved as one piece. The characters
+// must still come from the product's identity fields — this closes the spaces,
+// it does not widen what counts as the product.
+const MBP = { sku: 'X', name_en: 'Apple MacBook Pro 16, M4 Pro Chip, 48GB RAM', brand: 'APPLE',
+              category: 'Laptops', price_now: 759.9, price_was: 999.9 }
+const numOf = (t, v) => check(t, v).find((c) => c.name === 'no invented numbers')
+
+ok("a hashtag closing the title's spaces passes", numOf('#M4Pro #Apple', MBP).pass)
+ok('the spaced form still passes',               numOf('The M4 Pro chip', MBP).pass)
+ok('a figure not in the name is still blocked',  !numOf('Only 5 left in stock', MBP).pass)
+ok('an invented price is still blocked',         !numOf('Yours for 499.000 KD', MBP).pass)
+
+// Bare digits never get the squashed comparison: "99s" must not match by
+// running "48GB RAM" into a neighbouring number.
+const RUNON = { sku: 'Y', name_en: 'Thing 16GB RAM 99 Series', brand: 'B', category: 'C',
+                price_now: 10, price_was: 20 }
+ok('bare digits are not matched across a gap',   !numOf('save 1699 today', RUNON).pass)
+ok('"3D" is still blocked — not a quantity, but the check cannot tell',
+   !numOf('a 3D soundscape', MBP).pass)

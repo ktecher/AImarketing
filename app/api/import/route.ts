@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync
 import { join } from 'node:path'
 import { NextResponse } from 'next/server'
 import { readForm, isResponse } from '@/lib/http'
+import { snapshot } from '@/lib/snapshot'
 import { parseWorkbook } from '@/lib/excel/parse'
 
 export const runtime = 'nodejs'
@@ -18,6 +19,16 @@ export const maxDuration = 120
  */
 export async function DELETE() {
   const removed = { products: 0, photos: 0, overrides: 0 }
+
+  // Copied before anything is removed. The catalogue, the photos and the layout
+  // exceptions are all gitignored real data, so there is no other way back.
+  const saved = snapshot('cleared-catalogue', [
+    'data/state/last-import.json',
+    'data/samples/images',
+    ...readdirSync(join(process.cwd(), 'data/templates'))
+      .filter((f) => f.endsWith('.overrides.json'))
+      .map((f) => join('data/templates', f)),
+  ])
 
   const state = join(process.cwd(), 'data/state/last-import.json')
   if (existsSync(state)) {
@@ -44,7 +55,12 @@ export async function DELETE() {
     }
   }
 
-  return NextResponse.json({ cleared: true, removed })
+  return NextResponse.json({
+    cleared: true,
+    removed,
+    // Named, not just made: a copy nobody knows about is not a way back.
+    backup: saved ? saved.replace(process.cwd() + '/', '') : null,
+  })
 }
 
 /** What is currently loaded, for the catalogue strip. */

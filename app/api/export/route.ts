@@ -40,6 +40,10 @@ export async function POST(req: Request) {
 
   try {
   const flagged: { sku: string; issues: string[] }[] = []
+  // Faults in the template, not in a product. Identical on every row that
+  // follows it, so collected once and printed at the TOP of the note: a slot
+  // printing one product's words on all sixty is not a footnote.
+  let faults: string[] = []
 
   for (const p of rows) {
     const sku = String(p.sku ?? '')
@@ -50,7 +54,7 @@ export async function POST(req: Request) {
       : template.svg
     const manifest = mine ? { ...template.manifest, slots: mine.slots } : template.manifest
 
-    const { svg: rendered, report } = renderProduct(svg, manifest, p, f, {
+    const { svg: rendered, report, templateFaults } = renderProduct(svg, manifest, p, f, {
       mode: 'auto',
       images: productImage(sku) ? { image: productImage(sku) as string } : {},
     })
@@ -62,6 +66,14 @@ export async function POST(req: Request) {
     if (wanted.includes('png') && png) zip.file(`png/${safeName(sku, name, 'png')}`, png)
     if (wanted.includes('jpg') && png) zip.file(`jpg/${safeName(sku, name, 'jpg')}`, await toJpg(png))
     if (wanted.includes('pdf') && png) zip.file(`pdf/${safeName(sku, name, 'pdf')}`, await toPdf(png, tw, th))
+
+    if (!mine && !faults.length && templateFaults.length) {
+      faults = templateFaults.map((r) =>
+        r.literalText
+          ? `${r.slot}: printing the same words on every design — "${r.literalText.printing}" — instead of each product's ${r.literalText.insteadOf}. Clear that slot's text in the layout editor.`
+          : `${r.slot}: box is ${r.boxTooShort?.have}px, needs ${r.boxTooShort?.need}px for ${manifest.slots.find((s) => s.id === r.slot)?.maxLines ?? 1} line(s) at its size`,
+      )
+    }
 
     if (report.length) {
       flagged.push({
@@ -83,6 +95,10 @@ export async function POST(req: Request) {
     `${template.manifest.name} — ${rows.length} designs`,
     `Exported ${new Date().toISOString().slice(0, 10)}  ·  ${wanted.join(', ')}  ·  ${px}px wide`,
     '',
+    ...(faults.length
+      ? ['THE TEMPLATE ITSELF NEEDS FIXING — this affects every design here:',
+         ...faults.map((f) => `  ${f}`), '']
+      : []),
     flagged.length
       ? `${flagged.length} of ${rows.length} need a look before publishing:`
       : `All ${rows.length} rendered cleanly.`,
@@ -99,6 +115,7 @@ export async function POST(req: Request) {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename="${id}-${rows.length}-designs.zip"`,
       'X-Needs-Attention': String(flagged.length),
+      'X-Template-Faults': String(faults.length),
     },
   })
   } catch (e) {

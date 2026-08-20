@@ -36,7 +36,7 @@ Postgres 17.11 is installed and running via Homebrew but **nothing writes to it 
 - **Per-product overrides** — edit one design without touching the template, with an explicit way back.
 - **Export** — one ZIP, folder per format, `README.txt` inside listing every design that needs a look.
 
-**Current state of the real catalogue: 33 of 60 clean, 27 needing a look — every remaining flag is Arabic.** English name flags went 29 to 0 once short names were in.
+**Current state of the real catalogue: 33 of 60 clean, 27 needing a look — every remaining flag is Arabic.** English name flags went 29 to 0 once short names were in. The flyer template is separately tuned now: its price box was 36px against a required 47 and 99px wide against a measured 151, so every one of its sixty designs shrank the price. 60 flags to 1.
 
 **Short names** (`display_name`). Optional per product, from a `Display Name` column in the sheet or written in the app under *Designs → shorten names for posters*. Falls back to the full title, so nothing breaks without one. A local model proposes them a sorted batch of eight at a time — 56 proposals in about a minute — and four binary checks stand between a proposal and a saved name: every word must come from the product's own title, 35 characters, shorter than the title, and **not shared with another product**. That last one caught eleven collisions on the first real run, and is why this is allowed to be automatic at all.
 
@@ -99,7 +99,10 @@ The other two pillars and the loop. Each has an honest stub page saying what it 
 - **The fact sheet is also the placeholder vocabulary.** List `description_en:` alongside the other fields and the model writes `{description_en}`, substituting a spec dump mid-sentence. Three captions out of three, twice. It goes under its own heading.
 - **Do not show the model a figure you do not want paraphrased.** The fact sheet names `price_now` and says a price exists; it never carries the number.
 - **`formatKwd('')` used to return `0.000 KD`.** `Number('')` is `0` and is finite. An absent price printed a figure the shop never set — guarded now, and the same trap is waiting in any new formatter.
-- **For anything visual, render it and look.** Assertions did not catch reversed Arabic digits, a strike-through 110px from its text, or a box that could never hold two lines.
+- **For anything visual, render it and look.** Assertions did not catch reversed Arabic digits, a strike-through 110px from its text, a box that could never hold two lines, a model number reassembled as `4ZE/A3 MFHP`, or one product's Arabic name printed on all sixty posters. Every one of those passed the suite.
+- **Isolating part of a token is worse than isolating none of it.** `⁨…⁩` marks make a run self-contained, so splitting `MFHP4ZE/A` into `MFHP` and an isolated `4ZE/A` guarantees they reorder. Isolate whole tokens or nothing.
+- **A literal on a template slot applies to every product.** The editor pre-fills that box with the preview product's own value, which is exactly what makes it look right while it is wrong. `scripts/test-template.mjs` now refuses a manifest carrying one.
+- **A fault that is computed but never displayed is not a fault, it is a comment.** `templateFaults` existed, was correct, and reached no screen for the life of the project.
 
 ---
 
@@ -109,14 +112,14 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **165 assertions, 0 failures**, 6 suites |
+| `npm test` | **217 assertions, 0 failures**, 7 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |
 | `check-fonts` | every template font resolves |
 | Adversarial copy sweep | 18 must-block, 4 must-pass: **0 leaked, 0 false positives** |
 | Every page and API route | 200 |
-| Malformed body at 8 mutating routes | 16 requests, **no 500s** |
+| Malformed body at 11 mutating routes | 66 requests, **no 500s** |
 | Live generation, 3 products | 8 of 8 drafts clean each |
 
 A review pass on 2026-08-20 found and fixed seven defects — the pre-discount price
@@ -124,6 +127,39 @@ reachable through a placeholder, four hazardous sheet columns, 500s on malformed
 request bodies, an unknown SKU writing an invisible permanent orphan, and a
 cleared short name resolving to `""` instead of its title. D48, D49 and D50 carry
 the reasoning; the bite list above carries the shapes to watch for.
+
+A live end-to-end run the same day — the whole path, on the real sheet, looking at
+the output — found seven more. All fixed, each with an assertion:
+
+- **`isolateNumbers` split alphanumeric tokens at the digit**, and the isolate
+  marks then reordered the halves: `MFHP4ZE/A` shipped as `4ZE/A3 MFHP`,
+  `14-fk0016ne` as `0016nefk-14`, `M4 Pro` as `4 ProM`. Every assertion stayed
+  green both times, because the widths are identical. Whole tokens are isolated
+  now, and the trailing-unit clause has a lookahead so `KD` in `449.500 KD` is
+  still caught while `3 MFHP4ZE/A` is not split in a new place.
+- **`slot.text` beat `slot.bind` with no warning.** Saved on a template rather
+  than on one product it stamps one row's words on the whole catalogue — 60
+  posters carried one laptop's Arabic name, every slot filled and every check
+  passing. Now a named `templateFaults` entry.
+- **`templateFaults` was computed and consumed nowhere.** `boxTooShort` had been
+  discarded since the beginning. Surfaced now in the render API, the export
+  README and a banner on Designs — and it immediately named the flyer's price
+  box as 36px against the 47px its own size needs.
+- **`scripts/make-template-svg.mjs` bound the name slot to `name_en`**, so the
+  rebuild HANDOFF tells you to run discarded every short name. `flyer.json` had
+  the same stale binding.
+- **Three routes 500'd on a malformed body** — `POST /api/names` (which never
+  adopted `lib/http.ts`) and `PUT`/`POST /api/templates/[id]`.
+- **`{brand} {display_name}` read "APPLE Apple Airpods 4"** on a catalogue whose
+  titles already carry the brand. Deduplicated in `fill`.
+- **`coverage()` returned total pieces as `drafts`**, printing "8 drafts · 4
+  approved" for a product holding four of each.
+
+Two destructive routes now copy what they are about to remove into
+`data/.trash/` and name the folder in their response. `DELETE` on a template
+took its overrides with it during this run and there was nothing to restore
+from — the state directories are gitignored precisely because they hold real
+catalogue data, so version control was never going to be the answer.
 
 ---
 
@@ -194,8 +230,10 @@ app/api/studio/route.ts generate, edit, approve, discard
 app/api/names/route.ts   propose, check, save short names
 lib/excel/copy.ts        the approved-copy workbook
 app/api/export/copy      what is approved, and the download
-scripts/test-content.mjs  52 assertions — the copy guard, no model needed
-scripts/test-names.mjs    19 assertions — the short-name checks, no model needed
+lib/snapshot.ts         a copy of what a destructive route is about to remove
+scripts/test-content.mjs  the copy guard, no model needed
+scripts/test-names.mjs    the short-name checks, no model needed
+scripts/test-snapshot.mjs the copy taken before a delete, and its pruning
 scripts/test-copy-export.mjs  15 assertions — built and read back, so a draft
                           or a raw {placeholder} cannot escape unnoticed
 ```

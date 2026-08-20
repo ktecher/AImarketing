@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-type Report = { slot: string; truncated?: boolean; shrunkTo?: number; empty?: boolean; missingImage?: boolean; boxTooShort?: { need: number; have: number } }
+type Report = { slot: string; truncated?: boolean; shrunkTo?: number; empty?: boolean; missingImage?: boolean; boxTooShort?: { need: number; have: number }; literalText?: { printing: string; insteadOf: string } }
 type Result = { sku: string; name: string; report: Report[]; png?: string; overridden?: boolean }
 type Tpl = { id: string; name: string; slots: string[]; width: number; height: number }
 type NameCheck = { name: string; pass: boolean; span?: string; hint?: string }
@@ -25,6 +25,9 @@ const SIZES = [
 ]
 
 function describe(r: Report): string {
+  if (r.literalText) {
+    return `${r.slot} — printing “${r.literalText.printing}” on every design instead of each product's ${r.literalText.insteadOf}`
+  }
   if (r.boxTooShort) return `${r.slot} — box is ${r.boxTooShort.have}px, needs ${r.boxTooShort.need}px`
   if (r.truncated) return `${r.slot} — text was cut to fit`
   if (r.missingImage) return `${r.slot} — no product photo`
@@ -41,6 +44,7 @@ export default function Templates() {
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
   const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [faults, setFaults] = useState<Report[]>([])
   const [formats, setFormats] = useState<string[]>(['png'])
   const [exportWidth, setExportWidth] = useState(0)
   const [exporting, setExporting] = useState(false)
@@ -192,6 +196,7 @@ export default function Templates() {
       else {
         setTotal(data.total ?? 0)
         setResults((prev) => (replace ? data.results : [...prev, ...data.results]))
+        setFaults(data.templateFaults ?? [])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Render failed.')
@@ -542,6 +547,18 @@ export default function Templates() {
           <p className="hint" style={{ marginTop: 0 }}>
             The artwork is a raster file, so enlarging past its own size softens it.
             PDF is RGB — good for approvals, not a print master.
+          </p>
+        </div>
+      )}
+
+      {faults.length > 0 && (
+        <div className="notice warn-notice" role="alert" style={{ marginBottom: 14 }}>
+          <b>The template itself needs fixing — this affects all {total} designs.</b>
+          <ul style={{ margin: '6px 0 0', paddingInlineStart: 18 }}>
+            {faults.map((f) => <li key={f.slot}>{describe(f)}</li>)}
+          </ul>
+          <p style={{ margin: '6px 0 0' }}>
+            Open <b>Edit layout</b> and clear that slot&rsquo;s text so it reads its column again.
           </p>
         </div>
       )}

@@ -18,7 +18,7 @@ import { generate, generateJson, MODELS } from '@/lib/ai/generate'
 import { check, blockers, fill, tokensFor, type Check } from './guard'
 
 /** Bump when a prompt changes. Stored on every piece, so old drafts stay explicable. */
-export const PROMPT_VERSION = 'content/v2'
+export const PROMPT_VERSION = 'content/v3'
 
 export type Channel = 'instagram' | 'snapchat' | 'tiktok'
 
@@ -185,7 +185,9 @@ export async function draft(
         `- the body: what happens in the middle, in two or three sentences\n` +
         `- what to say: the exact line that carries the offer\n` +
         `- what NOT to say: things a presenter would reach for that break the rules above, ` +
-        `specific to this product rather than generic\n\n` +
+        `specific to this product rather than generic. Only things that are NOT already in ` +
+        `the script you just wrote — a warning against a line you yourself wrote reads as a ` +
+        `contradiction to whoever is on camera\n\n` +
         `The footage is filmed by a person. Do not describe effects or transitions.`,
       { temperature: 0.7 },
     ),
@@ -304,10 +306,10 @@ export function coverage(): Record<string, { drafts: number; approved: number }>
     try {
       const pieces = JSON.parse(readFileSync(join(d, f), 'utf8')) as Piece[]
       if (!pieces.length) continue
-      out[pieces[0].sku] = {
-        drafts: pieces.length,
-        approved: pieces.filter((p) => p.status === 'approved').length,
-      }
+      const approved = pieces.filter((p) => p.status === 'approved').length
+      // Drafts are what is NOT approved. Returning the total here printed
+      // "8 drafts · 4 approved" for a product holding 4 of each.
+      out[pieces[0].sku] = { drafts: pieces.length - approved, approved }
     } catch { /* an unreadable file is not a reason to hide the rest */ }
   }
   return out

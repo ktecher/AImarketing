@@ -26,6 +26,12 @@ export type SlotReport = {
   empty?: boolean
   /** Image slot with no image. */
   missingImage?: boolean
+  /**
+   * The slot carries literal text AND a binding, so every product prints the
+   * same words and the column is ignored. Saved on a template rather than on
+   * one product this stamps one row's text across the whole catalogue.
+   */
+  literalText?: { printing: string; insteadOf: string }
 }
 
 export type RenderResult = {
@@ -134,6 +140,19 @@ export function renderProduct(
     // A literal always wins over the binding, and is never reformatted — if
     // somebody typed it, it is what they meant.
     const text = slot.text?.trim() ? slot.text : formatValue(values[slot.bind], slot)
+
+    // But "somebody typed it" is only safe when they knew the scope. The editor
+    // pre-fills that box with the PREVIEW product's own value, so saving the
+    // template rather than the product silently stamps one row's text onto all
+    // of them — sixty posters carried one laptop's Arabic name this way, every
+    // slot filled and every check passing. It is a template fault, not a
+    // per-product one, and there is no reset for it as there is for overrides.
+    if (slot.text?.trim() && slot.bind) {
+      templateFaults.push({
+        slot: slot.id,
+        literalText: { printing: slot.text.trim(), insteadOf: slot.bind },
+      })
+    }
     resolved[slot.id] = text
     if (!text) {
       report.push({ slot: slot.id, empty: true })

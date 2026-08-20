@@ -47,8 +47,28 @@ export function baseDirection(text: string): 'rtl' | 'ltr' {
  */
 export function isolateNumbers(text: string): string {
   if (!hasArabic(text)) return text
-  return text.replace(/[\d]+(?:[.,][\d]+)*(?:\s*[A-Za-z%]+)?/g, (m) => `⁨${m}⁩`)
+  return text.replace(NUMERIC_TOKEN, (m) => `⁨${m}⁩`)
 }
+
+/**
+ * A whole alphanumeric token, not the digits inside one.
+ *
+ * Isolating only the digit run splits a model number and the two halves then
+ * reorder against each other: "14-fk0016ne" rendered as "0016nefk-14" and
+ * "M4 Pro" as "4 ProM", both on real posters. The token has to be isolated
+ * entire — leading letters, internal separators and a trailing unit — or the
+ * isolate marks cause the exact corruption they exist to prevent.
+ *
+ * Leading `[A-Za-z]*` cannot swallow a neighbouring word: it only matches when
+ * a digit follows, so "Windows 11" isolates "11" and leaves "Windows" alone.
+ *
+ * The trailing unit — the "KD" in "449.500 KD" — needs the lookahead. Without
+ * it "برو 3 MFHP4ZE/A" matched "3 MFHP" as one token and left "4ZE/A" as
+ * another, splitting the model number in a new place rather than the old one.
+ * A unit is a word that does NOT run on into more alphanumerics.
+ */
+const NUMERIC_TOKEN =
+  /[A-Za-z]*\d[A-Za-z\d]*(?:[.,/-][A-Za-z\d]+)*(?:\s*[A-Za-z%]+(?![A-Za-z\d]))?/g
 
 export type LoadedFont = {
   readonly font: Font

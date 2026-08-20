@@ -44,3 +44,6 @@ data/templates/*.overrides.json
 
 # Build artifact, rewritten by every typecheck
 tsconfig.tsbuildinfo
+
+# Snapshots taken before a destructive route runs. Real catalogue data.
+data/.trash/

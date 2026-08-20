@@ -55,6 +55,32 @@ ok('pure English is one ltr run',
 ok('isolate marks never reach the shaper',
    !L.bidiRuns(L.isolateNumbers('ماك 14 بوصة')).some(r => /[\u2066-\u2069]/.test(r.text)))
 
+// An alphanumeric token must be isolated ENTIRE. Isolating only the digits
+// splits the token and the halves reorder against each other: "14-fk0016ne"
+// shipped as "0016nefk-14" and "M4 Pro" as "4 ProM", on real posters, while
+// every assertion stayed green because the widths are identical.
+const visual = (t) => L.bidiRuns(L.isolateNumbers(t)).map(r => r.text).join('')
+for (const [text, token] of [
+  ['ويندوز 11 هوم، 14-fk0016ne – فضي', '14-fk0016ne'],
+  ['ايفون 15 برو ماكس A2849',          'A2849'],
+  ['ماك بوك برو 14 بوصة M4 Pro',       'M4 Pro'],
+  ['شاشة 6.7-inch',                    '6.7-inch'],
+  ['قلم ابل الجيل الأول، MK0C2AM/A',   'MK0C2AM/A'],
+  // A bare number followed by a model code: the trailing-unit clause used to
+  // eat across the space and split the code in a new place — "3 MFHP" + "4ZE/A".
+  ['سماعات ابل اير بودز برو 3 MFHP4ZE/A الأبيض', 'MFHP4ZE/A'],
+  ['آبل ماك بوك برو 16، 512 جيجابايت MX2U3AB/A', 'MX2U3AB/A'],
+  ['ذاكرة 16GB RAM هنا',               '16GB RAM'],
+  ['لابتوب 16 بوصة، 449.500 KD',       '449.500 KD'],
+]) {
+  ok(`"${token}" survives its Arabic line intact`, visual(text).includes(token), visual(text))
+}
+ok('a bare number still isolates on its own',
+   (L.isolateNumbers('ماك بوك 14 بوصة').match(/⁨/g) || []).length === 1)
+ok('a Latin word beside a number is not swallowed',
+   L.isolateNumbers('ويندوز Windows 11') === 'ويندوز Windows ⁨11⁩',
+   L.isolateNumbers('ويندوز Windows 11'))
+
 // Outlined output must contain a path per glyph across every run.
 const mixedPath = L.outlinePath('ماك 14', cairo, 48)
 ok('outline covers all runs', (mixedPath.match(/<path/g) || []).length >= 5,

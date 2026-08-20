@@ -6,6 +6,7 @@ import { renderProduct } from '@/lib/template/render'
 import { familyOf, fontFiles, fonts, fontDir, loadOverrides, loadTemplate, productImage, saveOverride } from '@/lib/template/store'
 import { availableColumns, previewProducts, sampleValues } from '@/lib/template/columns'
 import { readJson } from '@/lib/http'
+import { snapshot } from '@/lib/snapshot'
 
 export const runtime = 'nodejs'
 
@@ -142,8 +143,11 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   const svg = join(dir(), `${id}.svg`)
   if (!existsSync(svg)) return Response.json({ error: 'Template not found.' }, { status: 404 })
 
-  for (const f of [`${id}.svg`, `${id}.json`, `${id}.overrides.json`]) {
-    rmSync(join(dir(), f), { force: true })
-  }
-  return Response.json({ deleted: id })
+  const files = [`${id}.svg`, `${id}.json`, `${id}.overrides.json`]
+  // The layout work and every per-product exception go with it, and neither is
+  // in version control. Copy first.
+  const saved = snapshot(`deleted-template-${id}`, files.map((f) => join('data/templates', f)))
+
+  for (const f of files) rmSync(join(dir(), f), { force: true })
+  return Response.json({ deleted: id, backup: saved ? saved.replace(process.cwd() + '/', '') : null })
 }

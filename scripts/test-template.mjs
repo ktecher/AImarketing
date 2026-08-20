@@ -34,3 +34,38 @@ ok(`only Stock/Warranty unmapped (${unmapped.join(', ')})`,
    unmapped.every(h => ['Stock','Warranty'].includes(h)))
 
 console.log(`\nwrote data/samples/product-sheet-template.xlsx (${(buf.length/1024).toFixed(1)} KB)`)
+
+// --- The shipped templates, checked against the traps that already fired ---
+//
+// Both of these regressed silently in real use: the poster's name slot was
+// rebuilt bound to name_en, discarding every short name across 29 of 60
+// designs, and a literal typed into the editor was saved on the template
+// rather than on one product, printing one laptop's Arabic name on all 60.
+// Nothing failed either time, which is why they are assertions now.
+const { readFileSync: read, existsSync: has, readdirSync: list } = await import('node:fs')
+
+for (const f of list('data/templates').filter((f) => f.endsWith('.json') && !f.includes('.overrides.'))) {
+  const m = JSON.parse(read(`data/templates/${f}`, 'utf8'))
+  const name = m.slots.find((s) => s.id === 'name_en')
+
+  ok(`${f}: the English name slot binds display_name, not name_en`,
+     !name || name.bind === 'display_name')
+
+  // A literal on a TEMPLATE slot applies to every product in the catalogue.
+  // On a per-product override it is the whole point; here it is never right.
+  for (const s of m.slots) {
+    ok(`${f}: ${s.id} has no literal text stamped on it`, !(s.text && s.text.trim()))
+  }
+
+  // `price` is never bound: every product can be discounted, and a poster
+  // carrying the pre-discount figure advertises a price nobody will be charged.
+  for (const s of m.slots) {
+    ok(`${f}: ${s.id} does not bind price_kwd`, s.bind !== 'price_kwd' && s.bind !== 'price')
+  }
+}
+
+// The rebuild script and the committed manifest must not drift: the script is
+// what HANDOFF tells the next person to run.
+const script = read('scripts/make-template-svg.mjs', 'utf8')
+ok('the rebuild script binds display_name too', /bind:\s*'display_name'/.test(script))
+ok('the rebuild script binds no price_kwd', !/bind:\s*'price_kwd'/.test(script))

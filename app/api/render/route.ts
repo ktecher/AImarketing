@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     const manifestForProduct = mine ? { ...template.manifest, slots: mine.slots } : template.manifest
     void baseBoxes
 
-    const { svg, report } = renderProduct(svgForProduct, manifestForProduct, p, f, {
+    const { svg, report, templateFaults: faults } = renderProduct(svgForProduct, manifestForProduct, p, f, {
       mode: 'auto',
       images: image ? { image } : {},
     })
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     }
 
     return {
-      sku, name: p.name_en ?? p.name_ar ?? sku, report, png,
+      sku, name: p.name_en ?? p.name_ar ?? sku, report, png, faults,
       overridden: Boolean(mine),
       svg: format === 'svg' ? svg : undefined,
     }
@@ -75,6 +75,14 @@ export async function POST(req: Request) {
     results,
     // Everything that needed attention, across the whole batch.
     needsAttention: results.filter((r) => r.report.length > 0).length,
+    // Faults in the template itself. Identical for every product that follows
+    // it, so reported once — a per-product list would bury them under sixty
+    // copies of the same line. Products with their own layout are excluded:
+    // their fault is theirs, and it is named with the SKU.
+    templateFaults: results.find((r) => !r.overridden)?.faults ?? [],
+    overriddenFaults: results
+      .filter((r) => r.overridden && r.faults.length)
+      .map((r) => ({ sku: r.sku, faults: r.faults })),
   })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Render failed.'

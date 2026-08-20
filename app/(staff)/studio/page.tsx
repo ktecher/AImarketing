@@ -170,7 +170,7 @@ export default function Studio() {
             <>
               <div className="export-head">
                 <div>
-                  <b>{pieces.length} drafts · {approved} approved</b>
+                  <b>{pieces.length - approved} drafts · {approved} approved</b>
                   <span>
                     Prices are never written by the model. It writes {'{price_now}'} and the
                     catalogue fills it in — so the copy stays true after a price change.

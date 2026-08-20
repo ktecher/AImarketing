@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs",
+    "test": "tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs",
     "render:demo": "tsx scripts/render-demo.mjs",
     "template:build": "tsx scripts/make-template-svg.mjs"
   },

@@ -110,6 +110,9 @@ function resolves(name: string, values: Record<string, unknown>): boolean {
  */
 const TOKEN_RE = /\{([^{}]+)\}/g
 
+/** A brand may contain a regex metacharacter — "AT&T", "M+A". */
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 export type Check = {
   /** Stable name. The UI shows this; nothing sums them. */
   name: string
@@ -152,7 +155,19 @@ function isProductIdentity(word: string, values: Record<string, unknown>): boole
     .join(' ')
     .toLowerCase()
   const w = word.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
-  return w.length > 0 && identity.includes(w)
+  if (!w.length) return false
+  if (identity.includes(w)) return true
+
+  // A hashtag closes the spaces a title leaves open: "#M4Pro" against a product
+  // called "MacBook Pro 16, M4 Pro Chip". Blocking it blocked the whole
+  // hashtags piece, since the eight are approved as one.
+  //
+  // Only for a token that carries a LETTER. Comparing bare digits with the
+  // separators removed would let "99s" match across "16GB RAM, 99 something",
+  // and a figure the shop never set is the one thing this check exists to stop.
+  if (!/\p{L}/u.test(w)) return false
+  const squash = (v: string) => v.replace(/[^\p{L}\p{N}]+/gu, '')
+  return squash(identity).includes(squash(w))
 }
 
 /** Digits that came from the model rather than from a catalogue row. */
@@ -178,7 +193,9 @@ export function check(text: string, values: Record<string, unknown>): Check[] {
     'no invented numbers',
     bareDigits(text, values),
     'Numbers come from the catalogue. Write {price_now}, {price_was} or {discount_pct} instead. ' +
-      "A figure that is part of the product's own name is fine; one that is not has to be substituted.",
+      "A figure that is part of the product's own name is fine; one that is not has to be substituted. " +
+      'If it is not a quantity at all — "3D", "24/7" — the check cannot tell, so rewrite the line without it. ' +
+      'The check stays strict on purpose: one price the shop never set costs more than one rephrasing.',
   )
 
   const unknown: string[] = []
@@ -224,6 +241,22 @@ export const blockers = (checks: Check[]) => checks.filter((c) => !c.pass)
  * number inside it.
  */
 export function fill(text: string, values: Record<string, unknown>): string {
+  // "{brand} {display_name}" reads as "APPLE Apple Airpods 4" on a catalogue
+  // whose titles already carry the brand — which is most of them. The model
+  // cannot see the resolved strings when it writes, so this is fixed here
+  // rather than in a prompt, and only when the name genuinely starts with the
+  // brand: "APPLE MacBook" keeps its brand, "Apple Airpods" drops the repeat.
+  const brand = String(values.brand ?? '').trim()
+  if (brand) {
+    text = text.replace(
+      /\{brand\}(\s+)\{(display_name|name_en)\}/g,
+      (whole, gap: string, field: string) => {
+        const name = String(values[field] ?? values.name_en ?? '').trim()
+        return new RegExp(`^${escapeRe(brand)}\\b`, 'i').test(name) ? `{${field}}` : whole
+      },
+    )
+  }
+
   return text.replace(TOKEN_RE, (whole, name: string) => {
     switch (name) {
       case 'price_now': return formatKwd(values.price_now) || whole
