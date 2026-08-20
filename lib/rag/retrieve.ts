@@ -20,7 +20,8 @@ export type Row = Record<string, unknown>
 export type Hit = {
   sku: string
   row: Row
-  score: number
+  /** How well this row matched. Not a judgement about the row — see rule 4. */
+  relevance: number
   /** Why this row came back, so a rep reading the transcript can tell. */
   why: 'sku' | 'lexical' | 'meaning'
 }
@@ -44,7 +45,7 @@ function terms(q: string): string[] {
   return norm(q).split(' ').filter((w) => w.length > 2 || /\d/.test(w))
 }
 
-function lexicalScore(q: string, p: Row): number {
+function lexicalMatch(q: string, p: Row): number {
   const hay = norm(rowText(p))
   const want = terms(q)
   if (!want.length) return 0
@@ -87,17 +88,17 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
     return sku.length > 2 && new RegExp(`\\b${sku}\\b`).test(asked)
   })
   if (exact.length) {
-    return exact.slice(0, limit).map((p) => ({ sku: String(p.sku), row: p, score: 1, why: 'sku' as const }))
+    return exact.slice(0, limit).map((p) => ({ sku: String(p.sku), row: p, relevance: 1, why: 'sku' as const }))
   }
 
   const lex = products
-    .map((p) => ({ sku: String(p.sku), row: p as Row, score: lexicalScore(question, p), why: 'lexical' as const }))
-    .filter((h) => h.score > 0)
-    .sort((a, b) => b.score - a.score)
+    .map((p) => ({ sku: String(p.sku), row: p as Row, relevance: lexicalMatch(question, p), why: 'lexical' as const }))
+    .filter((h) => h.relevance > 0)
+    .sort((a, b) => b.relevance - a.relevance)
 
   // A confident lexical match needs no model. "Do you have the Anker 542" is
   // answered by the words, and a round trip to the embedder buys nothing.
-  if ((lex[0]?.score ?? 0) >= 0.75) return lex.slice(0, limit)
+  if ((lex[0]?.relevance ?? 0) >= 0.75) return lex.slice(0, limit)
 
   let semantic: Hit[] = []
   try {
@@ -106,7 +107,7 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
     semantic = products.map((p, i) => ({
       sku: String(p.sku),
       row: p as Row,
-      score: cosine(qv, rest[i]),
+      relevance: cosine(qv, rest[i]),
       why: 'meaning' as const,
     }))
   } catch {
@@ -119,11 +120,11 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
   const best = new Map<string, Hit>()
   for (const h of [...lex, ...semantic]) {
     const prev = best.get(h.sku)
-    if (!prev || h.score > prev.score) best.set(h.sku, h)
+    if (!prev || h.relevance > prev.relevance) best.set(h.sku, h)
   }
 
   return [...best.values()]
-    .sort((a, b) => b.score - a.score)
-    .filter((h) => h.score >= 0.35)
+    .sort((a, b) => b.relevance - a.relevance)
+    .filter((h) => h.relevance >= 0.35)
     .slice(0, limit)
 }

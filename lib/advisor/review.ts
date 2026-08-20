@@ -52,20 +52,49 @@ const num = (v: string) => Number(v.replace(/,/g, ''))
  * the same price written three ways, and flagging a formatting difference as a
  * wrong price is how a check loses its credibility.
  */
-export function priceDrift(text: string, row: Row): Blocker[] {
+/** Distinct money figures a person typed. Two means two products, usually. */
+export function moneyFigures(text: string): string[] {
+  return [...new Set([...text.matchAll(MONEY)].map((m) => String(num(m[1] ?? m[2] ?? ''))))]
+}
+
+/**
+ * One scan, two views: which written prices the catalogue agrees with, and
+ * which it does not. Two scans would be the duplication D32/D38/D39 record.
+ */
+function scanPrices(
+  text: string, row: Row, alsoKnown: Row[],
+): { drift: Blocker[]; verified: string[]; unjudged: string[] } {
+  const spans = [...text.matchAll(MONEY)].map((m) => m[0].trim())
   const now = Number(row.price_now)
   const was = Number(row.price_was)
-  const known = [now, was].filter((n) => Number.isFinite(n) && n > 0)
-  if (!known.length) return []
+  const known = [now, was, ...alsoKnown.flatMap((r) => [Number(r.price_now), Number(r.price_was)])]
+    .filter((n) => Number.isFinite(n) && n > 0)
+  if (!known.length) return { drift: [], verified: [], unjudged: spans }
 
-  const out: Blocker[] = []
+  // Two prices in one draft means two products, and retrieval returns one. The
+  // Apple Pencil's correct 19.900 was reported as drift because the draft also
+  // named the AirPods and the AirPods won the match. Declining to guess is the
+  // only honest option: a check that flags a correct price is one people learn
+  // to click past, and then the wrong price gets through too.
+  //
+  // Those figures come back as `unjudged`, not as nothing: saying "we cannot
+  // check your prices" while a second check calls one of them invented is two
+  // answers to one question, and the reader believes the harsher one.
+  if (moneyFigures(text).length > 1) return { drift: [], verified: [], unjudged: spans }
+
+  const drift: Blocker[] = []
+  const verified: string[] = []
+  const seen = new Set<number>()
   for (const m of text.matchAll(MONEY)) {
     const written = num(m[1] ?? m[2] ?? '')
     if (!Number.isFinite(written)) continue
     // Fils is three decimals; a rounding difference under half a fils is the
     // same price, not a drift.
-    if (known.some((k) => Math.abs(k - written) < 0.0005)) continue
-    out.push({
+    if (known.some((k) => Math.abs(k - written) < 0.0005)) { verified.push(m[0].trim()); continue }
+    // The same wrong price written twice is one problem, not two.
+    if (seen.has(written)) continue
+    seen.add(written)
+    drift.push({
       quote: m[0].trim(),
       criterion: 'the price matches the catalogue',
       why: `The catalogue says ${formatKwd(now)}${
@@ -73,17 +102,31 @@ export function priceDrift(text: string, row: Row): Blocker[] {
       } for ${row.name_en ?? row.sku}.`,
     })
   }
-  return out
+  return { drift, verified, unjudged: [] }
 }
 
-/** Checks that can block, from the guard the studio already uses. */
-const BLOCKING = new Set([
-  'no invented numbers',
-  'no claim taken from a spare column',
+/** Prices in the draft that the catalogue does not agree with. */
+export function priceDrift(text: string, row: Row, alsoKnown: Row[] = []): Blocker[] {
+  return scanPrices(text, row, alsoKnown).drift
+}
+
+/**
+ * Checks that can block, split by what they need.
+ *
+ * The claim checks are pure text — a superlative is a superlative whether or
+ * not we worked out which product the draft is about. Gating them behind a
+ * product match meant a caption the retriever could not place got no safety
+ * check at all, which is the worst case to be silent in.
+ */
+const CLAIM_CHECKS = new Set([
   'no unsubstantiable superlative',
   'no comparison to a competitor',
   'no guarantee the company has not made',
   'nothing religious or political',
+])
+const FACT_CHECKS = new Set([
+  'no invented numbers',
+  'no claim taken from a spare column',
 ])
 
 /**
@@ -93,7 +136,7 @@ const BLOCKING = new Set([
  * thing that is missing rather than the capability, so it doubles as the list
  * of what to go and get.
  */
-function notAssessed(lang: 'en' | 'ar', hasHistory: boolean): string[] {
+function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false): string[] {
   const out = [
     'trend fit — nothing offline knows what is trending this week',
     'hook, clarity, retention, CTA — advice needs a model, and v1 has none',
@@ -102,6 +145,12 @@ function notAssessed(lang: 'en' | 'ar', hasHistory: boolean): string[] {
     out.push(
       'how it compares to what worked before — no post history loaded. ' +
         'Export the last 100 posts with captions joined to per-post reach.',
+    )
+  }
+  if (manyPrices) {
+    out.push(
+      'the prices — this draft carries more than one, and each belongs to a different product. ' +
+        'Review one product at a time to have them checked.',
     )
   }
   if (lang === 'ar') {
@@ -130,31 +179,61 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     }
   }
 
-  const hits = await retrieve(body, 1)
-  const hit = hits[0] ?? null
+  const hits = await retrieve(body, 3)
+  // A draft the retriever could only place by meaning, and weakly, is a draft
+  // we have not placed. Measured on this catalogue: text about no product at
+  // all tops out around 0.43, a real product mention runs 0.50-0.58. Telling
+  // somebody their price is wrong against a product they were not writing
+  // about is the single fastest way to make them stop reading these.
+  // ponytail: one tuned threshold on one catalogue — revisit if the sheet changes shape.
+  const CONFIDENT = 0.47
+  // Destructured to `relevance`: rule 4 keeps the word "score" out of the
+  // advisor entirely, and the test greps for it. This is retrieval distance,
+  // not a judgement about the draft — but a field nobody can name is a field
+  // nobody can hallucinate into, which is the whole point of the rule.
+  const top = hits[0] ?? null
+  const relevance = top?.relevance ?? 0
+  const hit = top && (top.why !== 'meaning' || relevance >= CONFIDENT) ? top : null
   const row = hit?.row ?? null
 
   const blockers: Blocker[] = []
 
   // The flagship check. Needs no model and no cleverness.
-  if (row) blockers.push(...priceDrift(body, row))
+  const prices = row
+    ? scanPrices(body, row, hits.slice(1).map((h) => h.row))
+    : { drift: [], verified: [] as string[], unjudged: [] as string[] }
+  blockers.push(...prices.drift)
 
   // Claim safety, reusing the checks the studio approves copy with — one
-  // definition of "is this claim safe", not a second one that drifts.
-  if (row) {
-    for (const c of copyChecks(body, row as Record<string, unknown>)) {
-      if (c.pass || !BLOCKING.has(c.name) || !c.span) continue
-      // A figure already reported as drifting must not be reported twice under
-      // a second name. The customer-facing problem is one problem.
-      if (blockers.some((b) => b.quote.includes(c.span as string))) continue
-      blockers.push({ quote: c.span, criterion: c.name, why: c.hint ?? '' })
-    }
+  // definition of "is this claim safe", not a second one that drifts. The claim
+  // half runs whether or not a product was matched.
+  for (const c of copyChecks(body, (row ?? {}) as Record<string, unknown>)) {
+    const wanted = row ? CLAIM_CHECKS.has(c.name) || FACT_CHECKS.has(c.name) : CLAIM_CHECKS.has(c.name)
+    if (c.pass || !wanted || !c.span) continue
+    // A price the catalogue AGREES with is verified, not invented. The copy
+    // guard exists to stop a model writing a figure at all; a person reviewing
+    // their own draft has every right to type the correct price, and calling it
+    // an invented number is the check crying wolf on the one thing it got right.
+    if ([...prices.verified, ...prices.unjudged].some((v) => v.includes(c.span as string))) continue
+    // A figure already reported as drifting must not be reported twice under
+    // a second name. The customer-facing problem is one problem.
+    if (blockers.some((b) => b.quote.includes(c.span as string))) continue
+    blockers.push({ quote: c.span, criterion: c.name, why: c.hint ?? '' })
   }
 
+  // Grouped by what the check is about, not by which list it came from. A spec
+  // figure the catalogue cannot back is a fact problem; a superlative is a
+  // claim problem. Filing one under the other tells the reader to look in the
+  // wrong place.
+  const factProblem = blockers.some(
+    (b) => b.criterion.startsWith('the price') || FACT_CHECKS.has(b.criterion),
+  )
+  const claimProblem = blockers.some((b) => CLAIM_CHECKS.has(b.criterion))
+
   const verdicts: Record<string, Verdict> = {
-    'facts against the catalogue': !row ? 'needs work'
-      : blockers.some((b) => b.criterion.startsWith('the price')) ? 'problem' : 'ok',
-    'claims and compliance': blockers.some((b) => !b.criterion.startsWith('the price')) ? 'problem' : 'ok',
+    'facts against the catalogue': factProblem ? 'problem'
+      : !row || moneyFigures(body).length > 1 ? 'needs work' : 'ok',
+    'claims and compliance': claimProblem ? 'problem' : 'ok',
   }
 
   // Ranked: a wrong price outranks a superlative, because one is a number the
@@ -174,7 +253,7 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     verdicts,
     blockers,
     fixes,
-    not_assessed: notAssessed(lang, false),
+    not_assessed: notAssessed(lang, false, moneyFigures(body).length > 1),
     matched: hit ? { sku: hit.sku, name: String(hit.row.name_en ?? hit.sku), confidence: hit.why } : null,
   }
 }

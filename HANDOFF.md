@@ -92,6 +92,16 @@ The other two pillars and the loop. Each has an honest stub page saying what it 
 - **Rule 4 is asserted, not just intended.** A test greps the module and the page for `score`, `rating` and `grade` outside comments and fails if any appears.
 - **`not_assessed` is printed.** Trend fit, hook and clarity, comparison to past posts, and — for an Arabic draft — whether it reads Kuwaiti or reads translated. Silence there would read as a pass.
 
+**Five false positives found by using it, all fixed** — each one was the check crying wolf, which is the failure that makes people stop reading it:
+
+- A **correct** price flagged as an invented number. The copy guard exists to stop a *model* writing a figure; a person reviewing their own draft has every right to type the right price. A price the catalogue agrees with is verified, not invented.
+- **A draft carrying two prices** was judged against one product, so the Apple Pencil's correct 19.900 read as drift because the AirPods won the match. It now declines and says so in `not_assessed` — a check that flags a correct price gets clicked past, and then the wrong one gets through too.
+- **Claim checks were gated behind a product match**, so a caption the retriever could not place got no safety check at all. They are pure text and now always run.
+- **A weak semantic match was presented as the product.** Measured: text about no product tops out near 0.43, a real mention runs 0.50–0.58. Below the bar it reports no match rather than guessing.
+- **The same wrong price twice** was two blockers. One problem.
+
+A spec figure and a superlative also used to be filed under the same heading; facts and claims are now grouped by what the check is about.
+
 **Measured** on a deliberately bad caption: four blockers, each quoting its own span, three ranked fixes with the wrong price first.
 
 ---
@@ -139,7 +149,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **281 assertions, 0 failures**, 9 suites |
+| `npm test` | **295 assertions, 0 failures**, 9 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |

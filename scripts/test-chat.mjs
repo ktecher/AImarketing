@@ -78,13 +78,13 @@ ok('citing nothing is grounded',        isGrounded(citedSkus('We are open until 
 ok('the same SKU twice is one citation', citedSkus('{price_now:502037} {price_was:502037}').length === 1)
 
 console.log('\n--- the fact sheet ---')
-const sheet = factSheet([{ sku: '502037', row: PENCIL, score: 1, why: 'sku' }])
+const sheet = factSheet([{ sku: '502037', row: PENCIL, relevance: 1, why: 'sku' }])
 ok('the sheet names the price field',   sheet.includes('write {price_now:502037}'))
 ok('the sheet never carries the figure', !sheet.includes('19.9') && !sheet.includes('40.5'),
    'showing a model a number it may not repeat is asking it to paraphrase one')
 ok('a spare sheet column is not offered', !sheet.includes('Monthly Installment'))
 ok('the identity fields are offered',   sheet.includes('Apple Pencil'))
-const plainSheet = factSheet([{ sku: 'P1', row: PLAIN, score: 1, why: 'sku' }])
+const plainSheet = factSheet([{ sku: 'P1', row: PLAIN, relevance: 1, why: 'sku' }])
 ok('no was-price means no was token',   !plainSheet.includes('price_was'))
 ok('no discount means no discount token', !plainSheet.includes('discount_pct'))
 
