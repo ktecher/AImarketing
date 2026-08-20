@@ -1,78 +1,166 @@
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import sharp from 'sharp'
 import { NextResponse } from 'next/server'
 import { readForm, readJson, isResponse } from '@/lib/http'
 import { parseWorkbook } from '@/lib/excel/parse'
 import { catalogueSize, reachable } from '@/lib/db'
-import { edit, embedPending, list, upsert, type Editable } from '@/lib/catalogue'
+import {
+  add, asShopPrices, asRenderPrices, embedPending, listFiltered, remove, sameValue, saveEdits, upsert,
+  type Editable,
+} from '@/lib/catalogue'
 
 export const runtime = 'nodejs'
 // Thousands of rows, embedded in batches. The client keeps asking until done.
 export const maxDuration = 600
 
-/** A page of the catalogue, or the state of an empty one. */
-export async function GET(req: Request) {
-  const url = new URL(req.url)
+const photoPath = (sku: string) => join(process.cwd(), 'data/samples/images', `${sku}.png`)
 
-  if (!(await reachable())) {
-    return NextResponse.json(
-      { up: false, error: 'Postgres is not answering. Run: brew services start postgresql@17' },
-      { status: 503 },
-    )
-  }
-
-  const { rows, total } = await list({
-    search: url.searchParams.get('q') ?? '',
-    limit: Number(url.searchParams.get('limit') ?? 50),
-    offset: Number(url.searchParams.get('offset') ?? 0),
-  })
-  return NextResponse.json({ up: true, rows, total, all: await catalogueSize() })
+/** Which fields a person has changed since the last sheet said otherwise. */
+function editedFields(row: Record<string, unknown>): string[] {
+  const sheet = (row.sheet_values ?? {}) as Record<string, unknown>
+  return Object.keys(sheet).filter((k) => !sameValue(row[k], sheet[k]))
 }
 
-/** Upload the full catalogue, or embed the next batch. */
-export async function POST(req: Request) {
-  if (!(await reachable())) {
-    return NextResponse.json(
-      { error: 'Postgres is not answering. Run: brew services start postgresql@17' },
-      { status: 503 },
-    )
-  }
+const down = () =>
+  NextResponse.json(
+    { up: false, error: 'Postgres is not answering. Run: npm run db:up' },
+    { status: 503 },
+  )
 
-  // Embedding is driven from the client so a few thousand rows do not sit
-  // inside one request that a browser will give up on. Each call does a batch
-  // and says how many are left.
-  if (req.headers.get('content-type')?.includes('application/json')) {
-    const { action } = (await readJson(req)) as { action?: string }
-    if (action !== 'embed') return NextResponse.json({ error: 'Unknown action.' }, { status: 400 })
-    try {
-      return NextResponse.json(await embedPending())
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not embed.'
-      return NextResponse.json(
-        { error: /fetch failed|ECONNREFUSED/i.test(msg) ? 'Ollama is not answering on localhost. Run: brew services start ollama' : msg },
-        { status: 500 },
-      )
+export async function GET(req: Request) {
+  const q = new URL(req.url).searchParams
+  if (!(await reachable())) return down()
+
+  const { rows, total, categories, brands } = await listFiltered({
+    search: q.get('q') ?? '',
+    category: q.get('category') ?? undefined,
+    brand: q.get('brand') ?? undefined,
+    onSale: q.get('onSale') === '1',
+    outOfStock: q.get('outOfStock') === '1',
+    edited: q.get('edited') === '1',
+    noPhoto: q.get('noPhoto') === '1',
+    sort: q.get('sort') ?? undefined,
+    dir: q.get('dir') === 'asc' ? 'asc' : 'desc',
+    limit: Number(q.get('limit') ?? 20),
+    offset: Number(q.get('offset') ?? 0),
+  })
+
+  // Photo presence and the shop's price vocabulary are added here rather than
+  // in SQL: one is the filesystem and the other is a translation the database
+  // should not know about.
+  const dressed = rows.map((r) => ({
+    ...r,
+    ...asShopPrices(r),
+    has_photo: existsSync(photoPath(r.sku)),
+    edited: editedFields(r as unknown as Record<string, unknown>),
+  }))
+
+  const shown = q.get('noPhoto') === '1' ? dressed.filter((r) => !r.has_photo) : dressed
+
+  return NextResponse.json({
+    up: true,
+    rows: shown,
+    total: q.get('noPhoto') === '1' ? shown.length : total,
+    all: await catalogueSize(),
+    categories,
+    brands,
+  })
+}
+
+export async function POST(req: Request) {
+  if (!(await reachable())) return down()
+  const type = req.headers.get('content-type') ?? ''
+
+  if (type.includes('application/json')) {
+    const body = (await readJson(req)) as Record<string, unknown>
+
+    // Embedding is driven from the client so a few thousand rows do not sit
+    // inside one request a browser will give up on.
+    if (body.action === 'embed') {
+      try {
+        return NextResponse.json(await embedPending())
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not embed.'
+        return NextResponse.json(
+          { error: /fetch failed|ECONNREFUSED/i.test(msg) ? 'Ollama is not answering on localhost. Run: brew services start ollama' : msg },
+          { status: 500 },
+        )
+      }
     }
+
+    if (body.action === 'add') {
+      const r = body.row as Record<string, string>
+      if (!r?.sku?.trim() || !r?.name_en?.trim()) {
+        return NextResponse.json({ error: 'A SKU and a name are needed.' }, { status: 400 })
+      }
+      const price = Number(String(r.price ?? '').replace(/[^\d.]/g, ''))
+      if (!Number.isFinite(price) || price < 0) {
+        return NextResponse.json({ error: `"${r.price}" is not a price.` }, { status: 400 })
+      }
+      const sale = String(r.sale_price ?? '').trim()
+        ? Number(String(r.sale_price).replace(/[^\d.]/g, '')) : null
+      const made = await add(
+        { ...r, sku: r.sku.trim(), name_en: r.name_en.trim(), price, sale_price: sale },
+        'a colleague',
+      )
+      if (!made) return NextResponse.json({ error: `${r.sku} is already in the catalogue.` }, { status: 409 })
+      return NextResponse.json({ row: made })
+    }
+
+    return NextResponse.json({ error: 'Unknown action.' }, { status: 400 })
   }
 
   const form = await readForm(req)
   if (isResponse(form)) return form
+
+  // A replacement photo for one product.
+  const sku = String(form.get('sku') ?? '').trim()
   const file = form.get('file')
   if (!(file instanceof File)) return NextResponse.json({ error: 'No file was uploaded.' }, { status: 400 })
+
+  if (sku) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(sku)) {
+      return NextResponse.json({ error: 'That is not a SKU.' }, { status: 400 })
+    }
+    if (!/\.(png|jpe?g|webp|avif|tiff?)$/i.test(file.name)) {
+      return NextResponse.json({ error: `"${file.name}" is not an image.` }, { status: 400 })
+    }
+    try {
+      mkdirSync(join(process.cwd(), 'data/samples/images'), { recursive: true })
+      // Same normalisation the import uses: 600px PNG, because the renderer
+      // embeds these as data URIs. Two paths writing different shapes is how a
+      // poster ends up correct from one source and wrong from the other.
+      await sharp(Buffer.from(await file.arrayBuffer()))
+        .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toFile(photoPath(sku))
+      return NextResponse.json({ replaced: sku })
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'That image could not be read.' },
+        { status: 400 },
+      )
+    }
+  }
+
+  // Otherwise: the whole catalogue as a sheet.
   if (!/\.xlsx?$/i.test(file.name)) {
     return NextResponse.json(
       { error: `"${file.name}" is not an Excel file. Export the sheet as .xlsx and try again.` },
       { status: 400 },
     )
   }
-
   try {
     const { products, issues } = await parseWorkbook(await file.arrayBuffer())
-    const { written } = await upsert(products)
+    const { written, overwrote, restored } = await upsert(products)
     return NextResponse.json({
       written,
       total: await catalogueSize(),
       errors: issues.filter((i) => i.severity === 'error').length,
       warnings: issues.filter((i) => i.severity === 'warning').length,
-      issues: issues.slice(0, 50),
+      overwrote,
+      restored,
     })
   } catch (e) {
     return NextResponse.json(
@@ -82,36 +170,67 @@ export async function POST(req: Request) {
   }
 }
 
-/** Change a price, fix a name, or mark something out of stock. */
+/**
+ * Save a page of staged edits.
+ *
+ * Nothing in the table writes on its own — a person edits freely and presses
+ * Save once. All of it lands or none of it does.
+ */
 export async function PUT(req: Request) {
-  const { sku, patch, by } = (await readJson(req)) as {
-    sku?: string; patch?: Partial<Record<Editable, string | number | boolean | null>>; by?: string
+  if (!(await reachable())) return down()
+  const { changes, by } = (await readJson(req)) as {
+    changes?: { sku: string; patch: Record<string, string | boolean | null> }[]
+    by?: string
   }
-  if (!sku || !patch) return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
+  if (!changes?.length) return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 })
 
-  // A price is three-decimal fils and must arrive as a number. "12,500" and
-  // "12.5 KD" both mean something here and neither is a number yet.
-  const clean: Record<string, string | number | boolean | null> = {}
-  for (const [k, v] of Object.entries(patch)) {
-    if (k === 'price_now' || k === 'price_was') {
-      if (v === '' || v === null) { clean[k] = null; continue }
-      const n = Number(String(v).replace(/[^\d.]/g, ''))
-      if (!Number.isFinite(n) || n < 0) {
-        return NextResponse.json({ error: `"${v}" is not a price.` }, { status: 400 })
+  const clean: { sku: string; patch: Partial<Record<Editable, string | number | boolean | null>> }[] = []
+  for (const c of changes) {
+    if (!c?.sku) continue
+    const patch: Record<string, string | number | boolean | null> = {}
+
+    // Price and sale price arrive in shop language and have to become the two
+    // fields the renderer binds. Both are sent together or neither makes sense.
+    if ('price' in c.patch || 'sale_price' in c.patch) {
+      const num = (v: unknown) => {
+        const t = String(v ?? '').trim()
+        if (!t) return null
+        const n = Number(t.replace(/[^\d.]/g, ''))
+        return Number.isFinite(n) && n >= 0 ? n : NaN
       }
-      clean[k] = n
-    } else if (k === 'in_stock') {
-      clean[k] = Boolean(v)
-    } else {
-      clean[k] = v === '' ? null : String(v)
+      const price = num(c.patch.price)
+      const sale = num(c.patch.sale_price)
+      if (Number.isNaN(price) || Number.isNaN(sale)) {
+        return NextResponse.json({ error: `"${c.patch.price ?? c.patch.sale_price}" is not a price.` }, { status: 400 })
+      }
+      Object.assign(patch, asRenderPrices(price, sale))
     }
+    for (const k of ['name_en', 'name_ar', 'display_name', 'category'] as const) {
+      if (k in c.patch) patch[k] = String(c.patch[k] ?? '') || null
+    }
+    if ('in_stock' in c.patch) patch.in_stock = Boolean(c.patch.in_stock)
+
+    if (Object.keys(patch).length) clean.push({ sku: c.sku, patch })
   }
 
   try {
-    const row = await edit(sku, clean, (by ?? '').trim() || 'a colleague')
-    if (!row) return NextResponse.json({ error: 'No such product.' }, { status: 404 })
-    return NextResponse.json({ row })
+    const { saved } = await saveEdits(clean, (by ?? '').trim() || 'a colleague')
+    return NextResponse.json({ saved })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not save.' }, { status: 500 })
   }
+}
+
+/** Delete a product. What it already produced is kept. */
+export async function DELETE(req: Request) {
+  if (!(await reachable())) return down()
+  const { sku } = (await readJson(req)) as { sku?: string }
+  if (!sku) return NextResponse.json({ error: 'Which product?' }, { status: 400 })
+
+  const gone = await remove(sku)
+  if (!gone) return NextResponse.json({ error: 'No such product.' }, { status: 404 })
+  // The photo goes with it; nothing else does. Posters already exported and
+  // conversations that cited it record what actually happened.
+  rmSync(photoPath(sku), { force: true })
+  return NextResponse.json({ deleted: sku })
 }

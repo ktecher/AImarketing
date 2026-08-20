@@ -430,3 +430,27 @@ table.drift td:first-child { width: 72px; }
 .drift-change { display: block; }
 .drift-change b { font-weight: 560; }
 .drift-change s { color: var(--muted); }
+
+/* --- Products: filters, staged edits, the save bar --- */
+.filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 14px 0 10px; }
+.filters input[type=search] { flex: 1 1 260px; }
+.filters select { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: inherit; font: inherit; font-size: 13px; }
+.filters .sub { margin-left: auto; }
+.savebar { position: sticky; top: 0; z-index: 5; display: flex; gap: 10px; align-items: center;
+  padding: 10px 12px; margin-bottom: 10px; border-radius: 9px;
+  background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+.savebar span { font-size: 13px; font-weight: 560; }
+.savebar .btn { margin-left: auto; }
+input.cell.dirty { border-color: var(--warn); background: var(--warn-bg); }
+/* A field a person changed and the sheet has not overwritten. Small on purpose:
+   it is a footnote until you go looking for it. */
+.mark { color: var(--warn); font-size: 15px; line-height: 1; cursor: help; margin-left: 3px; }
+.sortable { background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+.sortable:hover { color: var(--accent); }
+.danger-link { color: var(--err); }
+.fld { display: flex; flex-direction: column; gap: 3px; flex: 1 1 130px; }
+.fld input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--bg); color: inherit; font: inherit; font-size: 13px; }
+.fld input:focus { outline: none; border-color: var(--accent); }

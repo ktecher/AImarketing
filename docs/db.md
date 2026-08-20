@@ -136,6 +136,7 @@ before the first row existed.
 | `sku` as primary key | Upsert by SKU. A re-imported sheet **updates** a product rather than creating a second one |
 | A row the sheet omits is **left alone** | A supplier sending a partial price list must not empty the shop |
 | `in_stock` a real column | Not a spare sheet column. The assistant may speak this and may not speak those — D48 |
+| `sheet_values jsonb` | What the last sheet supplied, so a hand edit is visible and reversible. Prices stored as TEXT: jsonb keeps 5.500 as a number and JSON.parse hands JavaScript 5.5, so an untouched row compared unequal to itself |
 | `category_path` stored | The sheet's own tree. The only thing separating a laptop from a laptop sleeve, and how "do you sell laptops" finds a MacBook whose name never says laptop |
 
 ### Deliberately absent, and not oversights
@@ -150,6 +151,32 @@ before the first row existed.
 - **No column called `price`.** Templates and copy bind `price_now` or
   `price_was`. A single `price` is the pre-discount figure a customer will not
   be charged.
+
+---
+
+## Who wins, the sheet or a person
+
+**Last write wins, by time.** A hand fix beats the sheet that came before it; a
+newer sheet beats the fix that came before *it*. That is what somebody expects
+from the most recent thing they did, and it needs no rule to remember.
+
+What it does need is to be **visible**. `sheet_values` holds what the last sheet
+supplied, so:
+
+- a field a person changed carries a mark, and the hover says what the sheet said
+- the import reports *"this sheet replaced 4 fields you had edited"*, listing them
+- the **edited by hand** filter shows everything that disagrees with your supplier
+
+`sameValue()` is the only comparison, used by the import and the table alike.
+Two of them in two files drifted immediately: a re-import once claimed to have
+overwritten **119** corrections that were never made, because one side had the
+price as `5.5` and the other as `"5.500"`.
+
+**Deleting is real.** A later sheet carrying the same SKU brings the product
+back, and the import says so — suppliers keep discontinued items in their files
+for months, and knowing that is more useful than a tool that silently
+re-deletes. What the product already made is kept: posters exported, copy
+approved, conversations that cited it.
 
 ---
 
