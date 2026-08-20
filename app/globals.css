@@ -387,3 +387,33 @@ input[type=search]:focus { outline: none; border-color: var(--accent); }
   background: var(--panel); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
 .chip:hover:not(:disabled) { border-color: var(--accent); }
 .chip:disabled { opacity: .45; cursor: default; }
+
+/* --- Hiding the sidebar --- */
+.side-toggle { position: fixed; top: 14px; left: 14px; z-index: 20;
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
+  color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
+.side-toggle:hover { color: var(--accent); border-color: var(--accent); }
+/* Sits over the sidebar's own padding when open, so it never moves. A control
+   that jumps to a new place when you use it has to be found again each time. */
+:root[data-side="off"] .side-toggle { left: 14px; }
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.side .brand { padding-left: 34px; }
+/* ONE column, not `0 1fr`. With the sidebar display:none and the toggle taken
+   out of flow by position:fixed, the only child left is the content — and in a
+   two-column track it lands in the first one, which was 0px wide. Every word
+   wrapped onto its own line. */
+:root[data-side="off"] .shell { grid-template-columns: 1fr; }
+:root[data-side="off"] .side { display: none; }
+:root[data-side="off"] .shell-main main { padding-left: 52px; }
+
+@media (max-width: 900px) {
+  .side-toggle { position: static; margin-right: 4px; }
+  .side .brand { padding-left: 8px; }
+  :root[data-side="off"] .side { display: flex; }
+  :root[data-side="off"] .side .side-group,
+  :root[data-side="off"] .side .side-foot { display: none; }
+  :root[data-side="off"] .shell-main main { padding-left: 20px; }
+}

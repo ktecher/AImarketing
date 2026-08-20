@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 
 /**
@@ -47,10 +47,40 @@ const GROUPS: { title: string; items: { href: string; label: string; hint: strin
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
   const path = usePathname()
+  // Seeded from the attribute the head script already set, so the first render
+  // agrees with what is on screen and React has nothing to correct.
+  const [open, setOpen] = useState(true)
+
+  useEffect(() => {
+    setOpen(document.documentElement.getAttribute('data-side') !== 'off')
+  }, [])
+
+  const toggle = useCallback(() => {
+    setOpen((was) => {
+      const now = !was
+      document.documentElement.setAttribute('data-side', now ? 'on' : 'off')
+      try { localStorage.setItem('side', now ? 'on' : 'off') } catch { /* private window */ }
+      return now
+    })
+  }, [])
 
   return (
     <div className="shell">
-      <aside className="side">
+      {/* Outside the sidebar, so it is still reachable once the sidebar is
+          gone. One control in one place beats a second button appearing
+          somewhere else when the first one disappears. */}
+      <button
+        className="side-toggle"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls="staff-nav"
+        title={open ? 'Hide the menu' : 'Show the menu'}
+      >
+        <span aria-hidden>{open ? '⟨' : '⟩'}</span>
+        <span className="sr">{open ? 'Hide the menu' : 'Show the menu'}</span>
+      </button>
+
+      <aside className="side" id="staff-nav">
         <a className="brand" href="/">AImarketing</a>
 
         {GROUPS.map((g) => (

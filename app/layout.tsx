@@ -16,7 +16,27 @@ export const metadata = {
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning because the head script below deliberately
+    // mutates <html> before React hydrates. React compares the server HTML with
+    // what it finds and reports a mismatch it cannot patch — true, and expected:
+    // the whole point is that the attribute is set before React exists. Scoped
+    // to this element only; it does not silence anything inside the app.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          Set before first paint, not in an effect.
+          Every link here is a plain <a>, so navigating is a full page load. Read
+          in an effect, the sidebar would flash open on every single click before
+          collapsing again — worse than not having the toggle.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{if(localStorage.getItem('side')==='off')" +
+              "document.documentElement.setAttribute('data-side','off')}catch(e){}",
+          }}
+        />
+      </head>
       <body>
         {children}
       </body>
