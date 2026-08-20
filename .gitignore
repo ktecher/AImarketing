@@ -48,11 +48,13 @@ renders/
 # Same rule as the sheet: competitive information, never committed.
 retailer-products/
 
-# Brand artwork is embedded in the template SVG, and the overrides carry real
-# SKUs. `npx tsx scripts/make-template-svg.mjs` rebuilds the poster from
-# data/samples/, so a clone regenerates what it needs.
-data/templates/*.svg
-data/templates/*.overrides.json
+# A template is its SVG plus its manifest, and the SVG carries the brand artwork
+# embedded as base64 — company IP. Committing the manifest alone leaves an orphan
+# that is useless to a colleague and used to 500 the template list. So the whole
+# folder goes, and a clone starts empty: upload your own artwork on the Designs
+# page and the app builds the template from it.
+data/templates/*
+!data/templates/.gitkeep
 
 # Build artifact, rewritten by every typecheck
 tsconfig.tsbuildinfo
