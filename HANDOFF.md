@@ -8,8 +8,8 @@ State of the project as of 2026-08-20. Read `CLAUDE.md` for the rules, `docs/dec
 
 ```sh
 brew services start ollama          # models already pulled, ~19 GB on disk
-brew services start postgresql@17   # the full catalogue lives here
-createdb aimarketing && npm run db:migrate
+npm run db:up                       # Postgres in Docker, pinned to pg17
+npm run db:migrate                  # once, and after any db/*.sql change
 npm run dev                         # http://localhost:3000
 npm test                            # 165 assertions across 6 suites
 npm run typecheck
@@ -23,6 +23,10 @@ npm run typecheck
 | **The full catalogue** | Everything the shop sells, in Postgres, uploaded and edited on *Products*. The assistant and the advisor read it, because a customer or a caption can be about anything in stock |
 
 Before this split the assistant only knew the sixty products in the current campaign, and escalated on everything else — correctly, and uselessly.
+
+**Postgres runs in Docker**, `pgvector/pgvector:pg17`, bound to `127.0.0.1` and pinned. Three reasons, all concrete: pgvector was not installed on the Homebrew Postgres at all (`pg_available_extensions` had no `vector` row) and `architecture.md` wants it once the catalogue is thousands of rows; a clone runs `npm run db:up` instead of installing a database; and a pinned tag cannot be dragged to Postgres 18 by an unrelated `brew upgrade`, which CLAUDE.md warns about by name. Nothing uses the extension yet — vectors are a `real[]` column and cosine runs in TypeScript, which is microseconds at a few thousand rows. Having it present makes adding an index an `ALTER` rather than an afternoon.
+
+The volume is named, so `docker compose down` keeps the catalogue and only `down -v` throws it away.
 
 The database exists for **writes**, not size. A person editing one price must not rewrite twenty megabytes, and two people editing must not lose one of each other's changes. The vectors surviving a restart is the second reason: 60 rows embed in 2.2s, but 5,000 take about three minutes and 20 MB, and re-deriving that on every restart is the thing a `real[]` column exists to stop.
 

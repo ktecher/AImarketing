@@ -1,0 +1,45 @@
+# Postgres for the full catalogue.
+#
+# `pgvector/pgvector:pg17` rather than plain `postgres:17` because pgvector is
+# not installed on this machine's Homebrew Postgres — `pg_available_extensions`
+# has no row for `vector` — and it is what architecture.md calls for once the
+# catalogue is thousands of rows. Nothing uses the extension yet: vectors are a
+# `real[]` column and cosine runs in TypeScript, which is microseconds at a few
+# thousand. Having it present means adding an index later is an ALTER rather
+# than an afternoon reinstalling a database.
+#
+# The tag is pinned. CLAUDE.md: "Do not `brew upgrade postgresql` — pgvector has
+# an open issue on Postgres 18." An unrelated `brew upgrade` cannot reach this.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: aimarketing-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aimarketing
+      POSTGRES_USER: aimarketing
+      POSTGRES_PASSWORD: aimarketing
+    ports:
+      # Bound to loopback, never 0.0.0.0. The catalogue is competitive
+      # information and this port must not be reachable from the office wifi.
+      #
+      # 5432 by default, so a fresh clone needs no configuration. Set
+      # DB_PORT in .env where 5432 is already taken — on the machine this was
+      # built on it is the Homebrew Postgres, and 5433 is another project.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - catalogue:/var/lib/postgresql/data
+    healthcheck:
+      # `npm run db:migrate` runs the moment this reports healthy, and Postgres
+      # accepts connections for a moment during init before it is really ready.
+      test: ["CMD-SHELL", "pg_isready -U aimarketing -d aimarketing"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  # Named, so `docker compose down` keeps the catalogue and only
+  # `docker compose down -v` throws it away. Worth knowing before typing it.
+  catalogue:

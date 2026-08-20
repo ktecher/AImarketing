@@ -9,7 +9,12 @@
 
 import { Pool } from 'pg'
 
-const DSN = process.env.DATABASE_URL ?? 'postgresql://localhost:5432/aimarketing'
+// Matches docker-compose.yml, so a clone works with no .env at all:
+// `docker compose up -d && npm run db:migrate` and the app connects. Set
+// DATABASE_URL for anything else — a Homebrew Postgres on trust auth, or a
+// different port where 5432 is already taken.
+const DSN =
+  process.env.DATABASE_URL ?? 'postgresql://aimarketing:aimarketing@127.0.0.1:5432/aimarketing'
 
 function assertLocal(url: string): void {
   let host: string

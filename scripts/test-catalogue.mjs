@@ -1,6 +1,12 @@
 // The full catalogue: upsert by SKU, edits, and what an edit does to a vector.
 // Needs Postgres. Skips cleanly when it is not running, because a missing
 // database is a state on somebody else's machine and not a failed test.
+// Next loads .env for the app; a plain node script does not. Without this the
+// suite connected to whatever is on the default port, failed to authenticate,
+// and SKIPPED — seventeen assertions quietly stopped running and the total
+// still looked fine.
+try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
+
 const { reachable, query } = await import('../lib/db.ts')
 if (!(await reachable())) {
   console.log('\n--- catalogue ---\nskipped: Postgres is not running (brew services start postgresql@17)')

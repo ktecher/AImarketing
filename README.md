@@ -29,17 +29,24 @@ ollama pull bge-m3
 ollama pull gemma-4-12b
 ollama pull hf.co/mradermacher/Fanar-1-9B-Instruct-GGUF
 
-createdb aimarketing
 ```
 
-Add pgvector only when the corpus reaches thousands of rows:
+The full catalogue runs in Docker, pinned and bound to loopback:
 
 ```sh
-brew install pgvector && brew services restart postgresql@17
-psql aimarketing -c 'CREATE EXTENSION vector;'
+npm run db:up        # pgvector/pgvector:pg17 on 127.0.0.1:5432
+npm run db:migrate   # once, and after any change to db/*.sql
 ```
 
-**Do not `brew upgrade postgresql`** — pgvector has an open issue on Postgres 18.
+Set `DB_PORT` and `DATABASE_URL` in `.env` if 5432 is already taken.
+
+pgvector ships in the image, unused for now: vectors are a `real[]` column and
+cosine runs in TypeScript, which is microseconds at a few thousand rows. Turn it
+on when the corpus reaches thousands — `CREATE EXTENSION vector`, an `ALTER`, and
+a backfill from the column that already holds the floats.
+
+The image tag is pinned, which is what keeps CLAUDE.md's warning about Postgres
+18 from mattering.
 
 Resident model budget is 12–15 GB, not 24. A dense 27B loads on a quiet machine
 and does not survive a demo.
