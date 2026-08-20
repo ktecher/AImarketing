@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+type Drift = {
+  sku: string; template_id: string; name: string; exported_at: string
+  changed: Record<string, { was: string; now: string }>
+}
 type Report = { slot: string; truncated?: boolean; shrunkTo?: number; empty?: boolean; missingImage?: boolean; boxTooShort?: { need: number; have: number }; literalText?: { printing: string; insteadOf: string } }
 type Result = { sku: string; name: string; report: Report[]; png?: string; overridden?: boolean }
 type Tpl = { id: string; name: string; slots: string[]; width: number; height: number }
@@ -45,6 +49,9 @@ export default function Templates() {
   const [error, setError] = useState('')
   const [onlyFlagged, setOnlyFlagged] = useState(false)
   const [faults, setFaults] = useState<Report[]>([])
+  const [drift, setDrift] = useState<Drift[]>([])
+  const [watching, setWatching] = useState(true)
+  const [showDrift, setShowDrift] = useState(false)
   const [formats, setFormats] = useState<string[]>(['png'])
   const [exportWidth, setExportWidth] = useState(0)
   const [exporting, setExporting] = useState(false)
@@ -206,6 +213,23 @@ export default function Templates() {
 
   useEffect(() => { void render(active, 0, true) }, [active, render])
 
+  /**
+   * Which already-downloaded designs have gone stale.
+   *
+   * Re-checked after every export, because exporting is exactly what makes the
+   * warning go away and a banner that lingers after you have fixed it is a
+   * banner people learn to ignore.
+   */
+  const checkDrift = useCallback(async (id: string) => {
+    try {
+      const d = await fetch(`/api/assets?templateId=${encodeURIComponent(id)}`).then((r) => r.json())
+      setWatching(d.watching !== false)
+      setDrift(d.drift ?? [])
+    } catch { setWatching(false) }
+  }, [])
+
+  useEffect(() => { void checkDrift(active) }, [active, checkDrift])
+
   async function download() {
     setExporting(true); setError('')
     try {
@@ -228,6 +252,8 @@ export default function Templates() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed.')
     }
+    // The export just refreshed every design it wrote, so re-ask.
+    void checkDrift(active)
     setExporting(false)
   }
 
@@ -549,6 +575,49 @@ export default function Templates() {
             PDF is RGB — good for approvals, not a print master.
           </p>
         </div>
+      )}
+
+      {drift.length > 0 && (
+        <div className="notice warn-notice" role="alert" style={{ marginBottom: 14 }}>
+          <b>
+            {drift.length} exported {drift.length === 1 ? 'design carries' : 'designs carry'} a
+            value that has since changed.
+          </b>
+          <p style={{ margin: '4px 0 0' }}>
+            The figures in those files are pixels. Download them again to bring them up to date.
+          </p>
+          <p style={{ margin: '8px 0 0' }}>
+            <button className="linkish" onClick={() => setShowDrift((v) => !v)}>
+              {showDrift ? 'hide them' : 'show me which'}
+            </button>
+          </p>
+          {showDrift && (
+            <table className="drift">
+              <tbody>
+                {drift.map((d) => (
+                  <tr key={`${d.sku}:${d.template_id}`}>
+                    <td className="mono">{d.sku}</td>
+                    <td>{d.name}</td>
+                    <td>
+                      {Object.entries(d.changed).map(([slot, c]) => (
+                        <span key={slot} className="drift-change">
+                          <b>{slot}</b> <s>{c.was}</s> → {c.now}
+                        </span>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {!watching && (
+        <p className="sub">
+          Designs already downloaded are not being watched for price changes — Postgres is not
+          running. Start it with <code>npm run db:up</code>.
+        </p>
       )}
 
       {faults.length > 0 && (

@@ -179,6 +179,62 @@ export function importedProducts(): Record<string, string | number>[] {
   return (lastImport()?.products ?? []).map((p) => flatten(p, names))
 }
 
+/**
+ * The campaign, priced from the catalogue.
+ *
+ * Two sources used to disagree about the same product: the sheet said 19.9 and
+ * the Products tab said 19.900, and editing a price there changed nothing on a
+ * poster. That makes "12 designs are out of date" meaningless — the design was
+ * never reading the price that moved.
+ *
+ * One rule settles it: **the sheet says WHICH products are in the campaign, the
+ * catalogue says WHAT THEY COST.** A product the catalogue has not heard of
+ * keeps the sheet's price, so a campaign can still be run before the full
+ * catalogue is uploaded.
+ *
+ * Only the fields a person can edit on the Products tab are overlaid. Nothing
+ * else the catalogue holds reaches a poster from here.
+ */
+export async function campaignProducts(): Promise<Record<string, string | number>[]> {
+  const rows = importedProducts()
+  if (!rows.length) return rows
+
+  try {
+    const { query } = await import('@/lib/db')
+    const priced = await query<{
+      sku: string; price_now: string | null; price_was: string | null
+      name_en: string | null; display_name: string | null; in_stock: boolean
+    }>('select sku, price_now, price_was, name_en, display_name, in_stock from products')
+    if (!priced.length) return rows
+
+    const byId = new Map(priced.map((r) => [String(r.sku), r]))
+    return rows.map((p) => {
+      const c = byId.get(String(p.sku))
+      if (!c) return p
+      const out = { ...p }
+      if (c.price_now !== null) out.price_now = Number(c.price_now)
+      // Null, not absent: a product taken off sale in the catalogue must lose
+      // its struck-through price on the poster rather than keep the sheet's.
+      out.price_was = c.price_was === null ? '' : Number(c.price_was)
+      if (c.name_en) out.name_en = c.name_en
+      if (c.display_name) out.display_name = c.display_name
+      // display_name falls back to the title in the renderer (D47), so an
+      // emptied short name must not resolve to the sheet's stale one.
+      else if (c.name_en) out.display_name = names(String(p.sku)) || c.name_en
+      out.in_stock = c.in_stock ? 1 : 0
+      return out
+    })
+  } catch {
+    // No database or Postgres down. The sheet still renders, exactly as before.
+    return rows
+  }
+}
+
+/** A saved short name, or empty. Kept here so the overlay uses one lookup. */
+function names(sku: string): string {
+  return displayNames()[sku] ?? ''
+}
+
 /** Sample values for previewing a template, from the real sheet where possible. */
 export function sampleValues(): Record<string, string | number | undefined> {
   const imported = lastImport()

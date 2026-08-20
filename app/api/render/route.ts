@@ -1,7 +1,7 @@
 import { Resvg } from '@resvg/resvg-js'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
-import { importedProducts } from '@/lib/template/columns'
+import { campaignProducts } from '@/lib/template/columns'
 import { readJson } from '@/lib/http'
 
 export const runtime = 'nodejs'
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   // No products given means "the catalogue we last imported".
   const all: ProductValues[] = Array.isArray(products) && products.length
     ? (products as ProductValues[])
-    : importedProducts()
+    : await campaignProducts()
 
   const from = Number(offset ?? 0)
   const rows = all.slice(from, from + Number(limit ?? all.length))

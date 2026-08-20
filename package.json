@@ -8,10 +8,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/make-fixture.mjs && tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs && tsx scripts/test-chat.mjs && tsx scripts/test-advisor.mjs && tsx scripts/test-catalogue.mjs",
+    "test": "tsx scripts/make-fixture.mjs && tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs && tsx scripts/test-chat.mjs && tsx scripts/test-advisor.mjs && tsx scripts/test-catalogue.mjs && tsx scripts/test-assets.mjs",
     "render:demo": "tsx scripts/render-demo.mjs",
     "template:build": "tsx scripts/make-template-svg.mjs",
-    "db:migrate": "docker compose exec -T db psql -U aimarketing -d aimarketing -v ON_ERROR_STOP=1 < db/001_products.sql",
+    "db:migrate": "for f in db/*.sql; do docker compose exec -T db psql -U aimarketing -d aimarketing -v ON_ERROR_STOP=1 -f - < \"$f\" || exit 1; done",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down"
   },

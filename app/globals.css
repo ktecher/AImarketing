@@ -417,3 +417,11 @@ input[type=search]:focus { outline: none; border-color: var(--accent); }
   :root[data-side="off"] .side .side-foot { display: none; }
   :root[data-side="off"] .shell-main main { padding-left: 20px; }
 }
+
+/* --- Designs that have gone out of date --- */
+table.drift { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+table.drift td { padding: 5px 8px 5px 0; vertical-align: top; border-top: 1px solid var(--line); }
+table.drift td:first-child { width: 72px; }
+.drift-change { display: block; }
+.drift-change b { font-weight: 560; }
+.drift-change s { color: var(--muted); }

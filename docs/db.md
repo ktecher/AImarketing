@@ -183,6 +183,41 @@ is why the catalogue is additive rather than a migration of the file store.
 
 ---
 
+## Designs that have gone out of date
+
+A rendered poster is pixels. Prices move weekly, so a folder of two hundred
+designs rots quietly and the first person to notice is a customer reading last
+month's figure off an ad. `architecture.md` calls this **the sharpest gap in the
+system**. The Products tab is what turned it from theoretical into live.
+
+`assets` records one row per product per template — the latest export is the one
+that is out there. `bound_values` holds **what the renderer actually painted**,
+slot by slot, not the row it painted from: comparing anything else means
+formatting a second time, and a quantity derived twice is the bug this project
+has shipped four times.
+
+**Staleness is a re-render, not a price comparison.** `drifted()` runs the
+export's own code path in memory and stops one step short of writing a file. A
+design can go stale because a price moved, but equally because somebody fixed a
+name, shortened it for the poster, or took a product off sale — anything a slot
+binds. A price-only check reports clean on a poster carrying the wrong name.
+Verified: changing one price surfaced both the price **and** the discount badge,
+which `-51%` to `-64%` would have hidden.
+
+**The rule that makes any of it coherent:** the sheet says WHICH products are in
+the campaign, the catalogue says WHAT THEY COST. Before it, the sheet held
+`19.9` and the catalogue `19.900` for the same product, designs rendered from
+the sheet, and editing a price changed nothing on a poster — so "12 designs are
+out of date" would have been describing a price the design never read.
+`campaignProducts()` overlays the editable fields and nothing else. A product
+the catalogue has not heard of keeps the sheet's price, so a campaign still runs
+before the full catalogue is uploaded.
+
+Re-exporting clears the warning, because the export rewrites the row. Verified
+both directions.
+
+---
+
 ## Traps
 
 - **A node script does not load `.env`; Next does.** The catalogue test suite
@@ -214,7 +249,6 @@ from `architecture.md`, and each is irrecoverable for the same reason:
 | Table | Must have from row one |
 |---|---|
 | `messages` | `provenance jsonb` — `{retrieved_ids, cited_ids, model, prompt_version}`; `sender ∈ customer\|bot\|rep`; `channel`; `external_id` |
-| `assets` | `bound_values jsonb` — which rendered designs carry a price that has since changed |
 | `content_pieces` | `status`, `source`, `model`, `prompt_version`, `campaign_id` |
 | `leads` | `campaign_id` |
 | `templates` | `manifest_version` |
@@ -223,12 +257,4 @@ from `architecture.md`, and each is irrecoverable for the same reason:
 The shapes already exist in TypeScript — `lib/chat/store.ts` writes exactly the
 `messages` columns above — so moving them is a translation rather than a design.
 
-**The one that is now urgent.** Editing a price in the Products tab makes every
-already-exported poster carrying the old price wrong, and nothing tracks which.
-`assets.bound_values` is the column that answers *"12 designs carry a price that
-has changed"* and offers a re-render. `architecture.md` calls it **the sharpest
-gap in the system**: *"Without it the flagship output rots silently, and the
-first real failure is an ad carrying last month's price. That is the kind of
-failure that gets a system switched off permanently."*
-
-The editing tab is what made that gap live rather than theoretical.
+`assets` is **done** — `db/002_assets.sql`. See below.

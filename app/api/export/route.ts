@@ -1,9 +1,10 @@
 import JSZip from 'jszip'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
-import { importedProducts } from '@/lib/template/columns'
+import { campaignProducts } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
 import { readJson } from '@/lib/http'
+import { recordExport } from '@/lib/assets'
 
 export const runtime = 'nodejs'
 export const maxDuration = 600
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const shape = templateShape(template.svg)
   const [tw, th] = [shape.width, shape.height]
 
-  const all = importedProducts()
+  const all = await campaignProducts()
   const rows: ProductValues[] = skus?.length ? all.filter((p) => skus.includes(String(p.sku))) : all
   if (!rows.length) return Response.json({ error: 'Nothing to export — import a product sheet first.' }, { status: 400 })
 
@@ -37,6 +38,9 @@ export async function POST(req: Request) {
 
   try {
   const flagged: { sku: string; issues: string[] }[] = []
+  // What each design actually carries, so a later price change can be traced to
+  // the posters that are now wrong. Collected as we go and written once.
+  const baked: { sku: string; templateId: string; bound: Record<string, string> }[] = []
   // Faults in the template, not in a product. Identical on every row that
   // follows it, so collected once and printed at the TOP of the note: a slot
   // printing one product's words on all sixty is not a footnote.
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
     const sku = String(p.sku ?? '')
     const { svg, manifest, overridden } = layoutFor(template, shape, overrides[sku])
 
-    const { svg: rendered, report, templateFaults } = renderProduct(svg, manifest, p, f, {
+    const { svg: rendered, report, templateFaults, resolved } = renderProduct(svg, manifest, p, f, {
       mode: 'auto',
       images: productImage(sku) ? { image: productImage(sku) as string } : {},
     })
@@ -66,6 +70,8 @@ export async function POST(req: Request) {
           : `${r.slot}: box is ${r.boxTooShort?.have}px, needs ${r.boxTooShort?.need}px for ${manifest.slots.find((s) => s.id === r.slot)?.maxLines ?? 1} line(s) at its size`,
       )
     }
+
+    baked.push({ sku, templateId: id, bound: resolved })
 
     if (report.length) {
       flagged.push({
@@ -101,6 +107,17 @@ export async function POST(req: Request) {
   ]
   zip.file('README.txt', lines.join('\n'))
 
+  // After the ZIP is built, never before: a failed export must not leave a
+  // record claiming designs are out there that nobody has.
+  let recorded = 0
+  try {
+    recorded = await recordExport(baked, { formats: wanted, width: px })
+  } catch {
+    // No database is not a reason to fail an export. The designs are correct;
+    // only the ability to notice them going stale is missing, and the header
+    // below says so rather than implying they are being watched.
+  }
+
   const blob = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
   return new Response(new Uint8Array(blob), {
     headers: {
@@ -108,6 +125,7 @@ export async function POST(req: Request) {
       'Content-Disposition': `attachment; filename="${id}-${rows.length}-designs.zip"`,
       'X-Needs-Attention': String(flagged.length),
       'X-Template-Faults': String(faults.length),
+      'X-Recorded': String(recorded),
     },
   })
   } catch (e) {
