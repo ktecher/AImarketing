@@ -1,16 +1,244 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AImarketing — glassmorphism tokens (blue & white)
+ *
+ * REPLACES the `:root { … }` block and the `@media (prefers-color-scheme: dark)`
+ * block at the very top of app/globals.css. Everything below that first
+ * `html, body { margin: 0 }` line stays where it is; 02-glass-layer.css then
+ * restyles those existing classes.
+ *
+ * The repo's own token names (--bg, --panel, --ink, --muted, --line, --accent,
+ * --warn, --err, --ok) are kept so every existing rule keeps working. The glass
+ * properties are new additions.
+ *
+ * Scheme selection is `data-theme` on <html>: "glass" (light) or "deep" (dark).
+ * Absent, prefers-color-scheme decides — see the head script in
+ * 03-staff-layout-patch.md.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
 *, *::before, *::after { box-sizing: border-box; }
+
 :root {
-  --bg: #fbfbfa; --panel: #fff; --ink: #1a1a19; --muted: #6b6b68;
-  --line: #e4e4e1; --accent: #1b5e4a; --warn: #8a6d1f; --warn-bg: #fdf6e3;
-  --err: #a03232; --err-bg: #fdeceb; --ok: #1b5e4a;
+  /* ── Light: accent #0a5c9c, blue glass on a near-white ground ───────────── */
+  --accent-raw: #0a5c9c;
+  --paper: #ffffff;
+
+  /* --accent is a TEXT colour (links, .kv b, active nav). It is darker than
+     --accent-raw, which stays the FILL colour for buttons and the slot label.
+     At --accent-raw the links measured 3.16:1 over a bloom. */
+  --accent:  #084b80;
+  --accent-2: color-mix(in srgb, var(--accent-raw) 62%, #2a9ae0);
+  --ok:      var(--accent-raw);
+  --ink:     #072130;
+  --muted:   #2b5474;
+
+  /* the ground: three accent blooms over a near-white wash. The blooms are what
+     the panels blur — a flat colour here makes every panel read as grey. */
+  --bg:
+    radial-gradient(58rem 40rem at 6% -8%,   color-mix(in srgb, var(--accent-raw) 22%, transparent), transparent 62%),
+    radial-gradient(46rem 34rem at 97% 2%,   color-mix(in srgb, var(--accent-raw) 24%, transparent), transparent 60%),
+    radial-gradient(54rem 42rem at 60% 110%, color-mix(in srgb, var(--accent-raw) 19%, transparent), transparent 62%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent-raw) 4.14%, var(--paper)) 0%,
+      color-mix(in srgb, var(--accent-raw) 7.82%, var(--paper)) 100%);
+  /* a flat stand-in for the few places that need a solid colour (scrollbars,
+     print, the fallback below) */
+  --bg-flat: color-mix(in srgb, var(--accent-raw) 6%, var(--paper));
+
+  /* glass tone: accent mixed into paper, then faded. Panels are blue GLASS,
+     not white cards — white panels drain the blue out of the whole design. */
+  /* A weaker tone at a higher opacity: the panel is the same COLOUR it was
+     over the pale ground, but it no longer transmits the bloom underneath it.
+     That transmission is what put 11px text at 2.6:1. */
+  --tone:   color-mix(in srgb, var(--accent-raw) 30%, var(--paper));
+  --panel:  color-mix(in srgb, var(--tone) 80%, transparent);
+  --field:  var(--paper);
+  --side:   color-mix(in srgb, var(--tone) 78%, transparent);
+
+  --line:       color-mix(in srgb, var(--paper) 20%, transparent);
+  --line-soft:  color-mix(in srgb, var(--paper) 12%, transparent);
+  /* --line is decorative (panel edges). A control's border is the only thing
+     that says where the control is, so it needs 3:1 — WCAG 1.4.11. */
+  --line-strong: color-mix(in srgb, var(--accent-raw) 82%, transparent);
+  --gloss:      inset 0 1px 0 color-mix(in srgb, var(--paper) 12.4%, transparent);
+  --shadow:     0 10px 34px color-mix(in srgb, var(--accent-raw) 26%, transparent);
+  /* 15% put .notice / .badge.live / .tag.mapped text at 4.58:1 — inside the
+     margin of error. A lighter wash buys headroom and reads the same. */
+  --tint:       color-mix(in srgb, var(--accent-raw) 10%, transparent);
+
+  --btn-bg:   var(--accent-raw);
+  --btn-ink:  #fff;
+  --btnshadow: 0 6px 16px color-mix(in srgb, var(--accent-raw) 30%, transparent),
+               inset 0 1px 0 rgba(255,255,255,.28);
+  --btnhover:  0 10px 24px color-mix(in srgb, var(--accent-raw) 40%, transparent),
+               inset 0 1px 0 rgba(255,255,255,.34);
+
+  --blur: saturate(165%) blur(19px);
+  --stagebg: color-mix(in srgb, var(--paper) 70%, transparent);
+
+  --warn: #6b4600;  --warn-bg: rgba(255,206,120,.24);
+  --err:  #8a1f28;  --err-bg:  rgba(214,120,120,.18);
+  /* text ON --err. A literal here rather than a mix: it is a text colour on a
+     known fill, and it must invert with the scheme like --btn-ink does. */
+  --err-ink: #fff;
+
+  /* the sidebar reads its own tokens — see the note in 02-glass-layer.css */
+  --side-ink:    #083a5f;
+  --side-muted:  #2b5474;
+  --side-tint:   color-mix(in srgb, var(--accent-raw) 10%, transparent);
+  --side-accent: var(--accent-raw);
+
+  /* shape + density */
+  --r:  7px;   /* panels, cards, tables, figures */
+  --rs: 4px;   /* buttons, inputs, chips — round(--r × 0.61), min 2 */
+  --pad:    24px;
+  --gap:    18px;
+  --rowpad: 12px;
+
+  /* type */
+  --font-h: var(--font-heading), system-ui, sans-serif;
+  --font-b: var(--font-body), system-ui, sans-serif;
+
   color-scheme: light dark;
 }
+
+/* ── Deep: accent #00355f, frosted near-white panels on navy ──────────────── */
+:root[data-theme="deep"] {
+  --accent-raw: #00355f;
+  --paper: #eaf6ff;
+
+  /* the accent inverts role: it becomes the ground and the button TEXT, while a
+     pale blue derived from it carries links and labels */
+  --accent:   color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+  --accent-2: color-mix(in srgb, var(--accent-raw) 8%,  #f4fbff);
+  --ok:       color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+  --ink:      #f4fafe;
+  --muted:    #bdd6ea;
+
+  --bloom: color-mix(in srgb, color-mix(in srgb, var(--accent-raw) 62%, #7ec4ff) 55%, transparent);
+  --bg:
+    radial-gradient(58rem 40rem at 6% -8%,   var(--bloom), transparent 60%),
+    radial-gradient(46rem 34rem at 97% 2%,   var(--bloom), transparent 58%),
+    radial-gradient(54rem 42rem at 60% 110%, var(--bloom), transparent 62%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent-raw) 47.8%, #000414) 0%,
+      color-mix(in srgb, var(--accent-raw) 21%,   #000210) 100%);
+  --bg-flat: color-mix(in srgb, var(--accent-raw) 40%, #000414);
+
+  --tone:  color-mix(in srgb, var(--accent-raw) 90%, var(--paper));
+  /* --tone is now a genuinely DARK pane (90% accent-raw), which is what lets
+     the opacity go up. At the handoff's pale tone, raising opacity made the
+     panel lighter — backwards for a dark scheme, and why 18% felt like a floor.
+     At 18% body copy measured 4.46:1 over a bloom centre. */
+  --panel: color-mix(in srgb, var(--tone) 65%, transparent);
+  --field: color-mix(in srgb, var(--tone) 84%, transparent);
+  --side:  color-mix(in srgb, var(--tone) 60%, transparent);
+
+  --line:      color-mix(in srgb, var(--paper) 20%, transparent);
+  --line-strong: color-mix(in srgb, var(--paper) 55%, transparent);
+  --line-soft: color-mix(in srgb, var(--paper) 12%, transparent);
+  --gloss:     inset 0 1px 0 color-mix(in srgb, var(--paper) 19%, transparent);
+  --shadow:    0 14px 44px color-mix(in srgb, var(--accent-raw) 40%, rgba(0,4,12,.42));
+  --tint:      color-mix(in srgb, var(--paper) 8%, transparent);
+
+  /* #00355f as a fill on this ground disappears — the primary button flips */
+  --btn-bg:  var(--paper);
+  --btn-ink: var(--accent-raw);
+  --btnshadow: 0 8px 20px rgba(0,10,20,.34),
+               inset 0 -1px 0 color-mix(in srgb, var(--accent-raw) 14%, transparent);
+  --btnhover:  0 12px 28px rgba(0,10,20,.42),
+               inset 0 -1px 0 color-mix(in srgb, var(--accent-raw) 16%, transparent);
+
+  --blur: saturate(150%) blur(19px);
+  --stagebg: color-mix(in srgb, var(--paper) 90%, transparent);
+
+  --warn: #ffcf7a;  --warn-bg: rgba(255,196,92,.14);
+  --err:  #ffb3ad;  --err-bg:  rgba(255,120,110,.14);
+  --err-ink: #2a0e10;
+
+  --side-ink:    #f4fafe;
+  --side-muted:  #bdd6ea;
+  --side-tint:   color-mix(in srgb, var(--paper) 18%, transparent);
+  --side-accent: color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+}
+
+/* First visit with no stored choice follows the OS. The head script writes an
+   explicit data-theme as soon as the user picks, and an explicit
+   data-theme="glass" wins over this block. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #17181a; --panel: #1f2022; --ink: #e8e8e6; --muted: #9a9a96;
-    --line: #303134; --accent: #6bbfa1; --warn: #d9b45c; --warn-bg: #2a2413;
-    --err: #e08b84; --err-bg: #2c1a19; --ok: #6bbfa1;
+  :root:not([data-theme="glass"]):not([data-theme="now"]) {
+    --accent-raw: #00355f;
+    --paper: #eaf6ff;
+    --accent:   color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+    --accent-2: color-mix(in srgb, var(--accent-raw) 8%,  #f4fbff);
+    --ok:       color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+    --ink: #f4fafe; --muted: #bdd6ea;
+    --bloom: color-mix(in srgb, color-mix(in srgb, var(--accent-raw) 62%, #7ec4ff) 55%, transparent);
+    --bg:
+      radial-gradient(58rem 40rem at 6% -8%,   var(--bloom), transparent 60%),
+      radial-gradient(46rem 34rem at 97% 2%,   var(--bloom), transparent 58%),
+      radial-gradient(54rem 42rem at 60% 110%, var(--bloom), transparent 62%),
+      linear-gradient(180deg,
+        color-mix(in srgb, var(--accent-raw) 47.8%, #000414) 0%,
+        color-mix(in srgb, var(--accent-raw) 21%,   #000210) 100%);
+    --bg-flat: color-mix(in srgb, var(--accent-raw) 40%, #000414);
+    --tone:  color-mix(in srgb, var(--accent-raw) 90%, var(--paper));
+    --panel: color-mix(in srgb, var(--tone) 65%, transparent);
+    --field: color-mix(in srgb, var(--tone) 84%, transparent);
+    --side:  color-mix(in srgb, var(--tone) 60%, transparent);
+    --line:      color-mix(in srgb, var(--paper) 20%, transparent);
+  --line-strong: color-mix(in srgb, var(--paper) 55%, transparent);
+    --line-soft: color-mix(in srgb, var(--paper) 12%, transparent);
+    --gloss:     inset 0 1px 0 color-mix(in srgb, var(--paper) 19%, transparent);
+    --shadow:    0 14px 44px color-mix(in srgb, var(--accent-raw) 40%, rgba(0,4,12,.42));
+    --tint:      color-mix(in srgb, var(--paper) 8%, transparent);
+    --btn-bg: var(--paper); --btn-ink: var(--accent-raw);
+    --btnshadow: 0 8px 20px rgba(0,10,20,.34),
+                 inset 0 -1px 0 color-mix(in srgb, var(--accent-raw) 14%, transparent);
+    --btnhover:  0 12px 28px rgba(0,10,20,.42),
+                 inset 0 -1px 0 color-mix(in srgb, var(--accent-raw) 16%, transparent);
+    --blur: saturate(150%) blur(19px);
+    --stagebg: color-mix(in srgb, var(--paper) 90%, transparent);
+    --warn: #ffcf7a; --warn-bg: rgba(255,196,92,.14);
+    --err: #ffb3ad;  --err-bg: rgba(255,120,110,.14);
+    --err-ink: #2a0e10;
+    --side-ink: #f4fafe;
+    --side-muted:  #bdd6ea;
+    --side-tint:   color-mix(in srgb, var(--paper) 18%, transparent);
+    --side-accent: color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
   }
+}
+
+/* ── Scheme C: the pre-restyle green build, for side-by-side comparison ────── */
+:root[data-theme="now"] {
+  --bg: #fbfbfa; --bg-flat: #fbfbfa; --panel: #fff; --field: #fbfbfa; --side: #fff;
+  --ink: #1a1a19; --muted: #6b6b68; --line: #e4e4e1; --line-soft: #e4e4e1;
+  --line-strong: #9a9a96;
+  --accent: #1b5e4a; --accent-2: #1b5e4a; --ok: #1b5e4a;
+  --tint: rgba(27,94,74,.10); --btn-bg: #1b5e4a; --btn-ink: #fff;
+  --warn: #8a6d1f; --warn-bg: #fdf6e3; --err: #a03232; --err-bg: #fdeceb; --err-ink: #fff;
+  --blur: none; --shadow: none; --gloss: none; --btnshadow: none;
+  --btnhover: 0 2px 6px rgba(0,0,0,.10); --stagebg: #fff;
+  --r: 10px; --rs: 7px; --pad: 20px; --gap: 14px; --rowpad: 7px;
+  --font-h: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-b: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --side-ink: #1a1a19; --side-muted: #6b6b68;
+  --side-tint: rgba(27,94,74,.10); --side-accent: #1b5e4a;
+}
+
+/* Where backdrop-filter is unavailable, panels have to carry their own opacity
+   or they are unreadable over the blooms. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --panel: color-mix(in srgb, var(--tone) 96%, transparent);
+          --field: var(--paper);
+          --side:  color-mix(in srgb, var(--tone) 95%, transparent); }
+  /* :root:not(...) and not [data-theme="deep"] — the attribute selector alone
+     misses the OS-dark-with-no-stored-choice path, which is how the danger
+     button came to be white on pink. Same shape as the @media block above. */
+  :root[data-theme="deep"],
+  :root:not([data-theme="glass"]):not([data-theme="now"]) {
+    --panel: color-mix(in srgb, var(--tone) 88%, transparent);
+    --field: color-mix(in srgb, var(--tone) 94%, transparent);
+    --side:  color-mix(in srgb, var(--tone) 86%, transparent); }
 }
 html, body { margin: 0; padding: 0; }
 body {
@@ -57,7 +285,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 20px 14px; display: flex; flex-direction: column; gap: 18px; }
 .side .brand { display: block; text-decoration: none; color: var(--ink);
   font-weight: 620; font-size: 15px; padding: 0 8px; }
-.side-group h2 { margin: 0 0 4px; padding: 0 8px; font-size: 10.5px; font-weight: 560;
+.side-group-title { margin: 0 0 4px; padding: 0 8px; font-size: 10.5px; font-weight: 560;
   letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .side-group a { display: block; text-decoration: none; color: inherit;
   padding: 6px 8px; border-radius: 7px; border-left: 2px solid transparent; }
@@ -84,7 +312,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap;
     align-items: center; gap: 10px; border-right: 0; border-bottom: 1px solid var(--line); }
   .side-group { display: flex; align-items: center; gap: 4px; }
-  .side-group h2 { display: none; }
+  .side-group-title { display: none; }
   .side-group a { border-left: 0; border-bottom: 2px solid transparent; padding: 4px 8px; }
   .side-group a.on { border-left: 0; border-bottom-color: var(--accent); }
   .side-group a span { display: none; }
@@ -391,38 +619,6 @@ input[type=search]:focus { outline: none; border-color: var(--accent); }
 .chip:hover:not(:disabled) { border-color: var(--accent); }
 .chip:disabled { opacity: .45; cursor: default; }
 
-/* --- Hiding the sidebar --- */
-.side-toggle { position: fixed; top: 14px; left: 14px; z-index: 20;
-  width: 26px; height: 26px; display: grid; place-items: center;
-  border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
-  color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
-.side-toggle:hover { color: var(--accent); border-color: var(--accent); }
-/* Sits over the sidebar's own padding when open, so it never moves. A control
-   that jumps to a new place when you use it has to be found again each time. */
-:root[data-side="off"] .side-toggle { left: 14px; }
-.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-
-.side .brand { padding-left: 34px; }
-/* ONE column, not `0 1fr`. With the sidebar display:none and the toggle taken
-   out of flow by position:fixed, the only child left is the content — and in a
-   two-column track it lands in the first one, which was 0px wide. Every word
-   wrapped onto its own line. */
-:root[data-side="off"] .shell { grid-template-columns: 1fr; }
-:root[data-side="off"] .side { display: none; }
-/* Enough room for the toggle, taken symmetrically so the content stays
-   centred rather than nudged right by the button. */
-:root[data-side="off"] .shell-main main { padding-left: 52px; padding-right: 52px; }
-
-@media (max-width: 900px) {
-  .side-toggle { position: static; margin-right: 4px; }
-  .side .brand { padding-left: 8px; }
-  :root[data-side="off"] .side { display: flex; }
-  :root[data-side="off"] .side .side-group,
-  :root[data-side="off"] .side .side-foot { display: none; }
-  :root[data-side="off"] .shell-main main { padding-left: 20px; padding-right: 20px; }
-}
-
 /* --- Designs that have gone out of date --- */
 table.drift { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
 table.drift td { padding: 5px 8px 5px 0; vertical-align: top; border-top: 1px solid var(--line); }
@@ -454,3 +650,476 @@ input.cell.dirty { border-color: var(--warn); background: var(--warn-bg); }
 .fld input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--bg); color: inherit; font: inherit; font-size: 13px; }
 .fld input:focus { outline: none; border-color: var(--accent); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * AImarketing — glass layer
+ *
+ * APPEND to the end of app/globals.css, after 01-tokens.css has replaced the
+ * token block at the top. Every selector here already exists in the repo — this
+ * file only restyles them. Nothing is renamed, no markup changes are required
+ * except the two in 03-staff-layout-patch.md (fonts + the theme switch).
+ *
+ * The one repeated recipe: a glass surface carries all four properties
+ * together — background, backdrop-filter (+ -webkit-), a hairline border, and
+ * shadow + gloss. Drop any one of them and it stops reading as glass.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+body {
+  background: var(--bg);
+  background-attachment: fixed;      /* the blooms stay put while content scrolls */
+  color: var(--ink);
+  font: 15px/1.55 var(--font-b);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 { font-family: var(--font-h); font-size: 34px; font-weight: 600; letter-spacing: 0; margin: 0 0 8px; }
+h2 { font-family: var(--font-h); font-size: 20px; font-weight: 600; margin: 34px 0 12px; }
+h3 { font-family: var(--font-h); font-weight: 600; }
+p.sub { color: var(--muted); margin: 0 0 26px; max-width: 70ch; text-wrap: pretty; }
+p, .card p, .hint, .list li { text-wrap: pretty; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-2); }
+
+::selection { background: var(--tint); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+main { max-width: 1180px; padding: 46px 36px 90px; }
+.shell-main main { max-width: 1180px; padding: 46px 36px 90px; }
+main.wide { max-width: 1440px; }
+
+button, a, .card, .convo, .render, .chip, .fmt, .btn {
+  transition: transform .16s ease, box-shadow .18s ease, background .18s ease,
+              border-color .18s ease, color .18s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  button, a, .card, .convo, .render, .chip, .fmt, .btn { transition: none; }
+  .card:hover, .convo:hover, .render:hover, .btn:hover { transform: none; }
+}
+
+/* ── Panels, cards, figures ───────────────────────────────────────────────── */
+
+.panel, .scroll, .starter, .piece, .verdict, .convo, .export,
+.notice, .card, .render img, .live, .stage {
+  border-radius: var(--r);
+}
+
+.panel, .starter, .piece, .verdict, .export, .scroll {
+  background: var(--panel);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow), var(--gloss);
+  padding: var(--pad);
+}
+.starter { padding: 18px 22px; }
+.piece   { padding: 16px 18px; }
+.verdict { padding: 13px 16px; }
+.panel.compact { padding: 18px 20px; }
+
+.cards { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: var(--gap); }
+.card {
+  background: var(--panel);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow), var(--gloss);
+  padding: 20px 22px;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card h3 { margin: 12px 0 5px; font-size: 19px; }
+.card p  { font-size: 13.5px; line-height: 1.5; }
+.pillar  { font-size: 11px; letter-spacing: .07em; }
+
+/* Posters are print artwork: they keep a white bed and are never tinted. */
+.renders { grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 22px; }
+.render {
+  padding: 12px;
+  background: var(--panel);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--shadow), var(--gloss);
+}
+.render:hover { transform: translateY(-2px); }
+.render img { border-radius: 10px; border: 0; background: #fff; }
+.render figcaption { padding: 10px 4px 2px; font-size: 12.5px; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.btn {
+  background: var(--btn-bg); color: var(--btn-ink);
+  padding: 10px 18px; border-radius: var(--rs);
+  box-shadow: var(--btnshadow);
+  font-size: 14px; font-weight: 600;
+}
+.btn:hover { filter: none; color: var(--btn-ink); transform: translateY(-1px); box-shadow: var(--btnhover); }
+.btn:active { transform: translateY(0); }
+.btn.small { padding: 8px 15px; font-size: 13px; }
+.btn.danger-btn { background: var(--err); color: var(--err-ink); }
+
+/* the repo's chip is the secondary button */
+.chip {
+  background: var(--field); color: inherit;
+  border: 1px solid var(--line-strong); border-radius: var(--rs);
+  box-shadow: var(--gloss);
+  padding: 10px 16px; font-size: 13.5px;
+}
+.chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+.chip.on { border-color: var(--accent); color: var(--accent); background: var(--tint); }
+.chip.add { border-style: dashed; background: transparent; box-shadow: none; }
+.chip.danger { border-color: var(--err); color: var(--err); background: transparent; }
+.chip.danger:hover { background: var(--err-bg); border-color: var(--err); color: var(--err); }
+.chip:disabled { opacity: .5; }
+
+.linkish { color: var(--accent); font-size: 12px; }
+.danger-link { color: var(--err); }
+
+/* ── Fields ───────────────────────────────────────────────────────────────── */
+
+.fld > span { font-size: 11px; letter-spacing: .05em; color: var(--muted); }
+.fld > span b { color: var(--ink); }
+.fld textarea, .fld select, .fld input[type=text], .fld input[type=number],
+.fld input, .advisor textarea, #draft, .filters select, input[type=search],
+.chat-box input, .names table input[type=text] {
+  background: var(--field); color: var(--ink);
+  /* --line-strong, not --line: a field's border is the only thing that says
+     where the field is. Against the panel, --line measured 1.1:1. */
+  border: 1px solid var(--line-strong); border-radius: var(--rs);
+  font: inherit;
+}
+.fld textarea, .fld select, .fld input[type=text] { padding: 10px 12px; font-size: 13.5px; }
+.fld input[type=number] { padding: 8px 10px; font-size: 13px; }
+input[type=search] {
+  padding: 11px 14px;
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.filters select { padding: 11px 12px; font-size: 13px; }
+.fld input:focus, input[type=search]:focus, .fld textarea:focus, .fld select:focus,
+#draft:focus, .chat-box input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--tint);
+}
+.fld input[type=range] { accent-color: var(--accent); }
+.fld input[type=color] { background: var(--field); border-color: var(--line); border-radius: var(--rs); height: 32px; }
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
+
+/* staged edit cells */
+input.cell:hover { border-color: var(--line); }
+input.cell:focus { border-color: var(--accent); background: var(--field); box-shadow: none; }
+input.cell.dirty { border-color: var(--warn); background: var(--warn-bg); }
+
+.drop {
+  background: var(--panel); border: 1.5px dashed var(--line); border-radius: var(--r);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.drop:hover, .drop[data-over="true"] { border-color: var(--accent); background: var(--tint); }
+
+/* selectable cards: export formats, channels */
+.fmt-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.fmt {
+  background: var(--field); border: 1px solid var(--line);
+  border-radius: var(--rs); padding: 13px 15px;
+}
+.fmt:hover { border-color: var(--accent); }
+.fmt.on { border-color: var(--accent); background: var(--tint); box-shadow: var(--gloss); }
+.fmt b { font-size: 13.5px; }
+.fmt span { font-size: 11.5px; }
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+
+/* The catalogue has eight columns; below ~840px they used to clip. The wrapper
+   scrolls instead. */
+.scroll { overflow-x: auto; overflow-y: hidden; padding: 0; }
+.scroll table, table.catalogue { min-width: 840px; }
+
+th, td, table.catalogue td { border-bottom: 1px solid var(--line); }
+th, table.catalogue th {
+  font-family: var(--font-b);
+  font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+}
+td, table.catalogue td { padding: var(--rowpad) 16px; font-size: 13.5px; }
+table.catalogue tbody tr:hover { background: var(--tint); }
+.sortable { font-size: 11px; letter-spacing: .06em; }
+.sortable:hover { color: var(--accent); }
+.mono { font-size: 12px; color: var(--muted); }
+table.drift td { border-top: 1px solid var(--line); }
+
+.stats { gap: 38px; margin: 22px 0; }
+.stat b { font-family: var(--font-h); font-size: 34px; font-weight: 600; }
+.stat span { font-size: 11.5px; letter-spacing: .06em; }
+
+.kv { border-bottom: 1px solid var(--line); padding: 9px 0; font-size: 13.5px; }
+
+/* ── Callouts, badges, tags ───────────────────────────────────────────────── */
+
+.savebar, .mode-bar, .notice, .issue, .err {
+  border-radius: var(--rs);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.savebar, .mode-bar { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); padding: 12px 16px; }
+.notice { background: var(--tint); color: var(--accent); border: 1px solid var(--line); padding: 12px 16px; }
+.notice.warn-notice { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.issue.warning { background: var(--warn-bg); color: var(--warn); }
+.issue.error   { background: var(--err-bg);  color: var(--err); }
+
+.badge { padding: 3px 9px; border-radius: 999px; font-size: 10.5px; letter-spacing: .06em; }
+.badge.live { background: var(--tint); color: var(--accent);
+              /* .live is also the render-preview <img> class, which is
+                 display:block;width:100% — it outranks .badge on the pill. */
+              display: inline-block; width: auto; }
+.tag { border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 11.5px; }
+.tag.mapped { border-color: var(--accent); color: var(--accent); background: var(--tint); }
+
+/* ── The staff shell ──────────────────────────────────────────────────────── */
+
+.shell { grid-template-columns: 264px 1fr; }
+
+.side {
+  width: 264px;
+  padding: 22px 16px;
+  gap: 22px;
+  background: var(--side);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border-right: 1px solid var(--line-soft);
+  box-shadow: var(--gloss);
+}
+.side .brand {
+  font-family: var(--font-h); font-size: 21px; font-weight: 600;
+  color: var(--side-ink); letter-spacing: .01em;
+}
+.side-group-title {
+  font-family: var(--font-b);
+  margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .09em; color: var(--side-muted);
+}
+.side-group a {
+  position: relative; overflow: hidden;
+  padding: 9px 10px; border-radius: var(--rs);
+  border-left: 0;                     /* the old 2px bar is gone — see below */
+  color: var(--side-ink);
+}
+.side-group a b     { font-size: 14px; font-weight: 600; }
+.side-group a span  { font-size: 11.5px; color: var(--side-muted); line-height: 1.35; }
+.side-group a:hover { background: linear-gradient(90deg, var(--side-tint), transparent 92%); }
+
+/* The active tab. A flat tint with a 2px left bar read as cheap, and a glowing
+   left rail was worse — this is a gradient wash fading right, a hairline ring
+   with a lit top edge, and a soft lift. No bar, no rail. */
+.side-group a.on {
+  border-left: 0;
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--side-accent) 20%, transparent) 0%,
+    color-mix(in srgb, var(--side-accent) 5%,  transparent) 78%,
+    transparent 100%);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 0 color-mix(in srgb, var(--paper) 55%, transparent),
+    0 8px 20px -8px color-mix(in srgb, var(--accent-raw) 45%, transparent);
+}
+.side-group a.on b { color: var(--side-accent); font-weight: 600; }
+
+.side-foot {
+  margin-top: auto; padding: 16px 10px 0;
+  border-top: 1px solid var(--line-soft);
+  gap: 12px;
+}
+.side-foot a:hover { color: var(--side-accent); }
+/* The footer holds the theme switch only. The "local only" line was removed —
+   it is a claim for the README, not a permanent fixture in the chrome. */
+.local { display: none; }
+
+
+/* The theme switch — markup in 03-staff-layout-patch.md */
+.theme-switch {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px;
+  border: 0; border-radius: var(--rs);
+  background: transparent; color: var(--side-ink);
+  font: inherit; cursor: pointer; text-align: left;
+}
+.theme-switch .track {
+  position: relative; flex: 0 0 auto; width: 42px; height: 23px;
+  border-radius: 999px; background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--line), inset 0 2px 4px rgba(0,20,40,.16);
+}
+.theme-switch:hover .track { box-shadow: inset 0 0 0 1px var(--side-accent), inset 0 2px 4px rgba(0,20,40,.16); }
+.theme-switch .knob {
+  display: block; position: absolute; top: 3px; left: 3px;
+  width: 17px; height: 17px; border-radius: 50%;
+  background: linear-gradient(180deg, #fff, #dfe9f2);
+  box-shadow: 0 2px 5px rgba(0,25,50,.28), inset 0 1px 0 #fff;
+  transition: left .24s cubic-bezier(.2,.85,.3,1);
+}
+.theme-switch[aria-pressed="true"] .track { background: color-mix(in srgb, var(--side-accent) 42%, transparent); }
+.theme-switch[aria-pressed="true"] .knob  { left: 22px; }
+.theme-switch .label { display: flex; flex-direction: column; line-height: 1.25; }
+.theme-switch .label b    { font-size: 13px; font-weight: 600; }
+.theme-switch .label span { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--side-muted); }
+@media (prefers-reduced-motion: reduce) { .theme-switch .knob { transition: none; } }
+
+/* Narrow: the repo turns the sidebar into a top strip. Keep that, glassed. */
+@media (max-width: 900px) {
+  .side {
+    width: auto;
+    border-right: 0; border-bottom: 1px solid var(--line-soft);
+    background: var(--side);
+  }
+  .side-group a { border-bottom: 2px solid transparent; }
+  .side-group a.on { border-bottom-color: var(--side-accent); background: var(--side-tint); box-shadow: none; }
+  .side-foot { gap: 8px; }
+  .shell-main main { padding: 28px 20px 60px; }
+}
+
+/* ── Layout editor ────────────────────────────────────────────────────────── */
+
+.stage {
+  background: var(--stagebg);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow), var(--gloss);
+}
+.guide { border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); }
+
+.slot {
+  border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.slot:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.slot.sel   { border-color: var(--accent); border-width: 2px;
+              background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.slot-label { background: var(--accent); color: var(--btn-ink); font-size: 9.5px;
+              padding: 2px 6px; border-radius: 4px; top: -10px; left: 5px; }
+.slot .h { background: #fff; border: 2px solid var(--accent); border-radius: 2px; }
+
+.live { border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.live.placeholder { background: var(--field); color: var(--muted); }
+.hint { font-size: 12.5px; color: var(--muted); }
+.editor { grid-template-columns: minmax(0, 1.05fr) minmax(340px, .95fr); gap: 24px; }
+
+.btn.pulse { box-shadow: var(--btnshadow), 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+
+/* ── Content studio ───────────────────────────────────────────────────────── */
+
+.piece .body { font-size: 17px; margin: 0 0 12px; }
+.piece.ok      { border-color: var(--accent); }
+.piece.blocked { border-color: var(--err); }
+.piece-foot { border-top: 1px solid var(--line); padding-top: 11px; }
+.piece-foot .meta { font-size: 11.5px; color: var(--muted); }
+.piece .checks code { background: var(--err-bg); color: var(--err); border-radius: 4px; }
+
+/* ── Advisor ──────────────────────────────────────────────────────────────── */
+
+.verdict b { font-family: var(--font-h); font-size: 19px; font-weight: 600; text-transform: none; }
+.verdict.problem { border-color: var(--err); }
+.blocker { border-left: 3px solid var(--err); padding: 6px 0 6px 14px; }
+.blocker q { font-size: 14.5px; }
+.fixes b { font-size: 13.5px; font-weight: 600; }
+
+/* ── Chat + inbox ─────────────────────────────────────────────────────────── */
+
+.chat-widget { max-width: 680px; }
+.chat-widget > header { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 14px; }
+.chat-widget > header b { font-family: var(--font-h); font-size: 20px; font-weight: 600; }
+.chat-widget > header span { font-size: 12.5px; }
+
+.bubble { max-width: 80%; padding: 10px 14px; border-radius: 16px; font-size: 14px; }
+.bubble.customer {
+  background: var(--btn-bg); color: var(--btn-ink);
+  border-bottom-right-radius: 5px; box-shadow: var(--btnshadow);
+}
+.bubble.bot, .bubble.rep {
+  background: var(--field); border: 1px solid var(--line);
+  border-bottom-left-radius: 5px; box-shadow: var(--gloss);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.bubble.rep { border-color: var(--accent); }
+.bubble .who { color: var(--accent); font-size: 11px; }
+.prov { border-top: 1px dotted var(--line); font-size: 10.5px; margin-top: 6px; padding-top: 6px; }
+
+.chat-suggestions button {
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--field); box-shadow: var(--gloss);
+  padding: 7px 13px; font-size: 12px;
+}
+.chat-suggestions button:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+
+.chat-box { border-top: 1px solid var(--line); padding-top: 14px; }
+.chat-box input { padding: 12px 15px; border-radius: var(--rs); }
+.chat-box button {
+  padding: 12px 22px; border-radius: var(--rs);
+  background: var(--btn-bg); color: var(--btn-ink); box-shadow: var(--btnshadow);
+  font-weight: 600;
+}
+.chat-box button:hover { transform: translateY(-1px); box-shadow: var(--btnhover); }
+.chat-box button:active { transform: translateY(0); }
+
+/* The repo inverted .btn/.bubble text in dark mode with a hard-coded #10241d.
+   --btn-ink handles it now, so those overrides must not fire. */
+@media (prefers-color-scheme: dark) {
+  .btn, .bubble.customer, .chat-box button { color: var(--btn-ink); }
+}
+
+.convo {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r); box-shadow: var(--shadow), var(--gloss);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  padding: 13px 15px; margin-bottom: 10px;
+}
+.convo:hover { border-color: var(--accent); transform: translateY(-1px); }
+.convo.on { border-color: var(--accent); box-shadow: var(--shadow), var(--gloss), inset 0 0 0 1px var(--accent); }
+.transcript { max-height: 46vh; gap: 10px; }
+.transcript .bubble { max-width: 92%; }
+
+/* ── Accessibility corrections ────────────────────────────────────────────────
+   Found by a contrast/a11y audit of the restyle. Kept in one block at the end
+   so they are visible as corrections rather than buried in the layer. */
+
+/* The form-control rules above kill the outline on :focus, which takes it away
+   from the keyboard too — and the tint ring that replaces it measures ~1.2:1
+   against the field, i.e. invisible. Restore a real ring for keyboard focus
+   only; pointer focus keeps the quiet tint. */
+.fld input:focus-visible, .fld textarea:focus-visible, .fld select:focus-visible,
+input[type=search]:focus-visible, #draft:focus-visible,
+.chat-box input:focus-visible, input.cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The only infinite animation in the file, and it was the one the
+   reduced-motion block did not cover. */
+@media (prefers-reduced-motion: reduce) {
+  .btn.pulse { animation: none; }
+  .chip:hover, .chat-suggestions button:hover, .chat-box button:hover { transform: none; }
+}
+
+/* opacity:.5 dimmed the row's TEXT as well as its meaning — out-of-stock rows
+   are still content someone has to read. Colour says the same thing without
+   halving the contrast; the "· out of stock" marker carries it non-visually. */
+table.catalogue tr.out { opacity: 1; color: var(--muted); }
+
+/* Skip link. Seven nav links plus the switch sit before the content on every
+   staff page, and every navigation is a full page load. */
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 50;
+  background: var(--btn-bg); color: var(--btn-ink);
+  padding: 10px 16px; border-radius: var(--rs); text-decoration: none;
+  font-size: 14px; font-weight: 600;
+}
+.skip:focus { left: 8px; top: 8px; }
+
+/* Visually hidden, still announced. Deleted along with the sidebar-collapse
+   toggle that used to be its only caller; the markers below need it back. */
+.sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* A cell holding an unsaved edit. The tint says it in colour; this says the
+   same thing in a shape, for anyone who cannot use the colour. */
+.staged {
+  color: var(--warn); font-size: 12px; line-height: 1;
+  margin-left: 3px; cursor: help;
+}

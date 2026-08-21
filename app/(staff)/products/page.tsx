@@ -322,6 +322,11 @@ export default function Products() {
             <tbody>
               {rows.map((r) => {
                 const dirty = (f: string) => staged[r.sku]?.[f] !== undefined
+                // The dirty input is tinted, and colour on its own is not a
+                // signal (WCAG 1.4.1). Same fact as a glyph and as text.
+                const stagedMark = (f: string) => dirty(f) && (
+                  <span className="staged" title="unsaved">✎<span className="sr"> unsaved</span></span>
+                )
                 const wasEdited = (f: string) => r.edited?.includes(f)
                 const sheetSaid = (f: string) => r.sheet_values?.[f]
                 return (
@@ -331,22 +336,25 @@ export default function Products() {
                       <input className={`cell ${dirty('name_en') ? 'dirty' : ''}`}
                         value={value(r, 'name_en')} aria-label={`Name of ${r.sku}`}
                         onChange={(e) => stage(r.sku, 'name_en', e.target.value)} />
+                      {stagedMark('name_en')}
                       {wasEdited('name_en') && (
-                        <span className="mark" title={`you set this — the sheet says "${sheetSaid('name_en') ?? '(nothing)'}"`}>•</span>
+                        <span className="mark" title={`you set this — the sheet says "${sheetSaid('name_en') ?? '(nothing)'}"`}>•<span className="sr"> edited by hand</span></span>
                       )}
                     </td>
                     <td>
                       <input className={`cell ${dirty('category') ? 'dirty' : ''}`} list="categories"
                         value={value(r, 'category')} aria-label={`Category of ${r.sku}`}
                         onChange={(e) => stage(r.sku, 'category', e.target.value)} />
+                      {stagedMark('category')}
                     </td>
                     <td>
                       <input className={`cell price ${dirty('price') ? 'dirty' : ''}`}
                         value={value(r, 'price')} aria-label={`Price of ${r.sku}`}
                         onChange={(e) => stage(r.sku, 'price', e.target.value)}
                         onBlur={(e) => stage(r.sku, 'price', asPrice(e.target.value))} />
+                      {stagedMark('price')}
                       {wasEdited('price_now') && (
-                        <span className="mark" title={`you set this — the sheet says ${sheetSaid('price_now') ?? '(nothing)'}`}>•</span>
+                        <span className="mark" title={`you set this — the sheet says ${sheetSaid('price_now') ?? '(nothing)'}`}>•<span className="sr"> edited by hand</span></span>
                       )}
                     </td>
                     <td>
@@ -355,6 +363,7 @@ export default function Products() {
                         aria-label={`Sale price of ${r.sku}`}
                         onChange={(e) => stage(r.sku, 'sale_price', e.target.value)}
                         onBlur={(e) => stage(r.sku, 'sale_price', asPrice(e.target.value))} />
+                      {stagedMark('sale_price')}
                     </td>
                     <td>
                       <label className="toggle">

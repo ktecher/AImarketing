@@ -1,10 +1,29 @@
 import './globals.css'
+import { Barlow, Barlow_Condensed } from 'next/font/google'
 import type { ReactNode } from 'react'
 
 export const metadata = {
   title: 'AImarketing',
   description: 'Marketing and sales in one system, running entirely on this machine.',
 }
+
+/*
+ * next/font, not a <link> to fonts.googleapis.com. The files are fetched once at
+ * build time and served from this machine — a hotlink would mean every page view
+ * makes a request to Google, which is exactly what this project does not do.
+ */
+const body = Barlow({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-body',
+  display: 'swap',
+})
+const heading = Barlow_Condensed({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-heading',
+  display: 'swap',
+})
 
 /**
  * Deliberately bare.
@@ -21,19 +40,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // what it finds and reports a mismatch it cannot patch — true, and expected:
     // the whole point is that the attribute is set before React exists. Scoped
     // to this element only; it does not silence anything inside the app.
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${body.variable} ${heading.variable}`} suppressHydrationWarning>
       <head>
         {/*
           Set before first paint, not in an effect.
           Every link here is a plain <a>, so navigating is a full page load. Read
-          in an effect, the sidebar would flash open on every single click before
-          collapsing again — worse than not having the toggle.
+          in an effect, the scheme would flash the other way on every single
+          click before correcting itself.
+
+          No stored choice means no attribute, and prefers-color-scheme in the
+          token sheet decides.
         */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{if(localStorage.getItem('side')==='off')" +
-              "document.documentElement.setAttribute('data-side','off')}catch(e){}",
+              "try{var t=localStorage.getItem('theme');" +
+              "if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}",
           }}
         />
       </head>

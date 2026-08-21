@@ -807,3 +807,64 @@ the discount badge, `-51%` to `-64%`, which a price-only check would have missed
 
 **Reverses if.** Keeping every export rather than the latest, which answers "what
 did we send in June" — a question nobody has asked yet.
+
+---
+
+## D59 — The glass restyle, and the two token bugs its structure produced
+
+**Decided.** Applied the blue/white glassmorphism handoff. `app/globals.css` is
+now three sections in one file: tokens (Light on bare `:root`, Deep on
+`:root[data-theme="deep"]`), the original repo styles untouched, and a "glass
+layer" appended at the end that restyles the same selectors and wins by source
+order. The sidebar is permanently fixed — the collapse toggle, its `data-side`
+head script and its ~32 lines of CSS are gone. `app/page.tsx` moved into
+`(staff)` so `/` gets the shell; `/chat` stays outside it, unchanged.
+
+Fonts are Barlow / Barlow Condensed through **`next/font`**, not the `<link>` to
+fonts.googleapis.com the handoff specified. Next's own docs settle it: fonts are
+"included as static assets and served from the same domain … no requests are
+sent to Google by the browser". A `<link>` would have put a third-party request
+on every page view, which rule 1 forbids.
+
+**The failure mode this structure has, twice demonstrated.** The Deep scheme is
+defined in *two* places — `:root[data-theme="deep"]` and a duplicate inside
+`@media (prefers-color-scheme: dark)` for the first visit with no stored choice.
+Any rule that corrects for Deep by keying on the **attribute alone** is silently
+wrong on the media path:
+
+- `.btn.danger-btn` kept `color:#fff` while `--err` became `#ff9a94` — a
+  destructive button at **2.04:1**, on the default path for any dark-OS user.
+- `.slot-label` had `color: var(--paper)` on `background: var(--accent)`; in Deep
+  both resolve near-white.
+
+Both are now tokens (`--err-ink`, `--btn-ink`) that invert with the scheme, so
+the correction lives with the palette instead of in a selector that can miss a
+path. **Never write `:root[data-theme="deep"] .foo` — put the value in a token
+and define it in both Deep blocks.**
+
+**Contrast, measured not eyeballed.** Panels are semi-transparent over three
+bright blooms, so a panel's effective background varied ~2.4x (Light) and ~35x
+(Deep) depending on where it sat. Small text over a bloom centre measured
+**1.90:1** (sidebar hints), 2.57:1 (muted body), 2.1–3.4:1 (links, warnings,
+errors) — against 4.5:1. Fixed by damping the blooms (44/48.4/37.4% → 22/24/19%),
+weakening `--tone` while raising panel opacity so the panel keeps its colour but
+stops transmitting the bloom, and darkening/lightening the secondary text tokens.
+Deep additionally needed `--tone` inverted from a pale grey-blue to a genuinely
+dark pane (45% → 90% accent) — with a pale tone, raising opacity made panels
+*lighter*, which is why the handoff read 18% as a floor. Every pair now clears
+its threshold at the worst point on the page.
+
+`--line` stayed decorative; controls got `--line-strong` (3.22:1 Light, 3.93:1
+Deep) because a field's border is the only thing that says where the field is.
+
+**The theme switch stays on an effect.** A lazy `useState` initialiser reading
+`data-theme` off the DOM was tried and reverted. It makes the first client
+render correct but disagree with the server HTML, and the only way to quiet
+that is `suppressHydrationWarning` — which does **not** patch the text, it keeps
+the server's. The switch then reads "Light" on a deep page until clicked.
+Measured both ways in the browser. The effect costs one extra render and is
+right after it.
+
+**Reverses if.** Someone wants the original bloom intensity back — but then the
+secondary text tokens have to go darker still to compensate, and the sidebar
+hints are the pair that runs out of room first.

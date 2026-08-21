@@ -479,8 +479,11 @@ export default function Templates() {
                             <span>{value ? `${value.length} characters` : ''}</span>
                             {r.source === 'saved' && !nameEdits[r.sku] ? <span>saved</span> : null}
                           </span>
+                          {/* no fontWeight override — the 600 weight on .note.bad
+                              is the only cue separating a failed check from a
+                              warning without relying on colour */}
                           {failed.map((c) => (
-                            <span key={c.name} className="note bad" style={{ fontSize: 11.5, fontWeight: 400 }}>
+                            <span key={c.name} className="note bad" style={{ fontSize: 11.5 }}>
                               {c.name}{c.span ? ` — ${c.span}` : ''}
                             </span>
                           ))}

@@ -62,45 +62,46 @@ const GROUPS: {
 
 export default function StaffLayout({ children }: { children: ReactNode }) {
   const path = usePathname()
-  // Seeded from the attribute the head script already set, so the first render
-  // agrees with what is on screen and React has nothing to correct.
-  const [open, setOpen] = useState(true)
+  // Seeded from the attribute the head script already set, so the switch agrees
+  // with what is already on screen; no stored choice means the OS decides.
+  // An effect, deliberately, and NOT a lazy useState initialiser reading the
+  // DOM. That initialiser makes the first CLIENT render correct but disagree
+  // with the server HTML, and the only way to quiet that is
+  // suppressHydrationWarning — which does not patch the text, it KEEPS the
+  // server's. The switch then reads "Light" on a deep page until you click it.
+  // Correcting in an effect costs one extra render and is right afterwards.
+  const [deep, setDeep] = useState(false)
 
   useEffect(() => {
-    setOpen(document.documentElement.getAttribute('data-side') !== 'off')
+    const set = document.documentElement.getAttribute('data-theme')
+    setDeep(set ? set === 'deep' : window.matchMedia('(prefers-color-scheme: dark)').matches)
   }, [])
 
-  const toggle = useCallback(() => {
-    setOpen((was) => {
+  const toggleTheme = useCallback(() => {
+    setDeep((was) => {
       const now = !was
-      document.documentElement.setAttribute('data-side', now ? 'on' : 'off')
-      try { localStorage.setItem('side', now ? 'on' : 'off') } catch { /* private window */ }
+      document.documentElement.setAttribute('data-theme', now ? 'deep' : 'glass')
+      try { localStorage.setItem('theme', now ? 'deep' : 'glass') } catch { /* private window */ }
       return now
     })
   }, [])
 
   return (
     <div className="shell">
-      {/* Outside the sidebar, so it is still reachable once the sidebar is
-          gone. One control in one place beats a second button appearing
-          somewhere else when the first one disappears. */}
-      <button
-        className="side-toggle"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls="staff-nav"
-        title={open ? 'Hide the menu' : 'Show the menu'}
-      >
-        <span aria-hidden>{open ? '⟨' : '⟩'}</span>
-        <span className="sr">{open ? 'Hide the menu' : 'Show the menu'}</span>
-      </button>
+      {/* Before the nav, so it is the first thing a keyboard reaches. */}
+      <a className="skip" href="#content">Skip to content</a>
 
-      <aside className="side" id="staff-nav">
+      {/* <nav>, not <aside>: this is the primary navigation, and as an <aside>
+          it announced as a "complementary" landmark with no name. */}
+      <nav className="side" aria-label="Staff sections">
         <a className="brand" href="/">AImarketing</a>
 
+        {/* A <div role="group">, not an <h2>. As headings these three sat in the
+            same outline as page content and preceded every page's <h1>, which
+            makes the outline useless for navigating by heading. */}
         {GROUPS.map((g) => (
-          <div className="side-group" key={g.title}>
-            <h2>{g.title}</h2>
+          <div className="side-group" key={g.title} role="group" aria-labelledby={`sg-${g.title}`}>
+            <div className="side-group-title" id={`sg-${g.title}`}>{g.title}</div>
             {g.items.map((n) => {
               // startsWith, so /templates/brand-poster/edit still lights up
               // Designs. Landing on a sub-page with nothing selected reads as
@@ -123,13 +124,27 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
         ))}
 
         <div className="side-foot">
-          {/* The claim the whole project rests on, kept in view rather than in
-              a README nobody has open. */}
-          <span className="local">local only</span>
+          {/* Same before-first-paint reasoning as the head script: the click
+              writes the attribute and localStorage, nothing re-renders. */}
+          {/* No aria-label. It read "Deep mode" while the button visibly said
+              "Light", so the accessible name did not contain the visible one
+              (WCAG 2.5.3) and voice control could not target it. The visible
+              text is the name; aria-pressed carries the state. */}
+          <button
+            className="theme-switch"
+            onClick={toggleTheme}
+            aria-pressed={deep}
+          >
+            <i className="track"><i className="knob" /></i>
+            <span className="label">
+              <b>{deep ? 'Deep' : 'Light'}</b>
+              <span>glass mode</span>
+            </span>
+          </button>
         </div>
-      </aside>
+      </nav>
 
-      <div className="shell-main">{children}</div>
+      <div className="shell-main" id="content">{children}</div>
     </div>
   )
 }
