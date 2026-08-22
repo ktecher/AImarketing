@@ -280,6 +280,13 @@ export type Filters = {
   outOfStock?: boolean
   edited?: boolean
   noPhoto?: boolean
+  /**
+   * The SKUs that have a photo on disk. Supplied by the caller because photos
+   * are files, not rows — the database cannot answer this on its own, and
+   * filtering after the query has already paged is how "no photo" came to show
+   * only the handful without a photo ON THE CURRENT PAGE.
+   */
+  withPhoto?: string[]
   sort?: string
   dir?: 'asc' | 'desc'
   limit?: number
@@ -290,10 +297,14 @@ export type Filters = {
 const SORTABLE = new Set(['sku', 'name_en', 'brand', 'category', 'price_now', 'price_was',
                           'in_stock', 'updated_at'])
 
-/** One page of the catalogue, for the table a person edits. */
-export async function listFiltered(f: Filters): Promise<{
-  rows: CatalogueRow[]; total: number; categories: string[]; brands: string[]
-}> {
+/**
+ * The WHERE clause every filtered read shares.
+ *
+ * One builder, because the table and "select everything that matches" must
+ * agree exactly — a second copy of these conditions is how the two drift and a
+ * person deletes a set that is not the set they were shown.
+ */
+function filterSql(f: Filters): { sql: string; params: unknown[] } {
   const where: string[] = []
   const params: unknown[] = []
   const p = (v: unknown) => { params.push(v); return `$${params.length}` }
@@ -315,8 +326,30 @@ export async function listFiltered(f: Filters): Promise<{
       select 1 from jsonb_each_text(sheet_values) sv(k, v)
       where coalesce((to_jsonb(products) ->> sv.k), '') is distinct from coalesce(sv.v, ''))`)
   }
+  // Excluded in SQL so paging and the total both count the right rows.
+  if (f.noPhoto) where.push(`sku <> all(${p(f.withPhoto ?? [])})`)
 
-  const sql = where.length ? `where ${where.join(' and ')}` : ''
+  return { sql: where.length ? `where ${where.join(' and ')}` : '', params }
+}
+
+/**
+ * Every SKU the filter matches, unpaged.
+ *
+ * For "select all N": the table is capped at 100 rows a page, so asking it for
+ * everything silently returns 100 and the person deletes a hundred believing
+ * they chose four hundred. SKUs only, so the answer stays small.
+ */
+export async function matchingSkus(f: Filters): Promise<string[]> {
+  const { sql, params } = filterSql(f)
+  const rows = await query<{ sku: string }>(`select sku from products ${sql}`, params)
+  return rows.map((r) => r.sku)
+}
+
+/** One page of the catalogue, for the table a person edits. */
+export async function listFiltered(f: Filters): Promise<{
+  rows: CatalogueRow[]; total: number; categories: string[]; brands: string[]
+}> {
+  const { sql, params } = filterSql(f)
   const order = SORTABLE.has(String(f.sort)) ? String(f.sort) : 'updated_at'
   const dir = f.dir === 'asc' ? 'asc' : 'desc'
   const limit = Math.min(Math.max(Number(f.limit) || 20, 1), 100)
@@ -471,6 +504,65 @@ export async function add(
 export async function remove(sku: string): Promise<boolean> {
   const gone = await query('delete from products where sku = $1 returning sku', [sku])
   return gone.length > 0
+}
+
+/**
+ * Delete many at once. One statement, so a hundred products either all go or
+ * none do — a partial delete leaves the person guessing which half survived.
+ */
+export async function removeMany(skus: string[]): Promise<string[]> {
+  if (!skus.length) return []
+  const gone = await query<{ sku: string }>(
+    'delete from products where sku = any($1) returning sku',
+    [skus],
+  )
+  return gone.map((r) => r.sku)
+}
+
+/** An image extension, so a filename in a sheet is told apart from a name. */
+const IMAGE_NAME = /\.(png|jpe?g|webp|avif|tiff?|gif)$/i
+
+/** Lowercased, no directory, no extension — how a dropped file is compared. */
+export const photoKey = (name: string) =>
+  name.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, '').trim().toLowerCase()
+
+/**
+ * How a dropped image file finds its product.
+ *
+ * Two ways, because photos arrive two ways. A file named for the SKU matches
+ * directly — that is the common case, and needs nothing in the sheet. A sheet
+ * that carries a filename column matches on that instead, which is what you
+ * need when the supplier names files by model rather than by SKU.
+ *
+ * The filename column needs no schema and no column vocabulary: an unmapped
+ * column is already kept verbatim in `extra`, so any header the sheet happens
+ * to use — "Image", "Photo", "File" — works without being taught.
+ *
+ * A key claimed by two products is dropped rather than guessed. Silently
+ * attaching a photo to the wrong product is worse than reporting it.
+ */
+export async function photoIndex(): Promise<Map<string, string>> {
+  const rows = await query<{ sku: string; extra: Record<string, string> | null }>(
+    'select sku, extra from products',
+  )
+  const index = new Map<string, string>()
+  const contested = new Set<string>()
+
+  const claim = (key: string, sku: string) => {
+    if (!key) return
+    const held = index.get(key)
+    if (held && held !== sku) { contested.add(key); return }
+    index.set(key, sku)
+  }
+
+  for (const r of rows) claim(photoKey(r.sku), r.sku)
+  for (const r of rows) {
+    for (const value of Object.values(r.extra ?? {})) {
+      if (typeof value === 'string' && IMAGE_NAME.test(value)) claim(photoKey(value), r.sku)
+    }
+  }
+  for (const key of contested) index.delete(key)
+  return index
 }
 
 /** Every row with its vector, for retrieval. */

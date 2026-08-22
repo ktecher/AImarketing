@@ -29,9 +29,14 @@ ok('display name read, not stolen',    r.products[0].display_name === 'MacBook P
 ok('extra column kept',                r.products[0].extra['Warranty'] === '1 year')
 ok('Stock kept as extra',              Boolean(r.products[0].extra['Stock']))
 
+// Image is deliberately unmapped: it names a FILE, and an unmapped column is
+// kept verbatim in `extra`, which is exactly where the bulk photo matcher reads
+// it. Mapping it would need a column the schema does not have, for no gain.
 const unmapped = r.headers.filter(h => h && !Object.values(r.mapping).includes(h))
-ok(`only Stock/Warranty unmapped (${unmapped.join(', ')})`,
-   unmapped.every(h => ['Stock','Warranty'].includes(h)))
+ok(`only Stock/Warranty/Image unmapped (${unmapped.join(', ')})`,
+   unmapped.every(h => ['Stock','Warranty','Image'].includes(h)))
+ok('the Image filename survives into extra',
+   r.products[0].extra['Image'] === 'macbook-pro-14-m5.jpg')
 
 console.log(`\nwrote data/samples/product-sheet-template.xlsx (${(buf.length/1024).toFixed(1)} KB)`)
 

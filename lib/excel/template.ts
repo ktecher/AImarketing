@@ -40,13 +40,17 @@ const COLUMNS: Column[] = [
   { header: 'الوصف',              width: 40, required: false, rtl: true, note: 'Arabic description.' },
   { header: 'Stock',             width: 10, required: false, note: 'Optional. Any column not listed here is kept, not discarded.' },
   { header: 'Warranty',          width: 14, required: false, note: 'Optional example of an extra column — it survives the import untouched.' },
+  { header: 'Image',             width: 26, required: false,
+    note: 'The FILENAME of the photo, not the photo itself and not a web address — "galaxy-s25-silver.jpg". Fill the sheet, then use "Add photos" on the Products tab and select the whole folder; each file finds its product by this name.\n\nLeave it blank if your files are already named after the SKU — those match on their own. Nothing here is downloaded from the internet; the files come off your machine.' },
 ]
 
 const EXAMPLES = [
   ['MBP14-M5', 'MacBook Pro 14-inch M5', 'MacBook Pro 14', 'ماك بوك برو 14 بوصة', 'Apple', 'Laptops',
-   449.5, 399.5, 'M5 chip, 16GB unified memory, 512GB SSD.', 'شريحة إم 5، ذاكرة 16 جيجابايت.', 12, '1 year'],
+   449.5, 399.5, 'M5 chip, 16GB unified memory, 512GB SSD.', 'شريحة إم 5، ذاكرة 16 جيجابايت.', 12, '1 year',
+   'macbook-pro-14-m5.jpg'],
   ['RT-AX88U', 'ASUS RT-AX88U Wi-Fi 6 Router', 'RT-AX88U Router', 'راوتر أسوس واي فاي 6', 'ASUS', 'Networking',
-   89.75, null, 'Dual-band Wi-Fi 6, 8 LAN ports.', 'واي فاي 6 ثنائي النطاق.', 40, '2 years'],
+   89.75, null, 'Dual-band Wi-Fi 6, 8 LAN ports.', 'واي فاي 6 ثنائي النطاق.', 40, '2 years',
+   ''],
 ]
 
 export async function buildTemplate(): Promise<Buffer> {

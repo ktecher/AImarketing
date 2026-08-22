@@ -1067,3 +1067,51 @@ committed — the sheet that exposed this is real catalogue data and gitignored.
 
 **Reverses if.** Cell comments ever become data this project reads, at which
 point they have to be parsed rather than dropped.
+
+---
+
+## D62 — Photos in bulk, selection in bulk, and a filter that was only ever
+## filtering the page
+
+**The three things this fixes.** 348 products arrived from a sheet with no
+embedded pictures. Attaching photos one product at a time is not a workflow, and
+the two controls that would have made it bearable were missing or broken.
+
+**Photos arrive by filename, two ways, neither of them a column of images.**
+
+A dropped file finds its product by name: the SKU itself, or whatever the
+sheet's own image column called the file. The second needs no schema and no
+addition to the importer's column vocabulary — an unmapped column is already
+kept verbatim in `extra`, so `Image`, `Photo` or `File` all work without being
+taught. A key claimed by two products is dropped rather than guessed; silently
+attaching a photo to the wrong product is worse than reporting it.
+
+A URL column was considered and rejected. `docs/retailer-api.md` has `image_url`
+and it is the obvious thing to reach for, but the app fetching it is a request
+leaving this machine — rule 1. Fetching them yourself and dropping the folder in
+is the same result without the app making the request.
+
+The blank sheet now carries an `Image` column, deliberately unmapped, and the
+Products tab links to it — it was only offered from Designs, which is not where
+you are standing when you upload a catalogue.
+
+**"No photo" was filtering after the query had already paged.**
+
+`listFiltered` accepted `noPhoto` and never used it, because photos are files
+and the database cannot answer. The route filtered the rows it got back — but it
+got back one page of 20, so the filter only ever hid the photographed rows on
+the current page, and `total` became that count. With 408 products and 62
+photos it reported 2 instead of 346.
+
+Fixed by reading the image directory once and excluding those SKUs in SQL, so
+paging and the total both count the right rows.
+
+**One filter builder, not two.** "Select all N" needs every matching SKU, and
+the table caps a page at 100 — asking it for everything returned 100 and would
+have let someone delete a hundred believing they had chosen four hundred. The
+WHERE clause is now built in one place and shared by the page query, the count
+and `matchingSkus`, because a second copy is how the set shown and the set
+deleted drift apart.
+
+**Reverses if.** Photos ever need to differ per campaign rather than per
+product, at which point one file per SKU on disk stops being the right shape.

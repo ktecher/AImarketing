@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import sharp from 'sharp'
 import { NextResponse } from 'next/server'
@@ -6,15 +6,24 @@ import { readForm, readJson, isResponse } from '@/lib/http'
 import { parseWorkbook } from '@/lib/excel/parse'
 import { catalogueSize, reachable } from '@/lib/db'
 import {
-  add, asShopPrices, asRenderPrices, embedPending, listFiltered, remove, sameValue, saveEdits, upsert,
-  type Editable,
+  add, asShopPrices, asRenderPrices, embedPending, listFiltered, matchingSkus, photoIndex, photoKey, remove,
+  removeMany, sameValue, saveEdits, upsert,
+  type Editable, type Filters,
 } from '@/lib/catalogue'
 
 export const runtime = 'nodejs'
 // Thousands of rows, embedded in batches. The client keeps asking until done.
 export const maxDuration = 600
 
-const photoPath = (sku: string) => join(process.cwd(), 'data/samples/images', `${sku}.png`)
+const photoDir = () => join(process.cwd(), 'data/samples/images')
+const photoPath = (sku: string) => join(photoDir(), `${sku}.png`)
+
+/** Every SKU with a photo on disk. One directory read instead of one stat per row. */
+function skusWithPhoto(): string[] {
+  try {
+    return readdirSync(photoDir()).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4))
+  } catch { return [] }
+}
 
 /** Which fields a person has changed since the last sheet said otherwise. */
 function editedFields(row: Record<string, unknown>): string[] {
@@ -32,7 +41,11 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams
   if (!(await reachable())) return down()
 
-  const { rows, total, categories, brands } = await listFiltered({
+  const withPhoto = skusWithPhoto()
+  const hasPhoto = new Set(withPhoto)
+
+  const filters: Filters = {
+    withPhoto,
     search: q.get('q') ?? '',
     category: q.get('category') ?? undefined,
     brand: q.get('brand') ?? undefined,
@@ -44,7 +57,16 @@ export async function GET(req: Request) {
     dir: q.get('dir') === 'asc' ? 'asc' : 'desc',
     limit: Number(q.get('limit') ?? 20),
     offset: Number(q.get('offset') ?? 0),
-  })
+  }
+
+  // "Select all N" asks for the SKUs alone. The table is capped at 100 rows a
+  // page, so answering this from the table would hand back 100 and let someone
+  // delete a hundred believing they had chosen every match.
+  if (q.get('skusOnly') === '1') {
+    return NextResponse.json({ up: true, skus: await matchingSkus(filters) })
+  }
+
+  const { rows, total, categories, brands } = await listFiltered(filters)
 
   // Photo presence and the shop's price vocabulary are added here rather than
   // in SQL: one is the filesystem and the other is a translation the database
@@ -52,20 +74,62 @@ export async function GET(req: Request) {
   const dressed = rows.map((r) => ({
     ...r,
     ...asShopPrices(r),
-    has_photo: existsSync(photoPath(r.sku)),
+    has_photo: hasPhoto.has(r.sku),
     edited: editedFields(r as unknown as Record<string, unknown>),
   }))
 
-  const shown = q.get('noPhoto') === '1' ? dressed.filter((r) => !r.has_photo) : dressed
-
   return NextResponse.json({
     up: true,
-    rows: shown,
-    total: q.get('noPhoto') === '1' ? shown.length : total,
+    rows: dressed,
+    total,
     all: await catalogueSize(),
     categories,
     brands,
   })
+}
+
+/** One image, normalised the way every other path here normalises one. */
+async function writePhoto(sku: string, file: File) {
+  // 600px PNG, because the renderer embeds these as data URIs. Two paths
+  // writing different shapes is how a poster ends up correct from one source
+  // and wrong from the other.
+  await sharp(Buffer.from(await file.arrayBuffer()))
+    .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toFile(photoPath(sku))
+}
+
+/**
+ * Attach many photos in one drop.
+ *
+ * Same skip-and-report contract the sheet importer uses: a file that matches
+ * nothing is named back, never silently ignored, and one unreadable image does
+ * not stop the rest.
+ */
+async function addPhotos(files: File[]) {
+  const index = await photoIndex()
+  const attached: string[] = []
+  const unmatched: string[] = []
+  const failed: { file: string; reason: string }[] = []
+
+  mkdirSync(join(process.cwd(), 'data/samples/images'), { recursive: true })
+
+  for (const file of files) {
+    if (!/\.(png|jpe?g|webp|avif|tiff?)$/i.test(file.name)) {
+      failed.push({ file: file.name, reason: 'not an image' })
+      continue
+    }
+    const sku = index.get(photoKey(file.name))
+    if (!sku) { unmatched.push(file.name); continue }
+    try {
+      await writePhoto(sku, file)
+      attached.push(sku)
+    } catch (e) {
+      failed.push({ file: file.name, reason: e instanceof Error ? e.message : 'could not be read' })
+    }
+  }
+
+  return NextResponse.json({ attached: attached.length, skus: attached, unmatched, failed })
 }
 
 export async function POST(req: Request) {
@@ -114,6 +178,12 @@ export async function POST(req: Request) {
   const form = await readForm(req)
   if (isResponse(form)) return form
 
+  // Many photos at once, matched to products by filename. Adding several
+  // hundred one at a time is not a workflow, and the catalogue sheet does not
+  // have to carry the images for them to arrive together.
+  const photos = form.getAll('photos').filter((f): f is File => f instanceof File)
+  if (photos.length) return await addPhotos(photos)
+
   // A replacement photo for one product.
   const sku = String(form.get('sku') ?? '').trim()
   const file = form.get('file')
@@ -128,13 +198,7 @@ export async function POST(req: Request) {
     }
     try {
       mkdirSync(join(process.cwd(), 'data/samples/images'), { recursive: true })
-      // Same normalisation the import uses: 600px PNG, because the renderer
-      // embeds these as data URIs. Two paths writing different shapes is how a
-      // poster ends up correct from one source and wrong from the other.
-      await sharp(Buffer.from(await file.arrayBuffer()))
-        .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
-        .png()
-        .toFile(photoPath(sku))
+      await writePhoto(sku, file)
       return NextResponse.json({ replaced: sku })
     } catch (e) {
       return NextResponse.json(
@@ -224,13 +288,21 @@ export async function PUT(req: Request) {
 /** Delete a product. What it already produced is kept. */
 export async function DELETE(req: Request) {
   if (!(await reachable())) return down()
-  const { sku } = (await readJson(req)) as { sku?: string }
+  const { sku, skus } = (await readJson(req)) as { sku?: string; skus?: string[] }
+
+  // Many. One statement, so a hundred either all go or none do.
+  if (skus?.length) {
+    const gone = await removeMany(skus.filter((s) => typeof s === 'string' && s.trim()))
+    // The photos go with them; nothing else does. Posters already exported and
+    // conversations that cited them record what actually happened.
+    for (const s of gone) rmSync(photoPath(s), { force: true })
+    return NextResponse.json({ deleted: gone.length, skus: gone })
+  }
+
   if (!sku) return NextResponse.json({ error: 'Which product?' }, { status: 400 })
 
   const gone = await remove(sku)
   if (!gone) return NextResponse.json({ error: 'No such product.' }, { status: 404 })
-  // The photo goes with it; nothing else does. Posters already exported and
-  // conversations that cited it record what actually happened.
   rmSync(photoPath(sku), { force: true })
   return NextResponse.json({ deleted: sku })
 }

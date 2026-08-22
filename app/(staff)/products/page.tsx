@@ -60,6 +60,16 @@ export default function Products() {
   const upload = useRef<HTMLInputElement>(null)
   const photoFor = useRef<string | null>(null)
   const photoInput = useRef<HTMLInputElement>(null)
+  const photosInput = useRef<HTMLInputElement>(null)
+
+  /** Which products are ticked. Survives paging so a selection can span pages. */
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const pickedHere = rows.filter((r) => picked.has(r.sku)).length
+  const togglePick = (sku: string) => setPicked((p) => {
+    const next = new Set(p)
+    next.has(sku) ? next.delete(sku) : next.add(sku)
+    return next
+  })
 
   const pending = useMemo(
     () => Object.values(staged).reduce((n, f) => n + Object.keys(f).length, 0),
@@ -192,6 +202,62 @@ export default function Products() {
     } catch { setError('Could not replace that photo.') }
   }
 
+  /**
+   * Photos for many products in one drop, matched by filename — either the SKU
+   * itself, or whatever the sheet's own image column called the file.
+   */
+  async function addPhotos(files: FileList) {
+    setBusy('photos'); setError(''); setNotice('')
+    const body = new FormData()
+    for (const f of Array.from(files)) body.append('photos', f)
+    try {
+      const res = await fetch('/api/products', { method: 'POST', body })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error ?? 'Could not add those photos.'); setBusy(''); return }
+      const parts = [`${d.attached} ${d.attached === 1 ? 'photo' : 'photos'} attached`]
+      if (d.unmatched?.length) parts.push(`${d.unmatched.length} matched no product (${d.unmatched.slice(0, 3).join(', ')}${d.unmatched.length > 3 ? '…' : ''})`)
+      if (d.failed?.length) parts.push(`${d.failed.length} could not be read`)
+      setNotice(parts.join(' · '))
+      await load()
+    } catch { setError('Could not add those photos.') }
+    setBusy('')
+  }
+
+  /** Delete everything ticked, in one statement. */
+  async function removePicked() {
+    const skus = [...picked]
+    if (!skus.length) return
+    if (!confirm(`Delete ${skus.length} ${skus.length === 1 ? 'product' : 'products'}?\n\nThe assistant stops offering them straight away. Posters you have already made and conversations that mentioned them are kept.`)) return
+    setBusy('deleting'); setError('')
+    try {
+      const res = await fetch('/api/products', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skus }),
+      })
+      const d = await res.json()
+      if (!res.ok) setError(d.error ?? 'Could not delete.')
+      else { setNotice(`${d.deleted} deleted.`); setPicked(new Set()); await load() }
+    } catch { setError('Could not delete.') }
+    setBusy('')
+  }
+
+  /** Every SKU the current filter matches, not just the page on screen. */
+  async function pickEveryMatch() {
+    setBusy('selecting')
+    try {
+      // skusOnly: the table is capped at 100 rows a page, so asking it for
+      // everything would quietly return 100 of the 408 a person just chose.
+      const q = new URLSearchParams({
+        q: search, category, brand, skusOnly: '1',
+        ...Object.fromEntries(Object.entries(flags).filter(([, v]) => v).map(([k]) => [k, '1'])),
+      })
+      const res = await fetch(`/api/products?${q}`)
+      const d = await res.json()
+      setPicked(new Set<string>(d.skus ?? []))
+    } catch { setError('Could not select them all.') }
+    setBusy('')
+  }
+
   const header = (label: string, col: string) => (
     <th>
       <button
@@ -230,9 +296,18 @@ export default function Products() {
             <button className="btn" onClick={() => upload.current?.click()} disabled={Boolean(busy)}>
               {busy === 'importing' ? 'Reading…' : 'Upload catalogue'}
             </button>
+            {/* The same blank sheet Designs offers. It is generated from the
+                header names parse.ts matches on, so a sheet filled from it maps
+                exactly rather than by heuristic. */}
+            <a className="chip" href="/api/template">Blank sheet</a>
             <button className="chip" onClick={() => setAdding((a) => !a)} disabled={Boolean(busy)}>
               {adding ? 'Cancel' : 'Add a product'}
             </button>
+            {all > 0 && (
+              <button className="chip" onClick={() => photosInput.current?.click()} disabled={Boolean(busy)}>
+                {busy === 'photos' ? 'Adding…' : 'Add photos'}
+              </button>
+            )}
             {all > 0 && (
               <button className="chip" onClick={() => void embedAll()} disabled={Boolean(busy)}>
                 {busy === 'embedding' ? 'Reading…' : 'Re-read for search'}
@@ -244,6 +319,10 @@ export default function Products() {
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importSheet(f); e.target.value = '' }} />
         <input ref={photoInput} type="file" accept="image/*" hidden
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void replacePhoto(f); e.target.value = '' }} />
+        {/* Many at once. A file is matched to a product by its name — the SKU,
+            or whatever the sheet's own image column called it. */}
+        <input ref={photosInput} type="file" accept="image/*" multiple hidden
+          onChange={(e) => { const f = e.target.files; if (f?.length) void addPhotos(f); e.target.value = '' }} />
       </div>
 
       {adding && <AddProduct categories={categories} onDone={() => { setAdding(false); void load() }} onError={setError} />}
@@ -306,9 +385,35 @@ export default function Products() {
             </div>
           )}
 
+          {picked.size > 0 && (
+            <div className="savebar">
+              <span>{picked.size} selected</span>
+              <button className="chip" onClick={() => setPicked(new Set())}>clear</button>
+              {picked.size < total && (
+                <button className="chip" onClick={() => void pickEveryMatch()} disabled={Boolean(busy)}>
+                  {busy === 'selecting' ? 'Selecting…' : `select all ${total}`}
+                </button>
+              )}
+              <button className="btn danger-btn" onClick={() => void removePicked()} disabled={Boolean(busy)}>
+                {busy === 'deleting' ? 'Deleting…' : `Delete ${picked.size}`}
+              </button>
+            </div>
+          )}
+
           <table className="catalogue">
             <thead>
               <tr>
+                <th className="tick">
+                  <input type="checkbox"
+                    aria-label={pickedHere === rows.length && rows.length > 0 ? 'Clear this page' : 'Select this page'}
+                    checked={rows.length > 0 && pickedHere === rows.length}
+                    ref={(el) => { if (el) el.indeterminate = pickedHere > 0 && pickedHere < rows.length }}
+                    onChange={(e) => setPicked((p) => {
+                      const next = new Set(p)
+                      for (const r of rows) e.target.checked ? next.add(r.sku) : next.delete(r.sku)
+                      return next
+                    })} />
+                </th>
                 {header('SKU', 'sku')}
                 {header('Product', 'name_en')}
                 {header('Category', 'category')}
@@ -331,6 +436,11 @@ export default function Products() {
                 const sheetSaid = (f: string) => r.sheet_values?.[f]
                 return (
                   <tr key={r.sku} className={r.in_stock ? '' : 'out'}>
+                    <td className="tick">
+                      <input type="checkbox" checked={picked.has(r.sku)}
+                        aria-label={`Select ${r.name_en ?? r.sku}`}
+                        onChange={() => togglePick(r.sku)} />
+                    </td>
                     <td className="mono">{r.sku}</td>
                     <td>
                       <input className={`cell ${dirty('name_en') ? 'dirty' : ''}`}

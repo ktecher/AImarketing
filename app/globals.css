@@ -1006,3 +1006,7 @@ table.catalogue tr.out { opacity: 1; color: var(--muted); }
   color: var(--warn); font-size: 12px; line-height: 1;
   margin-left: 3px; cursor: help;
 }
+
+/* The select column. Narrow and quiet — it is a control, not a data column. */
+.catalogue th.tick, .catalogue td.tick { width: 32px; padding-right: 0; text-align: center; }
+.catalogue td.tick input, .catalogue th.tick input { cursor: pointer; }
