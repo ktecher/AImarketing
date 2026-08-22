@@ -11,6 +11,47 @@
  */
 
 import ExcelJS from 'exceljs'
+import JSZip from 'jszip'
+
+/**
+ * Removes cell-comment relationships before exceljs sees the workbook.
+ *
+ * exceljs 4.4.0 looks for the comment part at `xl/comments1.xml` and keys it as
+ * `../comments1.xml`. A workbook that stores it at `xl/comments/comment1.xml`
+ * with an ABSOLUTE relationship target — which is what the real retailer export
+ * does — matches neither, so the part is never parsed, and `reconcile` then
+ * dereferences the missing entry and throws
+ * "Cannot read properties of undefined (reading 'comments')" before a single
+ * row is read. A 2 MB sheet failed in 27 ms with no usable message.
+ *
+ * Nothing here reads cell comments, so the relationship is dropped rather than
+ * repaired: repairing means guessing the layout exceljs wants, and the next
+ * exporter would guess differently.
+ *
+ * Only rewrites when such a relationship is present, so the ordinary sheet is
+ * handed to exceljs byte-for-byte as it arrived.
+ */
+const COMMENT_REL = /<Relationship\b[^>]*\/(?:comments|vmlDrawing)"[^>]*\/>/g
+
+async function withoutCommentRels(data: ArrayBuffer | Buffer): Promise<ArrayBuffer | Buffer> {
+  let zip
+  try {
+    zip = await JSZip.loadAsync(data as ArrayBuffer)
+  } catch {
+    return data // not a zip at all; let exceljs produce the error
+  }
+  const relFiles = Object.keys(zip.files).filter((n) => n.endsWith('.rels'))
+  let touched = false
+  for (const name of relFiles) {
+    const xml = await zip.files[name].async('string')
+    if (!COMMENT_REL.test(xml)) continue
+    COMMENT_REL.lastIndex = 0
+    zip.file(name, xml.replace(COMMENT_REL, ''))
+    touched = true
+  }
+  if (!touched) return data
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
 
 export type ProductRow = {
   row: number
@@ -122,7 +163,7 @@ function findHeaderRow(sheet: ExcelJS.Worksheet): number {
 
 export async function parseWorkbook(data: ArrayBuffer | Buffer): Promise<ParseResult> {
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(data as ArrayBuffer)
+  await wb.xlsx.load(await withoutCommentRels(data) as ArrayBuffer)
 
   const sheet = wb.worksheets[0]
   if (!sheet) throw new Error('The workbook has no sheets.')

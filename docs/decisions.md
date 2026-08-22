@@ -1032,3 +1032,38 @@ pseudo-element at (0,0,1) and needs `getComputedStyle(el, '::placeholder')`.
 
 It remains the right tool for what it was used for — bounding the blast radius
 of a token change — but it is not proof that every state is unchanged.
+
+---
+
+## D61 — A sheet with cell comments could not be imported at all
+
+**The bug.** Uploading the real retailer catalogue returned HTTP 500 with
+`Cannot read properties of undefined (reading 'comments')`, in 27 ms, before a
+single row was read. The three sample sheets imported fine, which is why it
+survived this long.
+
+**Cause, in exceljs 4.4.0.** It looks for the comment part at
+`xl/comments1.xml` and keys it as `../comments1.xml`. That workbook stores it at
+`xl/comments/comment1.xml` and points at it with an **absolute** relationship
+target, `/xl/comments/comment1.xml`. Neither the path regex nor the key matched,
+so the part was never parsed — and `WorkSheetXform.reconcile` then dereferenced
+the missing entry unconditionally.
+
+**Fix.** `lib/excel/parse.ts` strips comment and vmlDrawing *relationships*
+before handing the workbook to exceljs, and only when one is present, so an
+ordinary sheet is passed through byte-for-byte. Nothing in this project reads
+cell comments.
+
+Dropped rather than repaired deliberately: repairing means guessing the layout
+exceljs wants, and the next exporter will lay it out differently again. The
+failure was in the plumbing between two file formats, not in anything the
+importer needs.
+
+**Guarded.** `scripts/test-parse.mjs` builds a workbook carrying a comment at
+that exact odd path with an absolute target, and asserts it imports and yields
+the same products and the same image matches. Verified to fail with the original
+error when the fix is removed. The fixture is built in the test rather than
+committed — the sheet that exposed this is real catalogue data and gitignored.
+
+**Reverses if.** Cell comments ever become data this project reads, at which
+point they have to be parsed rather than dropped.

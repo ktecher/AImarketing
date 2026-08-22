@@ -32,3 +32,46 @@ ok('never two decimals',                       formatKwd(12.5) !== '12.50 KD')
 
 console.log(`\n${r.products.length} products, ${r.issues.length} issues`)
 for (const i of r.issues) console.log(`  [${i.severity}] row ${i.row}: ${i.reason}`)
+
+// --- cell comments must not stop the import -----------------------------------
+//
+// The real retailer export stores comments at xl/comments/comment1.xml and points
+// at them with an ABSOLUTE relationship target. exceljs 4.4.0 looks for
+// xl/comments1.xml and keys it relatively, so it matched neither, never parsed
+// the part, then dereferenced the missing entry — a 2 MB sheet died in 27 ms
+// with "Cannot read properties of undefined (reading 'comments')" and no row
+// was ever read.
+//
+// Built here rather than committed: the sheet that exposed it is real catalogue
+// data and gitignored.
+console.log('\n--- a sheet carrying cell comments ---')
+const JSZip = (await import('jszip')).default
+const zip = await JSZip.loadAsync(readFileSync('data/samples/fixture-messy.xlsx'))
+
+zip.file('xl/comments/comment1.xml',
+  '<?xml version="1.0" encoding="UTF-8"?>' +
+  '<comments xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+  '<authors><author>someone</author></authors>' +
+  '<commentList><comment ref="A1" authorId="0"><text><t>a note</t></text></comment></commentList>' +
+  '</comments>')
+
+const relsPath = 'xl/worksheets/_rels/sheet1.xml.rels'
+const existing = zip.files[relsPath] ? await zip.files[relsPath].async('string') : null
+const rel = '<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"' +
+  ' Target="/xl/comments/comment1.xml" Id="comments" />'
+zip.file(relsPath, existing
+  ? existing.replace('</Relationships>', rel + '</Relationships>')
+  : '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    rel + '</Relationships>')
+
+let commented, threw = null
+try {
+  commented = await parseWorkbook(await zip.generateAsync({ type: 'nodebuffer' }))
+} catch (e) { threw = e }
+
+ok('a sheet with cell comments still imports', threw === null)
+if (threw) console.log(`      threw: ${threw.message}`)
+ok('and reads exactly the same products', commented?.products.length === r.products.length)
+ok('comments do not disturb image matching',
+  commented?.products.filter((p) => p.image).length === r.products.filter((p) => p.image).length)
