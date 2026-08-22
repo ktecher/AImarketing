@@ -30,6 +30,7 @@ const GROUPS: {
     items: [
       { href: '/studio', label: 'Studio', hint: 'copy from the same rows' },
       { href: '/advisor', label: 'Advisor', hint: 'check a draft you wrote' },
+      { href: '/kuwait', label: 'Kuwait', hint: 'the calendar and the rules' },
     ],
   },
   {

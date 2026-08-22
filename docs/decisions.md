@@ -1406,3 +1406,61 @@ conversation arrived under — the id reads (D68), so no lookup.
 The demo campaign, its two test conversations, and its one test asset row were
 removed after verification; the two draft files it stamped keep their drafts
 with the dangling id cleared to null.
+
+## D70 — The chatbot eval, and the Kuwait screen
+
+**The eval.** `evals/chat.json` — thirty questions frozen against the real
+catalogue, five of them unanswerable, run by `npm run eval:chat`. Not in `npm
+test`: thirty model calls take minutes and need Ollama and Postgres, and unlike
+the suites it refuses to skip — an eval that skips silently is an eval that
+passes silently. The set carries its own contract: do not edit a question to
+make a run pass; a failing question is a finding about the system.
+
+The figure check is implemented in the runner from scratch, deliberately not
+imported from `lib/chat/answer.ts` — the eval exists to catch that module being
+wrong, and sharing its definition of "invented" would make the check circular.
+The one place two definitions of the same idea is correct.
+
+First run: 23/25, 5/5, and two "invented figures" that were nothing of the
+kind — grounded replies naming products verbatim, judged by the runner against
+the wrong row set. Two real findings behind that:
+
+- **The runner judged figures against cited rows; the model is shown retrieved
+  rows.** "6.5-inch" in a reply about a retrieved iPhone is the product's own
+  name either way. Fixed in the runner.
+- **A reply that names a product without a price token cites nothing.** The
+  token is the citation, so those replies had empty provenance — and the
+  campaign report counts asked-about products from `cited_ids`, so every such
+  conversation undercounted the return leg. One line in the system prompt:
+  whenever you name a product, give its price with its token. Not salesmanship;
+  provenance.
+
+Second run: **25/25 answerable, 5/5 escalations, zero invented figures, median
+3.8s** — vision.md's third success criterion, including the Arabic question,
+the code-switched one, and the trap that names a real product while asking an
+unanswerable policy question.
+
+Also fixed while reading retrieval: `retrieve()`'s comment promised unembedded
+rows are "skipped rather than embedded inline" and the code embedded all of
+them — fine at sixty rows, minutes of one customer's time at a thousand. Capped
+at 64; beyond that, rows answer lexically until the Products queue runs.
+
+**The Kuwait screen.** `/kuwait` renders `knowledge/kuwait/` — the markdown
+stays the single source and the page is the one read function CLAUDE.md
+promised, wearing a ~70-line renderer for exactly the constructs the files use.
+A dependency for five files is the wrong trade, and a second copy of the
+calendar typed into JSX is the copy that still says 2027 in 2029. The calendar
+and the guardrails share a row, so every occasion is read beside what may and
+may not be done with it — the shape the religion rule demands. "This week"
+points at the campaign's context box and nowhere else.
+
+One layout defect found by rendering: `table.catalogue` carries a `min-width:
+840px` floor for the Products table's eight columns, and a three-column
+calendar inheriting it overflowed its panel and ran underneath the guardrails.
+Overridden to 0 inside `.knowledge`.
+
+**Correction to D67**, which is append-only so it is corrected here: it said
+"348 rows of it are in Postgres." The count that day was 62 — the 348-row
+retailer catalogue was replaced by a re-import of the 60-row campaign sheet on
+2026-08-22, before D67 was written. The retailer rows live in
+`retailer-products/retailer-catalogue.xlsx`, not in the database.

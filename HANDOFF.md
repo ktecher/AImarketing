@@ -256,8 +256,12 @@ is *a real colleague used it for real work*. Load a sheet, write copy for five
 products you would actually post, take the designs out, ask the assistant five
 real questions, paste a draft into the advisor.
 
-**2. The Kuwaiti advisor.** Agreed and specified but not built. `knowledge/kuwait/`
-already holds 194 lines with no screen: the retail calendar (National Day,
+~~**2. The Kuwaiti advisor.**~~ **Built — D70.** `/kuwait` renders
+`knowledge/kuwait/` — the markdown stays the single source, the page is the read
+function. The calendar sits beside the guardrails so every occasion is read next
+to what may and may not be done with it, and the header sends "this week" to the
+campaign's context box. The three settled constraints below all held. Previously:
+`knowledge/kuwait/` held 194 lines with no screen: the retail calendar (National Day,
 Liberation Day, Hala Febrayer, Ramadan, Eid), tone and dialect, how prices and
 offers are written here, channels, and the compliance guardrails.
 
@@ -279,12 +283,13 @@ keep in step with reality. The export, studio and chat routes each stamp
 report: what customers asked about, and — the point of the whole thing — the
 questions the assistant could not answer, quoted in the customer's own words.
 
-**4. The frozen eval sets.** `evals/` is still empty, and it is the only
-substitute this project has for a deadline. The chatbot's is unblocked today:
-thirty questions written against the real catalogue, five of them unanswerable,
-asserting **zero figures the model wrote**. Grounding is the entire claim and
-nothing currently proves it holds across a set rather than in the five questions
-somebody happened to try.
+~~**4. The frozen eval sets.**~~ **The chatbot's exists and passes — D70.**
+`evals/chat.json`, thirty questions frozen against the real catalogue, run with
+`npm run eval:chat`: 25/25 answerable, 5/5 escalations, zero invented figures,
+median 3.8s — vision.md's third success criterion, met and repeatable. The set
+is frozen: do not edit questions to make a run pass. Still owed: the advisor's
+blind historical test (gated on the social export) and the designer batch test
+(gated on the artwork).
 
 **5. Smaller things, already agreed:**
 - The drift banner tells you to download designs again and gives you no button.

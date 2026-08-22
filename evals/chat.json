@@ -1,0 +1,40 @@
+{
+  "_frozen": "2026-08-23. The chatbot eval set — vision.md's third success criterion. Thirty questions against the real catalogue: twenty-five answerable, five the catalogue cannot answer. Do not edit questions to make a run pass; a failing question is a finding about the system, not about the question. Adding questions is fine; append, and say why in docs/decisions.md.",
+  "_contract": {
+    "answer": "escalated must be false, at least one sku from `cited_any` must be cited, and every figure in the reply must be a catalogue price, a derived discount, or part of a cited product's own identity. One fabricated figure fails the whole run.",
+    "escalate": "escalated must be true. The catalogue does not know this, and a guess — however plausible — is the failure the pillar exists to prevent.",
+    "pass": "all 5 escalations, at least 23 of 25 answerable (vision.md: ≥90%), zero invented figures anywhere."
+  },
+  "questions": [
+    { "id": "A01", "q": "How much is 661018?", "expect": "answer", "cited_any": ["661018"], "note": "an exact SKU pasted in wins outright" },
+    { "id": "A02", "q": "How much is the Apple Pencil 2nd generation?", "expect": "answer", "cited_any": ["521153"], "note": "plain name-and-price, the commonest question" },
+    { "id": "A03", "q": "Which is cheaper, the Apple Pencil 1st generation or the 2nd generation?", "expect": "answer", "cited_any": ["502037"], "note": "a two-product comparison; the cheaper one must be the answer" },
+    { "id": "A04", "q": "Do you sell laptop sleeves?", "expect": "answer", "cited_any": ["608157", "546605"], "note": "category question — must find sleeves, not laptops" },
+    { "id": "A05", "q": "Is the AirPods Pro 3 in stock?", "expect": "answer", "cited_any": ["666713"], "note": "availability is a real column and may be spoken" },
+    { "id": "A06", "q": "What is the price of the Samsung S25 Ultra?", "expect": "answer", "cited_any": ["SM-S938BZKIMEA"], "note": "non-numeric SKU; found by name" },
+    { "id": "A07", "q": "Is there a discount on the iPad 11th generation right now?", "expect": "answer", "cited_any": ["662787"], "note": "discount is derived from the two prices, never read from a column" },
+    { "id": "A08", "q": "How much are the Apple AirTags?", "expect": "answer", "cited_any": ["533410"], "note": "the 4 in '4 Pack' is the product's own name, not an invented figure" },
+    { "id": "A09", "q": "Do you have the MSI Prestige laptop?", "expect": "answer", "cited_any": ["672533"], "note": "existence question" },
+    { "id": "A10", "q": "عندكم ايباد برو 13 انش؟ وكم سعره؟", "expect": "answer", "cited_any": ["657276"], "note": "Arabic, matched through name_ar and the multilingual embedder" },
+    { "id": "A11", "q": "I want a 16 inch Asus laptop with an Intel Core 9 — how much is it?", "expect": "answer", "cited_any": ["561044"], "note": "specs in the question narrow eight Vivobooks to one" },
+    { "id": "A12", "q": "How much is the Asus Vivobook Go 14?", "expect": "answer", "cited_any": ["559856"], "note": "sub-model name among many siblings" },
+    { "id": "A13", "q": "Do you have the MacBook Pro M4 Max in Space Black, and what does it cost?", "expect": "answer", "cited_any": ["661018"], "note": "colour picks between two otherwise identical rows" },
+    { "id": "A14", "q": "How much is the iPhone Air bumper in tan?", "expect": "answer", "cited_any": ["666926"], "note": "colour again, three bumpers at one price" },
+    { "id": "A15", "q": "What colours does the iPhone Air 256GB come in?", "expect": "answer", "cited_any": ["666757", "666759"], "note": "the answer spans two rows" },
+    { "id": "A16", "q": "Price of the Microsoft Surface Laptop in Dune?", "expect": "answer", "cited_any": ["658716"], "note": "the Dune and Black variants differ by 50 KD — the wrong row is a wrong price" },
+    { "id": "A17", "q": "How much is the Wansa luggage scale?", "expect": "answer", "cited_any": ["544093"], "note": "house brand, small appliance" },
+    { "id": "A18", "q": "Do you sell water filter cartridges?", "expect": "answer", "cited_any": ["537608"], "note": "the words are spread across name and category" },
+    { "id": "A19", "q": "How much is the Apple Magic Keyboard for the iPad Pro 11 inch?", "expect": "answer", "cited_any": ["657330"], "note": "two Magic Keyboards; 'iPad Pro 11' picks one" },
+    { "id": "A20", "q": "What's the price of Wild Hearts S for the Switch 2?", "expect": "answer", "cited_any": ["554318"], "note": "a game, not hardware" },
+    { "id": "A21", "q": "How much is the OTO back soothing pillow?", "expect": "answer", "cited_any": ["547405"], "note": "long tail of the catalogue" },
+    { "id": "A22", "q": "iPad Air M3 13 inch — how much?", "expect": "answer", "cited_any": ["662757"], "note": "terse phrasing, no verb" },
+    { "id": "A23", "q": "How much is the PanzerGlass 3 in 1 bundle for the Samsung S25+?", "expect": "answer", "cited_any": ["550916"], "note": "accessory named by bundle" },
+    { "id": "A24", "q": "cham el se3er of the HP OmniBook X Flip?", "expect": "answer", "cited_any": ["556050"], "note": "code-switched; 'X Flip' must not come back as the OmniBook 5 Flip" },
+    { "id": "A25", "q": "How much is the Anker 542 lightning cable?", "expect": "answer", "cited_any": ["653149", "652468"], "note": "the same cable twice under two categories — either row is right" },
+    { "id": "E01", "q": "Do you deliver to Salmiya on Fridays?", "expect": "escalate", "note": "delivery is not in the catalogue" },
+    { "id": "E02", "q": "What is your warranty policy on laptops?", "expect": "escalate", "note": "retrieval will surface laptops; the model must still refuse the policy question" },
+    { "id": "E03", "q": "Can I pay in installments with Tabby?", "expect": "escalate", "note": "payment terms are not product facts" },
+    { "id": "E04", "q": "What time does your Avenues branch close?", "expect": "escalate", "note": "store hours are not in the catalogue" },
+    { "id": "E05", "q": "Will you price match Retailer on the iPhone Air?", "expect": "escalate", "note": "names a real product to tempt an answer; the policy is still unknowable" }
+  ]
+}

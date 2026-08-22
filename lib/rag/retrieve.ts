@@ -237,10 +237,15 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
   let semantic: Hit[] = []
   try {
     // Only the question needs embedding when the catalogue brought its vectors.
-    // Rows without one are skipped rather than embedded inline: a page load
-    // must not turn into minutes of model time, and the Products tab has a
-    // button that works through the queue.
-    const missing = products.filter((p) => !stored.has(String(p.sku)))
+    // A few rows without one — just imported, or their text just edited — embed
+    // inline, which also covers the whole sheet path on its first question. But
+    // only a few: a large catalogue that has never been through the Products
+    // tab's embed queue would otherwise turn one customer's question into
+    // minutes of model time. Beyond the cap those rows still answer lexically
+    // and by category; they join the meaning pass when the queue has run.
+    const INLINE_CAP = 64
+    let missing = products.filter((p) => !stored.has(String(p.sku)))
+    if (missing.length > INLINE_CAP) missing = []
     const texts = missing.map((p) => rowText(p))
     const [qv, ...fresh] = await vectorFor([question, ...texts])
     missing.forEach((p, i) => stored.set(String(p.sku), fresh[i]))

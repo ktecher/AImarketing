@@ -28,6 +28,8 @@ const CARDS: Card[] = [
     // corner, and a sentence in it wraps under the title.
     part: 'checks work',
     desc: 'Reviews drafts the team wrote. Named checks with the exact line that triggered each one. Never a score. Comparison against past posts waits on the social export.' },
+  { href: '/kuwait', pillar: 'Marketing', title: 'Kuwait',
+    desc: 'The stable layer: the retail calendar with the hard rules beside it, pricing conventions, channels, and the dialect question. This week’s specifics live on the campaign.' },
   { href: '/chat', pillar: 'Sales', title: 'Sales assistant',
     desc: 'Answers product questions from the catalogue, escalates when it cannot, hands over to a person mid-conversation.' },
   { href: '/sales', pillar: 'Sales', title: 'Sales inbox',

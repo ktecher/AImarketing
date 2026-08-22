@@ -489,6 +489,27 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .fixes li { margin-bottom: 10px; }
 .fixes q { display: block; font-size: 13px; color: var(--muted); quotes: '"' '"'; }
 
+/* --- The Kuwait screen: knowledge/kuwait rendered inside panels --- */
+/* The page-level h2 margin assumes open air; inside a panel 34px reads as a
+   hole, and the first heading of a panel needs no lead-in at all. */
+.knowledge h2 { font-size: 16px; margin: 22px 0 8px; }
+.knowledge h2:first-child { margin-top: 0; }
+.knowledge h3 { font-size: 14px; margin: 16px 0 6px; }
+.knowledge p, .knowledge li { font-size: 13.5px; line-height: 1.55; }
+.knowledge p { margin: 0 0 10px; }
+.knowledge pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+                 padding: 10px 12px; font-size: 12.5px; overflow-x: auto; margin: 0 0 10px; }
+/* min-width: 0 undoes the 840px floor below — that floor exists for the
+   Products table's eight columns, and a three-column calendar inheriting it
+   overflowed its panel and ran underneath the guardrails beside it. */
+.knowledge table.catalogue { margin-top: 4px; min-width: 0; }
+/* The calendar and the guardrails share a row. minmax(0,..) is what lets the
+   calendar table shrink instead of shoving the guardrails into a sliver —
+   a grid track never shrinks below min-content unless told it may. */
+.kw-pair { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; margin-bottom: 14px; }
+.kw-pair > .knowledge { margin-bottom: 0; }
+@media (max-width: 1100px) { .kw-pair { grid-template-columns: 1fr; } .kw-pair > .knowledge { margin-bottom: 14px; } }
+
 /* --- Products catalogue --- */
 table.catalogue { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px; }
 table.catalogue th { text-align: left; font-size: 11px; letter-spacing: .04em;
