@@ -465,7 +465,9 @@ export default function Templates({
 
         {pickerOpen && (
           <div style={{ marginTop: 12 }}>
-            <input type="search" value={hunt} style={{ width: '100%' }}
+            {/* Opening the picker is already the decision to search; landing the
+                cursor anywhere else would just be a click to undo. */}
+            <input type="search" value={hunt} style={{ width: '100%' }} autoFocus
                    aria-label="Search the catalogue"
                    placeholder="Search the catalogue by name, SKU or brand"
                    onChange={(e) => setHunt(e.target.value)} />
@@ -508,7 +510,7 @@ export default function Templates({
         )}
       </div>
 
-      <div className="panel catalogue">
+      <div className="panel">
         <div className="export-head" style={{ margin: 0 }}>
           <div>
             {sheet ? (
@@ -651,7 +653,7 @@ export default function Templates({
           import, not the products picked from the catalogue, and offering it
           under a catalogue selection reads as "delete these". */}
       {sheet && !picked.length && total > 0 && (
-        <div className="panel clear-panel">
+        <div className="panel">
           {!confirmClear ? (
             <div className="export-head" style={{ margin: 0 }}>
               <div>

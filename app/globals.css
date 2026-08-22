@@ -200,7 +200,15 @@ main { margin: 0 auto; }
 .panel {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 20px;
+  /* Stacked panels space themselves. Spacing used to be a property of each
+     PLACE a panel was used — the sheet, the clear box and the export box each
+     carried their own — so a panel added anywhere else touched the one below it
+     with no gap at all. */
+  margin-bottom: 14px;
 }
+/* Not in the page flow: this one stands in for a missing preview inside a
+   figure, where the margin would push the caption away from its image. */
+.render .panel { margin-bottom: 0; }
 
 .drop input { display: none; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -370,7 +378,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .card-actions { display: flex; gap: 6px; margin-top: 5px; }
 .card-actions a { font-size: 11px; padding: 3px 9px; }
 .badge.over { background: var(--warn-bg); color: var(--warn); font-size: 10px; }
-.export { margin-bottom: 20px; }
+/* Panels get their bottom margin from .panel — one number, one place. */
 .export-head { display: flex; justify-content: space-between; align-items: center; gap: 16px;
                flex-wrap: wrap; margin-bottom: 14px; }
 .export-head b { display: block; }
@@ -387,13 +395,10 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .fld > span em { font-style: normal; color: var(--muted); text-transform: none;
                  letter-spacing: 0; font-size: 10px; }
-.clear-panel { margin-bottom: 14px; }
 
 .chip.add { color: var(--accent); border-color: var(--accent); }
 .notice { border-radius: 8px;
           font-size: 13px; margin-bottom: 16px; }
-
-.catalogue { margin-bottom: 14px; }
 
 /* ── Content studio ──────────────────────────────────────────────────────
  * A draft is read before it is edited, so the copy itself is the loudest
@@ -483,7 +488,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .fixes q { display: block; font-size: 13px; color: var(--muted); quotes: '"' '"'; }
 
 /* --- Products catalogue --- */
-table.catalogue { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.catalogue { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px; }
 table.catalogue th { text-align: left; font-size: 11px; letter-spacing: .04em;
   text-transform: uppercase; color: var(--muted); font-weight: 560;
   padding: 0 8px 7px; border-bottom: 1px solid var(--line); }

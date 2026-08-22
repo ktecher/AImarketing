@@ -1206,3 +1206,28 @@ products are chosen: it removes the import, not the picked products, and
 offering it under a selection reads as "delete these". And the sheet's photos
 and the Products tab's photos have always shared one folder, so Clear catalogue
 removes both — that predates this change and is now easier to walk into.
+
+## D65 — Panel spacing belongs to the panel
+
+The new picker panel in D64 sat flush against the sheet panel below it: no gap,
+two borders touching, which reads as one broken container rather than two.
+
+The cause was that `.panel` had no margin at all. Every gap on the Designs page
+came from the PLACE a panel happened to be used — `.catalogue` and
+`.clear-panel` each declared `margin-bottom: 14px`, `.export` declared 20px —
+so a panel added anywhere new got nothing, and adding one correctly meant
+knowing to invent a class for it.
+
+`.panel` now carries the margin, once. The three per-instance rules are gone,
+and with them two class names that existed only to hold a number: `clear-panel`
+had no other declaration, and `catalogue` on that div matched nothing else —
+`table.catalogue` is the products table and keeps its own margin, merged into
+the rule that already styles it.
+
+Two things this does not break. Adjacent margins collapse, so a panel followed
+by something that already had a top margin is unchanged — the Products filter
+bar still sits 14px below its panel, not 28. And `.render .panel` is reset to
+zero: that one is the "no preview" stand-in inside a figure, where a bottom
+margin would push the caption off its image.
+
+Checked on every screen that has panels rather than only the one that broke.
