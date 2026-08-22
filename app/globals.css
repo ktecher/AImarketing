@@ -300,7 +300,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .card { display: block; text-decoration: none; color: inherit; border-radius: 10px;
         transition: border-color .15s, transform .15s; }
 
-.card h3 { font-weight: 620; }
+.card h3 { font-weight: 600; }   /* 620 is not a Barlow face — it rounded up to 700 and pulled in a whole file */
 .card p { margin: 0; color: var(--muted); }
 
 .renders { display: grid; }
@@ -410,7 +410,7 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .piece .checks code { font-size: 12px;
                       padding: 1px 5px; }
 .script .kv { align-items: baseline; }
-.script .kv b { font-weight: 620; text-align: right; max-width: 80%; }
+.script .kv b { font-weight: 600; text-align: right; max-width: 80%; }
 .script p { margin: 10px 0; line-height: 1.5; }
 .script .avoid { margin: 10px 0 12px; }
 .script .avoid > span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
@@ -842,8 +842,17 @@ table.drift td { border-top: 1px solid var(--line); }
   box-shadow: var(--knob-shadow);
   transition: left .24s cubic-bezier(.2,.85,.3,1);
 }
-.theme-switch[aria-pressed="true"] .track { background: color-mix(in srgb, var(--side-accent) 42%, transparent); }
-.theme-switch[aria-pressed="true"] .knob  { left: 22px; }
+/* Keyed off data-theme, not aria-pressed. aria-pressed comes from React state,
+   which does not exist until hydration — so the knob sat on the left for one
+   frame of every navigation in deep mode. data-theme is on <html> before first
+   paint, so CSS paints the switch correctly the first time. aria-pressed stays
+   on the button for assistive technology; it just no longer drives the pixels. */
+:root[data-theme="deep"] .theme-switch .track { background: color-mix(in srgb, var(--side-accent) 42%, transparent); }
+:root[data-theme="deep"] .theme-switch .knob  { left: 22px; }
+
+.theme-switch .on-deep { display: none; }
+:root[data-theme="deep"] .theme-switch .on-light { display: none; }
+:root[data-theme="deep"] .theme-switch .on-deep  { display: inline; }
 .theme-switch .label { display: flex; flex-direction: column; line-height: 1.25; }
 .theme-switch .label b    { font-size: 13px; font-weight: 600; }
 .theme-switch .label span { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--side-muted); }

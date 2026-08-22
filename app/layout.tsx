@@ -12,15 +12,20 @@ export const metadata = {
  * build time and served from this machine — a hotlink would mean every page view
  * makes a request to Google, which is exactly what this project does not do.
  */
+// Only the faces the stylesheet actually resolves to. Measured across every
+// screen rather than guessed: body text asks for 400 and 600, and 700 arrives
+// from the browser's own bold on <b>, <strong> and <th>. Headings ask for 600.
+// Neither family ever needs 500, and preloading a face no page uses is what
+// produced seven "preloaded but not used" warnings on every load.
 const body = Barlow({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['400', '600', '700'],
   variable: '--font-body',
   display: 'swap',
 })
 const heading = Barlow_Condensed({
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
+  weight: ['600'],
   variable: '--font-heading',
   display: 'swap',
 })

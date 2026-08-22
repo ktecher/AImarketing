@@ -138,7 +138,15 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
           >
             <i className="track"><i className="knob" /></i>
             <span className="label">
-              <b>{deep ? 'Deep' : 'Light'}</b>
+              {/* Both words are in the DOM and CSS shows one, keyed off the
+                  data-theme the head script has already written. Rendering
+                  `deep ? 'Deep' : 'Light'` meant the SERVER decided, and the
+                  server has no localStorage — so a deep page painted a light
+                  switch for one frame on every navigation, and every link here
+                  is a full page load. display:none also takes the hidden word
+                  out of the accessibility tree, so the name stays singular. */}
+              <b className="on-light">Light</b>
+              <b className="on-deep">Deep</b>
               <span>glass mode</span>
             </span>
           </button>

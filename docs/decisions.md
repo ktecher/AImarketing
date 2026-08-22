@@ -1115,3 +1115,53 @@ deleted drift apart.
 
 **Reverses if.** Photos ever need to differ per campaign rather than per
 product, at which point one file per SKU on disk stops being the right shape.
+
+---
+
+## D63 — The theme switch paints from the attribute, not from React state
+
+**The bug, reported from use.** Moving between tabs in deep mode, the switch at
+the bottom of the sidebar flickered light-then-deep. Light mode never flickered.
+
+**Why.** The switch rendered `deep ? 'Deep' : 'Light'` and CSS keyed the knob off
+`aria-pressed`, both of which come from React state — which does not exist until
+hydration. The server has no `localStorage`, so it renders "Light", unpressed.
+The head script has already painted the page deep. For one frame every
+navigation — and every link here is a full page load — a deep page carried a
+light switch. In light mode the server's guess happens to be right, so nothing
+showed.
+
+D60 recorded this as accepted after an earlier attempt made it worse: a lazy
+`useState` reading the DOM produces a first client render that disagrees with
+the server HTML, and the only way to silence that is `suppressHydrationWarning`,
+which does **not** patch the text — it keeps the server's. The switch then read
+"Light" on a deep page permanently.
+
+**The fix is to stop needing JavaScript to know the answer.** `data-theme` is on
+`<html>` before first paint, so CSS can read it directly:
+
+- both words are in the DOM and CSS shows one, keyed off `data-theme`;
+- the knob position and track fill key off `data-theme` rather than
+  `aria-pressed`.
+
+`aria-pressed` stays on the button for assistive technology; it no longer drives
+a pixel. `display: none` also removes the hidden word from the accessibility
+tree, so the button's name stays singular.
+
+Proved rather than eyeballed: forcing `aria-pressed` to the wrong value leaves
+the knob position and both labels unchanged. React state cannot affect the
+rendering, so there is nothing left to flash.
+
+This only became available because D60 made `data-theme` always present. While a
+"no attribute" state existed, CSS could not have been the source of truth.
+
+**And the font warnings.** Seven `.woff2` files were preloaded on every page and
+Chrome warned that each was unused. The declared weights were guesses; measured
+across every screen, the stylesheet resolves to Barlow 400/600/700 — 700 arrives
+from the browser's own bold on `<b>`, `<strong>` and `<th>` — and Barlow
+Condensed 600. Neither family ever needed 500.
+
+Two rules asked for `font-weight: 620`, which is not a Barlow face: it rounds UP
+to 700 and pulled an entire Condensed file in for two elements. Both are now
+600, which is what every other heading in the restyle uses. Four files, every
+one used on every page, no warnings.
