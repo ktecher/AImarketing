@@ -1274,3 +1274,38 @@ three commits. D52 predicted the shape of this — "not by anyone deciding to
 un-merge it, but by a later change re-surfacing a route that was never deleted"
 — and this is the same failure from the other end: the page outlived the route.
 Every remaining internal link was checked against the routes that exist.
+
+## D67 — The home page reads the screens instead of describing them
+
+Every card on the home page carried a hand-typed `state` and `label`. Three of
+them still said **planned** — the advisor, the assistant and the inbox — months
+after those screens were built and used, and the status panel below them said
+*"Batch, ZIP and PDF export — next"* about an export that ships PNG, JPG, SVG,
+PDF and a ZIP with a README in it. D66 had just deleted two cards pointing at
+routes that no longer existed. Same defect from the other end: the page was a
+second description of the app, maintained by remembering to.
+
+A page that is not built imports `Stub`. That is a fact about the page, so the
+card now reads it — `existsSync` on `app/(staff)<href>/page.tsx`, then
+`app<href>/page.tsx` for `/chat`, which sits outside the staff group, and no page
+at all means an `/api/*` route handler, which is never a stub. Delete the stub
+and the badge changes by itself.
+
+One state cannot be derived, so it stays explicit and narrow: `part`, set only on
+the advisor, whose checks work and whose comparison against past posts waits on
+the social export. Two words, because the badge is an uppercase pill floated into
+the card's corner and a sentence in it wraps under the title.
+
+**A missing card is the same bug as a dead one.** `/products` — the full
+catalogue, the thing the assistant and the advisor actually read — had no card at
+all, so the home page's map of the system omitted a screen that had been in the
+sidebar since D53.
+
+The status panel keeps only claims the cards do not already make, and one number
+that was quietly wrong: `ollama list` reports 20.8 GB across four models, not 19.
+
+**The waiting list was three-quarters stale.** It still asked for "the real
+product Excel" — 348 rows of it are in Postgres. It is now the five items HANDOFF
+records, in the order they block: print-resolution artwork, the Arabic font's
+outlining licence, the social export, 30–50 approved Arabic posts, and a baseline
+for how long fifty posts take by hand.
