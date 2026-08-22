@@ -535,10 +535,22 @@ table.drift td:first-child { width: 72px; }
 /* ─────────────────────────────────────────────────────────────────────────────
  * AImarketing — glass layer
  *
- * APPEND to the end of app/globals.css, after 01-tokens.css has replaced the
- * token block at the top. Every selector here already exists in the repo — this
- * file only restyles them. Nothing is renamed, no markup changes are required
- * except the two in 03-staff-layout-patch.md (fonts + the theme switch).
+ * THIS LINE IS THE SEAM. Everything above is the repo's own base; everything
+ * below restyles it. A selector that appears twice in this file appears once in
+ * each half — that is the overlay overriding the base, not a conflict, and it is
+ * the only record of which declarations the restyle brought.
+ *
+ * 64 selectors are written twice. Their property sets are DISJOINT: no
+ * declaration is shadowed and no two rules fight over a value. `npm test` runs
+ * scripts/css-dead-decls.mjs, which fails if that ever stops being true.
+ *
+ * Do not collapse the halves together. 55 of the 64 pairs cross an unrelated
+ * rule of equal specificity that declares one of the properties that would
+ * move, and CSS alone cannot prove whether that rule matches the same elements —
+ * stylelint reports duplicates without reasoning about it, and csso asks a human
+ * to assert it. Do not wrap the halves in @layer either: layers outrank
+ * specificity, so the overlay would start beating the base everywhere the base
+ * currently wins on it.
  *
  * The one repeated recipe: a glass surface carries all four properties
  * together — background, backdrop-filter (+ -webkit-), a hairline border, and

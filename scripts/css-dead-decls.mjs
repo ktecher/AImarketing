@@ -39,9 +39,20 @@ const context = (node) => {
   return parts.join(' | ')
 }
 
+// Ask the AST, not the text — the stylesheet's own comments mention @layer.
+let layered = false
+root.walkAtRules('layer', () => { layered = true })
+if (layered) {
+  console.error('@layer present — layers outrank specificity, so "the later rule wins" no longer holds')
+  process.exit(1)
+}
+
+/** Normalise combinators too, so `.a > .b` and `.a>.b` are recognised as one selector. */
+const norm = (sel) => sel.replace(/\s+/g, ' ').replace(/\s*([>+~,])\s*/g, '$1').trim()
+
 const groups = new Map()
 root.walkRules((rule) => {
-  const key = context(rule) + ' ' + rule.selector.replace(/\s+/g, ' ').trim()
+  const key = context(rule) + ' ' + norm(rule.selector)
   if (!groups.has(key)) groups.set(key, [])
   groups.get(key).push(rule)
 })
@@ -58,8 +69,14 @@ for (const rules of groups.values()) {
   }
 }
 
+const twins = [...groups.values()].filter((r) => r.length > 1).length
+
 if (dead.length === 0) {
-  console.log(path + ': no dead declarations')
+  // A selector written twice is the glass overlay overriding the base — see the
+  // seam comment in the stylesheet. That is legible layering, not a conflict,
+  // and it is only true while the two halves declare disjoint properties. Zero
+  // dead declarations IS that guarantee: any overlap would appear here.
+  console.log(path + ': no dead declarations (' + twins + ' selectors written twice, none conflicting)')
   process.exit(0)
 }
 

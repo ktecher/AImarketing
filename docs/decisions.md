@@ -982,3 +982,53 @@ state-aware diff showed the change touching exactly two elements, `.track` and
 Three `#fff` literals remain below the token blocks and are correct: the poster
 render bed, the slot resize handles and the live preview. Print artwork is not
 themed, and a `var()` inside an exported SVG is undefined outside the browser.
+
+**Follow-up to D60 — the 64 twin selectors stay, deliberately.**
+
+Two things were being conflated under "duplicates":
+
+- **Duplicate declarations** — two rules fighting over one property. A real
+  hazard: you edit one, the other still wins, and the file lies to you. There
+  are **zero**, and `npm test` fails if one reappears.
+- **Duplicate selector text** — the same selector written once in the base half
+  and once in the glass overlay, declaring *disjoint* properties. Verified with
+  postcss: 64 pairs, 0 sharing any property.
+
+Only the first matters, and it is solved and guarded. The second is the seam
+between the two halves, and it is the only record of which declarations the
+restyle brought — the overlay's own comments ("the repo's chip is the secondary
+button", the `:focus-visible` correction) are written relative to it.
+
+**Collapsing them was investigated and rejected on evidence.** A static cascade
+proof is possible here because the file has one origin, no `!important` and no
+`@layer`, so source order is consulted only to break an exact specificity tie.
+Moving a declaration therefore changes a computed value only if some rule
+between the twins declares the same property, has *exactly equal* specificity,
+and can match a common element. Of the 64 pairs, **9 are provably safe and 55
+are not**: nearly every selector here is a bare single class at (0,1,0), and CSS
+alone cannot tell you whether one element carries two of those classes.
+
+Nobody solves that last question. stylelint's `no-duplicate-selectors` reports
+duplicates without reasoning about the cascade at all; csso's `usage` feature
+asks a *human* to declare which classes never co-occur; lightningcss merges only
+adjacent rules and sidesteps it. Answering it soundly is a satisfiability
+problem over an unbounded document tree.
+
+**Do not wrap the halves in `@layer` either.** It looks like the elegant fix and
+is the most dangerous option: layers outrank specificity, so the overlay would
+begin beating the base everywhere the base currently wins on specificity —
+silently, across the whole file. The checker now refuses to run if `@layer`
+appears, because its safety argument depends on its absence.
+
+**On the forced-state harness, honestly.** It proves less than the previous
+entry implies. Marker classes are applied to every element at once, so the
+snapshot includes a state no element can really be in — `:hover` and `:active`
+both apply, and the later simply wins. `.chip:hover:not(:disabled)` rewrites to
+`.chip.__h:not(:disabled)`, which fires on marker-disabled chips, so that rule
+is a false negative. `::placeholder` cannot be faked at all — it is a
+pseudo-element at (0,0,1) and needs `getComputedStyle(el, '::placeholder')`.
+`:focus-visible` reproduces the selector, not the UA heuristic. And
+`[data-over="true"]` is an attribute, so a pseudo-class map misses it.
+
+It remains the right tool for what it was used for — bounding the blast radius
+of a token change — but it is not proof that every state is unchanged.
