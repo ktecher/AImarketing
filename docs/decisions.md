@@ -924,3 +924,35 @@ reverted.
 
 **Reverses if.** Someone needs the app to theme correctly with JavaScript
 disabled, which would bring back the second palette and the bug class with it.
+
+**Follow-up to D60 — the fold, and the parser bug that cost three attempts.**
+All 141 remaining dead declarations are gone. The rule that made it safe is the
+one above: delete the dead declaration from the EARLIER duplicate, never hoist
+the later one. `scripts/css-dead-decls.py` does it and now runs first in
+`npm test`, exiting non-zero if a dead declaration ever reappears.
+
+Three earlier attempts corrupted the file and were reverted. All three had the
+same root cause, found only after writing the invariant that catches it: a rule
+head preceded by a comment. `/* … */ @media (max-width: 900px)` fails a naive
+`head.startswith('@')`, so every rule inside that block looked top-level and got
+grouped with an unrelated rule of the same selector — producing edit spans that
+ran into neighbouring rules' selector text.
+
+The script now asserts three things before writing, and any one of them would
+have caught it on the first run:
+
+1. no two edit spans overlap;
+2. the surviving selectors are a subsequence of the originals — nothing that
+   stays may have its selector text altered;
+3. every surviving declaration's text appears verbatim in the original, and the
+   count dropped by exactly the number deleted.
+
+64 selectors are still written twice, and that is now harmless: their property
+sets are disjoint, so neither copy is redundant and neither shadows the other.
+Collapsing them further would mean moving declarations — the unsafe direction —
+for a cosmetic gain. Left alone deliberately.
+
+Verified: computed styles IDENTICAL across /products, /templates and /studio in
+both schemes, measured with one page load per scheme rather than by flipping the
+attribute in place (flipping it mid-turn reads stale values — it produced a
+false regression report during this work).
