@@ -85,6 +85,14 @@
   --side-tint:   color-mix(in srgb, var(--accent-raw) 10%, transparent);
   --side-accent: var(--accent-raw);
 
+  /* The theme switch is the one control drawn as a physical object, so its knob
+     and well carry their own light. Tokens, not literals, so the deep scheme
+     can darken them — a white knob on a navy sidebar was the last hardcoded
+     theme colour in the file. */
+  --knob:        linear-gradient(180deg, #fff, #dfe9f2);
+  --knob-shadow: 0 2px 5px rgba(0,25,50,.28), inset 0 1px 0 #fff;
+  --well-shadow: inset 0 2px 4px rgba(0,20,40,.16);
+
   /* shape + density */
   --r:  7px;   /* panels, cards, tables, figures */
   --rs: 4px;   /* buttons, inputs, chips — round(--r × 0.61), min 2 */
@@ -163,6 +171,12 @@
   --side-muted:  #bdd6ea;
   --side-tint:   color-mix(in srgb, var(--paper) 18%, transparent);
   --side-accent: color-mix(in srgb, var(--accent-raw) 22%, var(--paper));
+
+  --knob:        linear-gradient(180deg, color-mix(in srgb, var(--paper) 92%, transparent),
+                                         color-mix(in srgb, var(--paper) 62%, transparent));
+  --knob-shadow: 0 2px 6px rgba(0,6,16,.55),
+                 inset 0 1px 0 color-mix(in srgb, var(--paper) 70%, transparent);
+  --well-shadow: inset 0 2px 4px rgba(0,4,12,.45);
 }
 
 /* Where backdrop-filter is unavailable, panels have to carry their own opacity
@@ -806,14 +820,14 @@ table.drift td { border-top: 1px solid var(--line); }
 .theme-switch .track {
   position: relative; flex: 0 0 auto; width: 42px; height: 23px;
   border-radius: 999px; background: var(--field);
-  box-shadow: inset 0 0 0 1px var(--line), inset 0 2px 4px rgba(0,20,40,.16);
+  box-shadow: inset 0 0 0 1px var(--line), var(--well-shadow);
 }
-.theme-switch:hover .track { box-shadow: inset 0 0 0 1px var(--side-accent), inset 0 2px 4px rgba(0,20,40,.16); }
+.theme-switch:hover .track { box-shadow: inset 0 0 0 1px var(--side-accent), var(--well-shadow); }
 .theme-switch .knob {
   display: block; position: absolute; top: 3px; left: 3px;
   width: 17px; height: 17px; border-radius: 50%;
-  background: linear-gradient(180deg, #fff, #dfe9f2);
-  box-shadow: 0 2px 5px rgba(0,25,50,.28), inset 0 1px 0 #fff;
+  background: var(--knob);
+  box-shadow: var(--knob-shadow);
   transition: left .24s cubic-bezier(.2,.85,.3,1);
 }
 .theme-switch[aria-pressed="true"] .track { background: color-mix(in srgb, var(--side-accent) 42%, transparent); }

@@ -956,3 +956,29 @@ Verified: computed styles IDENTICAL across /products, /templates and /studio in
 both schemes, measured with one page load per scheme rather than by flipping the
 attribute in place (flipping it mid-turn reads stale values — it produced a
 false regression report during this work).
+
+**Follow-up to D60 — verifying element STATES, and the last hardcoded colours.**
+Every check up to this point read computed styles in the default state only,
+which is the blind spot that let three corrupted merges through undetected. The
+technique that closes it needs no framework and no dependency: walk
+`document.styleSheets`, and for each rule whose selector uses `:hover`,
+`:focus`, `:focus-visible`, `:active`, `:disabled` or `:checked`, insert a clone
+with that pseudo-class swapped for a plain class, then apply the classes to
+every element and snapshot.
+
+Two details make it sound. The clone goes **immediately after its original**,
+not appended at the end — appending moves it past rules it originally lost to,
+and the snapshot is then of a cascade the app never has. And a class has the
+same specificity as a pseudo-class (0,1,0), so the substitution does not move
+the rule in the cascade. Pseudo-ELEMENTS are skipped: `::placeholder` is 0,0,1
+and no class substitution preserves that.
+
+Used it to land the last four hardcoded theme colours as tokens — `--knob`,
+`--knob-shadow`, `--well-shadow` on the theme switch, which was drawn with a
+pure-white knob and fixed shadows in both schemes. Deep now darkens them. The
+state-aware diff showed the change touching exactly two elements, `.track` and
+`.knob`, and nothing else on any page in either scheme.
+
+Three `#fff` literals remain below the token blocks and are correct: the poster
+render bed, the slot resize handles and the live preview. Print artwork is not
+themed, and a `var()` inside an exported SVG is undefined outside the browser.
