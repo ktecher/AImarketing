@@ -5,6 +5,7 @@ import { productsFor } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
 import { readJson } from '@/lib/http'
 import { recordExport } from '@/lib/assets'
+import { current } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
 export const maxDuration = 600
@@ -117,7 +118,7 @@ export async function POST(req: Request) {
   // record claiming designs are out there that nobody has.
   let recorded = 0
   try {
-    recorded = await recordExport(baked, { formats: wanted, width: px })
+    recorded = await recordExport(baked, { formats: wanted, width: px, campaignId: await current() })
   } catch {
     // No database is not a reason to fail an export. The designs are correct;
     // only the ability to notice them going stale is missing, and the header

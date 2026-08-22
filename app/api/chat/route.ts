@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
 import { answer, AskSchema } from '@/lib/chat/answer'
 import { append, load, save, start, type Conversation } from '@/lib/chat/store'
+import { current } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
 // One retrieval and one model call. Seconds warm, longer on the first question
@@ -25,7 +26,11 @@ export async function POST(req: Request) {
   const { question, conversationId } = parsed.data
 
   const id = conversationId ?? `c${Date.now().toString(36)}`
-  const convo: Conversation = load(id) ?? start(id)
+  // Stamped once, when the conversation begins, and never revisited — a customer
+  // who started under one campaign belongs to that campaign even if a new one is
+  // created mid-chat. `current()` swallows a database that is down: an unstamped
+  // conversation is a gap in a report, a refused answer is a lost customer.
+  const convo: Conversation = load(id) ?? start(id, await current())
 
   append(convo, { sender: 'customer', text: question })
 

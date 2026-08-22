@@ -1309,3 +1309,67 @@ product Excel" — 348 rows of it are in Postgres. It is now the five items HAND
 records, in the order they block: print-resolution artwork, the Arabic font's
 outlining licence, the social export, 30–50 approved Arabic posts, and a baseline
 for how long fifty posts take by hand.
+
+## D68 — Campaigns: four columns, and membership nobody types in twice
+
+`campaign_id` has been on `assets` since migration two and in `content_pieces`
+and `conversations` since each was written, because architecture.md said bolting
+it on later means backfilled numbers. Every value had been null for the whole
+project, because nothing owned the id. Now something does.
+
+**The table is four columns and the test says so.** `id`, `name`, `context`,
+`created_at`, and a suite assertion that reads `information_schema` and fails on
+a fifth. CLAUDE.md's warning is that this grows into scheduling, budgets,
+statuses and approval workflows, and that is a CRM — so the guard is the same one
+rule 4 uses for the advisor: **you cannot hallucinate into a column that does not
+exist**, and you cannot quietly add one either.
+
+**Membership is derived, never stored.** Which products a campaign promoted is
+the set whose designs and copy carry its id. A `campaign_products` table would be
+a second answer to the same question, and the two would disagree the first time
+somebody exported a design and forgot to tick a box. This also settles what the
+forward leg means: a product is promoted when work went out for it, not when
+somebody listed it.
+
+**The current campaign is the newest one.** A rule, not a column — `status` and
+`starts_on` are the first two columns of the CRM. It reverses the day campaigns
+get planned weeks ahead, and a dated window replaces it then.
+
+**Nothing asks which campaign.** The export route, the studio route and the chat
+route each call `current()` and stamp what they write. Three one-line changes
+instead of a campaign selector on three screens, and it matches what vision.md
+says the loop is: *the products marketing promotes are the products the bot knows
+are promoted*. `current()` swallows a database that is down, deliberately — an
+unstamped asset is a gap in a report, an export that fails is somebody's
+afternoon. A conversation is stamped once, when it starts, so a customer who
+arrived under one campaign stays in it.
+
+**`cited_ids`, not `retrieved_ids`.** Retrieval returns its top rows for every
+question, so counting those would report interest in whatever the catalogue ranks
+near the words used. A product counts as asked-about when the assistant actually
+answered about it. The questions retrieval could not place are not lost: they
+escalate, and they are the other list.
+
+**The return leg is two lists, and the second is the point.** What the assistant
+could not answer, quoting the customer's own words rather than the bot's apology
+— vision.md calls it the most valuable byproduct in the system. Beside it,
+products customers asked about that this campaign never promoted.
+
+**Found by using it, not by the suite** — the same as every real defect in this
+project. Opening "new campaign" while a campaign was open pre-filled the new
+one's context box with the old one's, because one piece of state served both
+boxes. Last week's offer, silently, on a campaign nobody had typed it into. Two
+states now, and the report is hidden while the form is open, because two
+identical "this week's context" boxes on one screen is a reliable way to type
+into the wrong one.
+
+**Also: `.btn:disabled` had no styling** — only `.btn.small:disabled` did. A
+disabled primary button looked exactly like an enabled one everywhere in the app.
+
+**And the escalation reasons now live in `lib/chat/reasons.ts`.** The inbox had
+the only copy of the words a person reads for each reason; the campaign report
+needed them too. Both are client components, so the map cannot sit beside the
+code that produces it — `lib/chat/answer.ts` reaches `lib/ai/generate.ts`, and
+importing that into a page pulls the model client and its boot-time loopback
+assert into the browser bundle. The union type moved with it, so adding a way to
+fail cannot leave a screen printing a bare key.

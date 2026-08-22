@@ -286,9 +286,9 @@ both directions.
 
 ## Not in the database yet
 
-Everything except `products`. The chat store is still files under
-`data/state/chat/`, and the campaign sheet, templates, short names and content
-drafts are all still files.
+Everything except `products`, `assets` and `campaigns`. The chat store is still
+files under `data/state/chat/`, and the campaign sheet, templates, short names and
+content drafts are all still files.
 
 **When each of those moves, its first migration must already carry these** —
 from `architecture.md`, and each is irrecoverable for the same reason:
@@ -305,3 +305,10 @@ The shapes already exist in TypeScript — `lib/chat/store.ts` writes exactly th
 `messages` columns above — so moving them is a translation rather than a design.
 
 `assets` is **done** — `db/002_assets.sql`. See below.
+
+`campaigns` is **done** — `db/004_campaigns.sql`, and it is four columns with a
+suite assertion that fails on a fifth (D68). It carries no foreign key on
+purpose: `content_pieces` and `conversations` are still files, so a constraint
+would guarantee referential integrity for one of the three consumers of
+`campaign_id` and none of the others, which reads as a guarantee the system does
+not have. The FK lands when those tables do, on all three at once.

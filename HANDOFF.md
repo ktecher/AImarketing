@@ -1,17 +1,17 @@
 # Handoff
 
-State of the project as of 2026-08-20. Read `CLAUDE.md` for the rules, `docs/db.md` for the database, `docs/decisions.md` for why anything is the way it is (append-only, 51 entries, each with a reversal condition), and this file for where things stand.
+State of the project as of 2026-08-23. Read `CLAUDE.md` for the rules, `docs/db.md` for the database, `docs/decisions.md` for why anything is the way it is (append-only, 68 entries, each with a reversal condition), and this file for where things stand.
 
 ---
 
 ## Run it
 
 ```sh
-brew services start ollama          # models already pulled, ~19 GB on disk
+brew services start ollama          # models already pulled, ~21 GB on disk
 npm run db:up                       # Postgres in Docker, pinned to pg17
 npm run db:migrate                  # once, and after any db/*.sql change
 npm run dev                         # http://localhost:3000
-npm test                            # 165 assertions across 6 suites
+npm test                            # 367 assertions across 12 suites
 npm run typecheck
 ```
 
@@ -80,11 +80,11 @@ Templates are still files in `data/templates/`.
 
 ## What is not built
 
-The other two pillars and the loop. Each has an honest stub page saying what it will do and what it is waiting on.
+**Every screen is built.** There is no stub page left. What remains is one half of one pillar, and it is blocked on the user rather than on code.
 
 - **Creative advisor** (`/advisor`) — **the ungated half works.** The checks — price against the catalogue, claim safety, compliance — need no post history and no model, and `architecture.md` calls the price check *"the most valuable check"*. Still waiting on the social export for the other half: the five most similar past posts with their real reach. Until it arrives that sits in `not_assessed`, named, rather than silently absent.
-- ~~**Sales assistant** (`/chat`) and **inbox** (`/sales`)~~ — **v1 works.** See below.
-- **Campaigns** (`/campaigns`) — the loop. `campaign_id` belongs in the first migration whenever a database arrives.
+- **`evals/` is empty.** One `.gitkeep`. CLAUDE.md calls the frozen test sets *the substitute for a deadline*, and `vision.md`'s four success criteria are all eval-shaped — fifty products batched, ten posts reviewed, thirty salesperson questions with zero invented figures, the wifi switched off. None of them exists as a runnable set, so "done" is still judgement rather than a run. The chatbot's thirty questions are the one that needs nothing from anybody else.
+- **Most stores are still files.** Postgres holds `products`, `assets` and `campaigns`. The campaign sheet, short names, content drafts, chat conversations and templates are files — see `docs/db.md` for what each future table's FIRST migration must carry.
 
 ---
 
@@ -168,7 +168,7 @@ Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **332 assertions, 0 failures**, 11 suites |
+| `npm test` | **367 assertions, 0 failures**, 12 suites |
 | `npm run typecheck` | clean |
 | `npm run build` | 21 routes, 0 errors, 0 warnings |
 | Batch render, real 60 products | 33 clean, 27 flagged — every flag Arabic |
@@ -222,15 +222,17 @@ catalogue data, so version control was never going to be the answer.
 ## Where the last session stopped
 
 Everything below is committed and pushed to `ktecher/AImarketing` (private).
-Twenty commits, `879b2e5` to `3a96532`.
+The range moves every session; `git log --oneline` is the honest version of this
+line, and a typed-in commit hash was stale within a day.
 
-**Six of seven screens are built. `/campaigns` is the last stub.**
+**Every screen is built. No stub pages remain.**
 
 The way of working that produced this, and the one to keep: **grill the module
 to a shared understanding, build it, then grill the next.** Every defect found
 that day came from using the thing, never from the test suite — the HP name on
 sixty posters, a scrambled model number, every chat answer escalating, a correct
-price called invented, "I have 4 laptops" when there are 23. 332 assertions did
+price called invented, "I have 4 laptops" when there are 23, a new campaign
+silently inheriting the last one's offer. 367 assertions did
 not catch one of them.
 
 **What Products settled**, and what to read before touching it: D53 (two
@@ -247,7 +249,7 @@ Arabic font's outlining licence.
 ## What to do next, in order
 
 **1. Use it for real, for half an hour.** Still not done, still the highest-value
-item, and now more so: six screens exist and **not one has been used for real work
+item, and now more so: every screen exists and **not one has been used for real work
 by anyone but the machine that built it.** CLAUDE.md's bar for finishing a pillar
 is *a real colleague used it for real work*. Load a sheet, write copy for five
 products you would actually post, take the designs out, ask the assistant five
@@ -268,26 +270,27 @@ Three things the grilling settled, and they must survive:
   Show every occasion WITH what may and may not be done beside it.
 - **It is not Campaigns.** Different feature, different tab.
 
-**3. Campaigns, as originally framed and no larger.** The user confirmed the
-original scope: an id stamped on a poster, a caption, a conversation and a lead,
-so that afterwards you can ask *"we promoted these twelve products; what did
-customers ask about, and what could the bot not answer?"* `vision.md` calls that
-return leg the most valuable byproduct in the system. CLAUDE.md: **four columns,
-guard it against your future self** — it grows into scheduling, budgets, statuses
-and approval workflows, and that is a CRM.
+~~**3. Campaigns.**~~ **Built — D68.** Four columns, and a suite assertion that
+fails on a fifth. Membership is derived rather than stored: a product is promoted
+when a design or a caption went out carrying the campaign, so there is no list to
+keep in step with reality. The export, studio and chat routes each stamp
+`current()` without asking, which is the forward leg. The return leg is the
+report: what customers asked about, and — the point of the whole thing — the
+questions the assistant could not answer, quoted in the customer's own words.
 
-**4. Smaller things, already agreed:**
+**4. The frozen eval sets.** `evals/` is still empty, and it is the only
+substitute this project has for a deadline. The chatbot's is unblocked today:
+thirty questions written against the real catalogue, five of them unanswerable,
+asserting **zero figures the model wrote**. Grounding is the entire claim and
+nothing currently proves it holds across a set rather than in the five questions
+somebody happened to try.
+
+**5. Smaller things, already agreed:**
 - The drift banner tells you to download designs again and gives you no button.
 - Chat conversations and content drafts are still files; `docs/db.md` lists what
   their first migration must carry.
 - ~1.5 GB peak on export at 200 products (D39).
 - No user identity anywhere — every edit and takeover is `'a colleague'`.
-
-**Not yet:** the database. It is four JSON files at 60 products, and the studio is
-what settles the column vocabulary. The signal to move is a second consumer needing
-to query across products — an export of approved copy, the campaign view, or the
-advisor looking up past copy. Item 3 above may well be that signal. Docker is
-installed and ready when it is.
 
 ---
 

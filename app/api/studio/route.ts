@@ -3,6 +3,7 @@ import { readJson } from '@/lib/http'
 import { importedProducts } from '@/lib/template/columns'
 import { check, fill } from '@/lib/content/guard'
 import { approve, coverage, draft, load, save, type Channel, type Piece } from '@/lib/content/studio'
+import { current } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
 // Four model calls. On this machine a full set takes 20-40s cold, less warm.
@@ -72,7 +73,9 @@ export async function POST(req: Request) {
   if (!values) return NextResponse.json({ error: `No product ${sku} in the loaded sheet.` }, { status: 404 })
 
   try {
-    const fresh = await draft(values, channel, campaignId ?? null)
+    // The caller may name a campaign; nothing does yet, and nothing should have
+    // to. Copy written today belongs to the campaign running today.
+    const fresh = await draft(values, channel, campaignId ?? (await current()))
     // Approved pieces survive a re-run. Losing an approval to a click that was
     // meant to produce alternatives is not recoverable from the UI.
     const kept = load(sku).filter((p) => p.status === 'approved')

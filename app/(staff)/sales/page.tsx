@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { why } from '@/lib/chat/reasons'
 
 type Provenance = {
   retrieved_ids: string[]; cited_ids: string[]; model: string
@@ -12,13 +13,6 @@ type Convo = {
   taken_over_by: string | null; campaign_id: string | null; messages: Msg[]
 }
 
-const WHY: Record<string, string> = {
-  'nothing-retrieved': 'nothing in the catalogue matched',
-  'ungrounded-sku': 'it named a product that was not retrieved',
-  'invented-number': 'it wrote a figure of its own',
-  'unresolved-field': 'a field it reached for had no value',
-  'model-unavailable': 'the model did not answer',
-}
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { hour12: false }).replace(',', '')
 
@@ -112,7 +106,7 @@ export default function Sales() {
                   {m.provenance && (
                     <span className="prov">
                       {m.provenance.escalated
-                        ? `could not answer — ${WHY[m.provenance.reason ?? ''] ?? m.provenance.reason}`
+                        ? `could not answer — ${why(m.provenance.reason)}`
                         : `from ${m.provenance.cited_ids.join(', ') || 'the retrieved rows'}`}
                       {' · '}looked at {m.provenance.retrieved_ids.join(', ') || 'nothing'}
                       {' · '}{m.provenance.model} {m.provenance.prompt_version}

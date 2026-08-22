@@ -362,7 +362,9 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .row.tight > .fld { flex: 1 1 54px; min-width: 54px; }
 .apply-bar { display: flex; align-items: center; gap: 12px; }
 
-.btn.small:disabled { opacity: .55; cursor: default; }
+/* Every .btn, not only the small ones. A disabled primary button that looks
+   exactly like an enabled one gets clicked, and the page appears broken. */
+.btn:disabled { opacity: .55; cursor: default; }
 
 @keyframes pulse {
   70%  { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent); }

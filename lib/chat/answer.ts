@@ -21,6 +21,7 @@ import { generate, isGrounded, MODELS } from '@/lib/ai/generate'
 import { isProductIdentity } from '@/lib/content/guard'
 import { formatKwd } from '@/lib/money'
 import { retrieve, type Hit, type Row } from '@/lib/rag/retrieve'
+import { type Reason } from '@/lib/chat/reasons'
 
 export const PROMPT_VERSION = 'chat/v1'
 
@@ -34,8 +35,12 @@ export type Answer = {
   cited: string[]
   retrieved: string[]
   escalated: boolean
-  /** Named, quotable reason when escalating — never a vague apology. */
-  reason?: 'nothing-retrieved' | 'ungrounded-sku' | 'invented-number' | 'unresolved-field' | 'model-unavailable'
+  /**
+   * Named, quotable reason when escalating — never a vague apology. The union
+   * lives in `lib/chat/reasons.ts` beside the words a person reads for each one,
+   * so adding a way to fail cannot leave a screen printing a bare key.
+   */
+  reason?: Reason
   model: string
   prompt_version: string
 }
