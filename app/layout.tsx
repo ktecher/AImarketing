@@ -48,14 +48,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           in an effect, the scheme would flash the other way on every single
           click before correcting itself.
 
-          No stored choice means no attribute, and prefers-color-scheme in the
-          token sheet decides.
+          It ALWAYS writes the attribute — falling back to the OS rather than
+          leaving it unset. That is what lets the stylesheet hold the deep
+          palette exactly once. While a "no attribute" state existed, the sheet
+          needed a duplicate palette under prefers-color-scheme, and every
+          correction written as :root[data-theme="deep"] .foo silently missed
+          that second path. Three bugs came from it; see docs/decisions.md D59.
         */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('theme');" +
-              "if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}",
+              "try{var t=localStorage.getItem('theme')||" +
+              "(matchMedia('(prefers-color-scheme:dark)').matches?'deep':'glass');" +
+              "document.documentElement.setAttribute('data-theme',t)}catch(e){}",
           }}
         />
       </head>

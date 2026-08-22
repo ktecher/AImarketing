@@ -73,8 +73,9 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   const [deep, setDeep] = useState(false)
 
   useEffect(() => {
-    const set = document.documentElement.getAttribute('data-theme')
-    setDeep(set ? set === 'deep' : window.matchMedia('(prefers-color-scheme: dark)').matches)
+    // The head script always writes the attribute now, so there is no
+    // "unset, ask the OS" case left to handle here.
+    setDeep(document.documentElement.getAttribute('data-theme') === 'deep')
   }, [])
 
   const toggleTheme = useCallback(() => {

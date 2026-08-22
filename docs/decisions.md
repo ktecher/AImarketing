@@ -868,3 +868,59 @@ right after it.
 **Reverses if.** Someone wants the original bloom intensity back — but then the
 secondary text tokens have to go darker still to compensate, and the sidebar
 hints are the pair that runs out of room first.
+
+---
+
+## D60 — The palette is defined once, because defining it twice kept producing bugs
+
+**Decided.** The head script in `app/layout.tsx` now **always** writes
+`data-theme`, falling back to `prefers-color-scheme` when nothing is stored. It
+used to write nothing when there was no stored choice, and that abstention is
+the whole reason the stylesheet needed a second copy of the deep palette under
+`@media (prefers-color-scheme: dark)`.
+
+With the attribute always present, that duplicate block is deleted. The deep
+palette exists once, under `:root[data-theme="deep"]`.
+
+**Why it matters more than the 46 lines it saved.** Three bugs came from the
+duplication, each the same shape — a correction keyed on the attribute alone,
+silently skipped on the media path:
+
+- `.btn.danger-btn` kept `color:#fff` while `--err` went salmon: **2.04:1** on a
+  destructive button, for any dark-OS first visit.
+- `.slot-label` had `--paper` on `--accent`; in deep both are near-white.
+- The `@supports not (backdrop-filter)` branch listed
+  `:root:not([data-theme="glass"])` **outside** any dark media query, so a
+  *light* first visit without backdrop-filter got the *deep* panel opacities.
+  Found only by an outside review; the comment above it asserted it was "the
+  same shape as the @media block above", which it was not.
+
+The rule this replaces — "never write `:root[data-theme='deep'] .foo`, put it in
+a token" — depended on discipline. There is now only one path to write, so the
+bug class is structurally gone rather than merely documented.
+
+**`color-scheme` follows the choice too.** It was declared once on bare `:root`
+as `light dark`, so scrollbars, native selects and autofill followed the **OS**,
+not the switch: pick Deep on a light-OS machine and the scrollbars stayed light
+on a navy page. Now `[data-theme="glass"]` sets `light` and the deep block sets
+`dark`.
+
+**Cost, accepted.** With JavaScript off the app renders Light rather than
+OS-dark — in an app whose theme switch, chat and staged edits all need JS. And
+the OS flipping theme mid-session no longer repaints without a reload; every
+link is a plain `<a>` full page load, so the window is small.
+
+**On the duplicated selectors.** The handoff's "append a layer that wins by
+source order" left 108 selectors defined twice. 63 are merged. The remaining 45
+must be merged in ONE direction only: delete the dead declaration from the
+**earlier** rule and leave the later one where it is. Identical selector text
+means identical specificity, so the later rule always wins — the earlier
+declaration of that property can never apply, in any state or scheme, and
+deleting it is inert by construction. Merging the other way (hoisting the later
+rule up) changes source order and needs verification that a computed-style
+snapshot cannot give, because it cannot see `:hover`, `:focus` or `:disabled`.
+Three bulk attempts in the unsafe direction each corrupted the file and were
+reverted.
+
+**Reverses if.** Someone needs the app to theme correctly with JavaScript
+disabled, which would bring back the second palette and the bug class with it.
