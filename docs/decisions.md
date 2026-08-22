@@ -1373,3 +1373,36 @@ code that produces it — `lib/chat/answer.ts` reaches `lib/ai/generate.ts`, and
 importing that into a page pulls the model client and its boot-time loopback
 assert into the browser bundle. The union type moved with it, so adding a way to
 fail cannot leave a screen printing a bare key.
+
+## D69 — The context field is read, not just written
+
+D68 shipped `campaigns.context` with a column comment promising "read by the
+content studio as context, never as fact" — and nothing read it. A field that is
+written and never read is worse than no field: marketing types this week's offer
+in, believes the studio knows it, and the studio writes copy that ignores it.
+
+Now `draft()` takes the campaign's context and `rules()` fences it into the
+prompt under its own heading: use it for the angle, the tone, and the offer it
+describes; the no-number rule outranks it, and nothing in it changes a price, a
+spec, or what the product is. The studio route resolves the whole campaign row
+(`currentCampaign()`) instead of just the id, and a database that is down
+degrades to a draft without context rather than no draft.
+
+Verified behaviourally, not by reading the diff: with context "free bag with
+every laptop", a laptop's captions carry the offer ("Now available with a free
+bag included"), the Apple Pencil's do not — the model correctly read "with every
+laptop" as scoping the offer — zero digits in either, and the script's avoid
+list warns against the discount percentage unprompted. All checks pass; the
+approval gate is unchanged, so a person still stands between the offer and a
+published caption.
+
+**Two page defects fixed in the same pass**, both the false-success family D56
+names: `saveContext` printed "Saved." without looking at the response, so a save
+that failed while Postgres was down told the person it succeeded; and a fetch
+that rejected outright left the list load as an unhandled rejection instead of
+the "run npm run db:up" notice. The inbox also now shows which campaign a
+conversation arrived under — the id reads (D68), so no lookup.
+
+The demo campaign, its two test conversations, and its one test asset row were
+removed after verification; the two draft files it stamped keep their drafts
+with the dangling id cleared to null.

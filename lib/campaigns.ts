@@ -102,9 +102,14 @@ export async function get(id: string): Promise<Campaign | null> {
  * afternoon.
  */
 export async function current(): Promise<string | null> {
+  return (await currentCampaign())?.id ?? null
+}
+
+/** The whole row, for the one caller that needs `context` too — the studio. */
+export async function currentCampaign(): Promise<Campaign | null> {
   try {
-    const rows = await query<{ id: string }>('select id from campaigns order by created_at desc limit 1')
-    return rows[0]?.id ?? null
+    const rows = await query('select id, name, context, created_at from campaigns order by created_at desc limit 1')
+    return rows.length ? rowToCampaign(rows[0]) : null
   } catch {
     return null
   }

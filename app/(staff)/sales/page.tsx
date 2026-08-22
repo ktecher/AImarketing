@@ -88,7 +88,11 @@ export default function Sales() {
                   <span className="when">{when(c.messages[c.messages.length - 1]?.at ?? c.started_at)}</span>
                 </span>
                 <span className="convo-q">{first}</span>
-                <span className="convo-n">{c.messages.length} messages</span>
+                {/* The loop, visible from this end too: which campaign brought
+                    this customer in. The id reads (D68), so no name lookup. */}
+                <span className="convo-n">
+                  {c.messages.length} messages{c.campaign_id ? ` · ${c.campaign_id}` : ''}
+                </span>
               </button>
             )
           })}

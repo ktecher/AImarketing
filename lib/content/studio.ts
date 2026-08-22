@@ -93,11 +93,28 @@ function factSheet(values: Record<string, unknown>): string {
   return lines.join('\n')
 }
 
-const rules = (values: Record<string, unknown>) => `
+/**
+ * The campaign's "this week's context" rides along when there is one, fenced.
+ *
+ * architecture.md: it is where marketing pastes what they already know is
+ * trending, because nothing offline can know it. So it steers angle and tone and
+ * may name the offer — a person typed it and a person approves the copy — but it
+ * is not a second fact sheet: the no-number rule outranks it, or "free bag with
+ * every laptop over 300 KD" walks a figure straight past the catalogue.
+ */
+const rules = (values: Record<string, unknown>, context = '') => `
 You are writing retail social copy for a consumer electronics shop in Kuwait, in English.
 
 FACTS YOU MAY USE — nothing else is true:
 ${factSheet(values)}
+${context ? `
+THIS WEEK, FROM MARKETING — the campaign's angle, typed in by a person:
+${context}
+
+Use it for the angle, the tone, and the offer it describes. It is not a fact
+sheet: the no-number rule below applies to it too, and nothing in it changes a
+price, a spec, or what the product is.
+` : ''}
 
 NEVER WRITE A NUMBER. Not a price, not a percentage, not a spec, not a size, not a year.
 Where a fact belongs, write its field name in braces, exactly as spelled above — the system
@@ -159,8 +176,9 @@ export async function draft(
   values: Record<string, unknown>,
   channel: Channel,
   campaignId: string | null = null,
+  campaignContext = '',
 ): Promise<Piece[]> {
-  const base = rules(values)
+  const base = rules(values, campaignContext)
   const ch = CHANNELS[channel]
   const now = new Date().toISOString()
   const sku = String(values.sku ?? '')

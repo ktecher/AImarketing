@@ -34,7 +34,9 @@ export default function Campaigns() {
   const [saved, setSaved] = useState('')
 
   const loadList = useCallback(async () => {
-    const d = await fetch('/api/campaigns').then((r) => r.json())
+    // A fetch that rejects outright (server gone) reads the same as Postgres
+    // being down: the page says what to run instead of rendering nothing.
+    const d = await fetch('/api/campaigns').then((r) => r.json()).catch(() => ({ up: false }))
     setUp(d.up !== false)
     setCampaigns(d.campaigns ?? [])
     // The newest campaign is the one new work is being stamped with, so it is
@@ -69,13 +71,16 @@ export default function Campaigns() {
   const saveContext = useCallback(async () => {
     if (!openId) return
     setBusy(true)
-    await fetch('/api/campaigns', {
+    // "Saved." on a failed save is the D56 failure in one word — a person walks
+    // away believing the studio will see an offer it never got.
+    const r = await fetch('/api/campaigns', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: openId, context }),
-    })
-    setBusy(false); setSaved('Saved.')
-    setTimeout(() => setSaved(''), 2000)
+    }).catch(() => null)
+    setBusy(false)
+    setSaved(r?.ok ? 'Saved.' : 'Not saved — is Postgres running?')
+    setTimeout(() => setSaved(''), 4000)
   }, [openId, context])
 
   if (up === false) {

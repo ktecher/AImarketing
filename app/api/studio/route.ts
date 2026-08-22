@@ -3,7 +3,7 @@ import { readJson } from '@/lib/http'
 import { importedProducts } from '@/lib/template/columns'
 import { check, fill } from '@/lib/content/guard'
 import { approve, coverage, draft, load, save, type Channel, type Piece } from '@/lib/content/studio'
-import { current } from '@/lib/campaigns'
+import { currentCampaign, get } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
 // Four model calls. On this machine a full set takes 20-40s cold, less warm.
@@ -74,8 +74,14 @@ export async function POST(req: Request) {
 
   try {
     // The caller may name a campaign; nothing does yet, and nothing should have
-    // to. Copy written today belongs to the campaign running today.
-    const fresh = await draft(values, channel, campaignId ?? (await current()))
+    // to. Copy written today belongs to the campaign running today — and the
+    // campaign's "this week's context" rides into the prompt, which is the whole
+    // reason that field exists. `get` can throw when Postgres is down; a draft
+    // without context is still a draft, so it degrades rather than fails.
+    const camp = campaignId
+      ? await get(campaignId).catch(() => null)
+      : await currentCampaign()
+    const fresh = await draft(values, channel, camp?.id ?? campaignId ?? null, camp?.context ?? '')
     // Approved pieces survive a re-run. Losing an approval to a click that was
     // meant to produce alternatives is not recoverable from the UI.
     const kept = load(sku).filter((p) => p.status === 'approved')

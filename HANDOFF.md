@@ -47,6 +47,7 @@ Templates are still files in `data/templates/`.
 | `/chat` — **Assistant** | Grounded catalogue answers, or a person |
 | `/sales` — **Inbox** | Every conversation, with what the assistant retrieved and cited. Silent takeover |
 | `/advisor` — **Advisor** | Paste a draft, see what the catalogue disagrees with |
+| `/campaigns` — **Campaigns** | The loop. Four columns, membership derived from what was stamped, and the report of what customers asked about and what the assistant could not answer |
 
 - **Excel import** — finds the header row under a title block, parses `"KD 89.750"`, matches embedded photos to rows by anchor, skips and reports rather than aborting. Verified on 60 real Retailer products: 0 errors, 0 warnings, 60/60 photos matched.
 - **Layout engine** (`lib/template/layout.ts`, pure) — HarfBuzz shaping, bidi runs, wrap-then-shrink-then-truncate auto-fit, outline mode for Arabic.
