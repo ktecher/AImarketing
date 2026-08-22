@@ -246,3 +246,82 @@ export function sampleValues(): Record<string, string | number | undefined> {
   }
   return base
 }
+
+/**
+ * Products taken straight from the catalogue, for designing one that no sheet
+ * mentions.
+ *
+ * The sheet answers "which products is this campaign about". That is the right
+ * question for a seasonal batch and the wrong one for "make a post for this
+ * product" — exporting a one-row spreadsheet to design one poster is a chore
+ * with no purpose, and the catalogue already holds every field a template
+ * binds.
+ *
+ * Read through the same `flatten` the sheet path uses, so a design built this
+ * way and a design built from a sheet carry identical bindings.
+ */
+export async function catalogueProducts(
+  skus: string[],
+): Promise<Record<string, string | number>[]> {
+  if (!skus.length) return []
+  try {
+    const { query } = await import('@/lib/db')
+    const rows = await query<{
+      sku: string
+      name_en: string | null; name_ar: string | null; display_name: string | null
+      brand: string | null; category: string | null; category_path: string | null
+      description_en: string | null; description_ar: string | null
+      price_now: string | null; price_was: string | null
+      in_stock: boolean
+      extra: Record<string, string>
+    }>(
+      `select sku, name_en, name_ar, display_name, brand, category, category_path,
+              description_en, description_ar, price_now, price_was, in_stock, extra
+         from products where sku = any($1)`,
+      [skus],
+    )
+
+    const names = displayNames()
+    return rows.map((r) => {
+      const values = flatten(r as unknown as Record<string, unknown> & { extra?: Record<string, string> }, names)
+      // numeric(10,3) arrives as a string. Everything downstream compares these
+      // as numbers to decide whether a product is discounted.
+      if (r.price_now !== null) values.price_now = Number(r.price_now)
+      if (r.price_was !== null) values.price_was = Number(r.price_was)
+      values.in_stock = r.in_stock ? 1 : 0
+      return values
+    })
+  } catch {
+    // No database is the same answer as no such product: nothing to design.
+    return []
+  }
+}
+
+/**
+ * The products one render or export is about.
+ *
+ * Two sources, one order of precedence. Without a list of SKUs this is the
+ * imported campaign, unchanged. With one, each SKU is resolved from the sheet
+ * first and the catalogue second — a product the sheet knows keeps its sheet
+ * columns, which are the ones a template may be binding by their own names.
+ *
+ * The caller's order is kept, and a SKU neither source has is dropped rather
+ * than rendered as an empty design.
+ */
+export async function productsFor(
+  skus?: string[],
+): Promise<Record<string, string | number>[]> {
+  const wanted = (skus ?? []).map(String).filter(Boolean)
+  if (!wanted.length) return campaignProducts()
+
+  const bySku = new Map<string, Record<string, string | number>>()
+  for (const p of await campaignProducts()) {
+    const id = String(p.sku)
+    if (wanted.includes(id)) bySku.set(id, p)
+  }
+  for (const p of await catalogueProducts(wanted.filter((s) => !bySku.has(s)))) {
+    bySku.set(String(p.sku), p)
+  }
+
+  return wanted.map((s) => bySku.get(s)).filter((p): p is Record<string, string | number> => Boolean(p))
+}

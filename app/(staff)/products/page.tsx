@@ -394,6 +394,11 @@ export default function Products() {
                   {busy === 'selecting' ? 'Selecting…' : `select all ${total}`}
                 </button>
               )}
+              {/* The selection is already made; carrying it to Designs is a
+                  link, not another screen of picking. */}
+              <a className="chip" href={`/templates?skus=${encodeURIComponent([...picked].join(','))}`}>
+                Design {picked.size}
+              </a>
               <button className="btn danger-btn" onClick={() => void removePicked()} disabled={Boolean(busy)}>
                 {busy === 'deleting' ? 'Deleting…' : `Delete ${picked.size}`}
               </button>

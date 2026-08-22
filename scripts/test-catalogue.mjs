@@ -106,6 +106,39 @@ const [loose] = await query(`select (to_jsonb(products))->'price_now' as n from 
 ok('to_jsonb still returns a number — this is why it is not used',
    typeof loose.n === 'number' && String(loose.n) === '5.5')
 
+// --- designing a product that is in no sheet ---------------------------------
+//
+// The Designs tab used to render only what a sheet said. Exporting a one-row
+// spreadsheet to make one post is a chore with no purpose, so a SKU can now be
+// named directly and resolved from the catalogue.
+console.log('\n--- a design taken straight from the catalogue ---')
+const { productsFor, catalogueProducts } = await import('../lib/template/columns.ts')
+
+await clean()
+await upsert([{ row: 2, sku: SKU, name_en: 'Straight From Catalogue', brand: 'B',
+                category: 'C', price_now: 12.5, price_was: 20 }])
+
+const [only] = await catalogueProducts([SKU])
+ok('a catalogue row becomes a design row',  only?.sku === SKU)
+// Templates decide "is this discounted" by comparing these two. numeric(10,3)
+// arrives from pg as a string, and "20" < "9" is true, so a string here prints
+// a discount badge on a product that has none.
+ok('prices arrive as numbers, not strings',
+   typeof only?.price_now === 'number' && typeof only?.price_was === 'number',
+   `${typeof only?.price_now}/${typeof only?.price_was}`)
+ok('the short name falls back to the title', only?.display_name === 'Straight From Catalogue')
+
+const resolved = await productsFor([SKU, '__no_such_sku__'])
+ok('a SKU nothing has heard of is dropped, not rendered blank', resolved.length === 1)
+
+const ordered = await productsFor(['__no_such_sku__', SKU])
+ok('the caller\'s order is kept', ordered[0]?.sku === SKU)
+
+// The old behaviour has to survive: no SKUs still means the imported sheet.
+const whole = await productsFor()
+const sheetRows = (await import('../lib/template/columns.ts')).importedProducts()
+ok('no SKUs still means the whole campaign', whole.length === sheetRows.length)
+
 await clean()
 console.log(`\n${failed ? `${failed} FAILED` : 'catalogue holds'}`)
 process.exit(failed ? 1 : 0)

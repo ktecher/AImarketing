@@ -1165,3 +1165,44 @@ Two rules asked for `font-weight: 620`, which is not a Barlow face: it rounds UP
 to 700 and pulled an entire Condensed file in for two elements. Both are now
 600, which is what every other heading in the restyle uses. Four files, every
 one used on every page, no warnings.
+
+## D64 — A design can start from the catalogue, not only from a sheet
+
+The Designs tab rendered exactly one thing: the last sheet somebody imported.
+That is the right unit for a seasonal batch — sixty products, one template, one
+ZIP — and the wrong one for the request that actually turns up more often:
+*make a post for this product*. Answering it meant building a one-row
+spreadsheet and importing it, which also replaced the campaign already loaded.
+
+So a render or an export can now name SKUs, and `productsFor(skus)` resolves
+them: the sheet first, the catalogue second, the caller's order kept, and a SKU
+neither source has dropped rather than rendered as an empty design.
+
+**The sheet still wins where it overlaps.** D53 settled that the sheet says
+WHICH products a campaign is about and the catalogue says WHAT THEY COST. That
+stands. The new part is only that a product can be named without a sheet
+mentioning it at all — and when it is, every field comes from the catalogue,
+which is the same place the prices were already coming from.
+
+Nothing new is stored. The chosen SKUs live in the URL:
+
+- a reload designs the same products, and the link can be sent to somebody;
+- the Products tab hands its existing selection over as `?skus=…`, so choosing
+  is done once, on the screen already built for choosing;
+- closing the tab ends the selection, which is what somebody designing one
+  product expects. A file on disk would need a lifecycle, an owner, and an
+  answer to "why is the Designs tab still showing last week's three products".
+
+`/templates` is now server-rendered on demand rather than static, because it
+reads the query string. On a localhost staff app that costs nothing.
+
+**Prices arrive as numbers, deliberately.** `numeric(10,3)` comes out of pg as a
+string, and the renderer decides "is this discounted" with `was > now`. As
+strings, `"20" > "9"` is false — a product with no discount would print a badge
+and a struck-through price. There is an assertion for it.
+
+Two visible consequences. The Clear catalogue panel is hidden while catalogue
+products are chosen: it removes the import, not the picked products, and
+offering it under a selection reads as "delete these". And the sheet's photos
+and the Products tab's photos have always shared one folder, so Clear catalogue
+removes both — that predates this change and is now easier to walk into.

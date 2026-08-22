@@ -1,14 +1,14 @@
 import { Resvg } from '@resvg/resvg-js'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
-import { campaignProducts } from '@/lib/template/columns'
+import { productsFor } from '@/lib/template/columns'
 import { readJson } from '@/lib/http'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
 export async function POST(req: Request) {
-  const { templateId, products, format, width, limit, offset } = await readJson(req)
+  const { templateId, products, skus, format, width, limit, offset } = await readJson(req)
 
   const template = loadTemplate(String(templateId ?? 'brand-poster'))
   if (!template) return Response.json({ error: 'Template not found.' }, { status: 404 })
@@ -19,10 +19,12 @@ export async function POST(req: Request) {
 
   const shape = templateShape(template.svg)
 
-  // No products given means "the catalogue we last imported".
+  // Three ways to say what to render, narrowest first: rows handed over
+  // wholesale (the editor previewing an unsaved layout), a list of SKUs picked
+  // from the catalogue, or nothing — which still means "the sheet we imported".
   const all: ProductValues[] = Array.isArray(products) && products.length
     ? (products as ProductValues[])
-    : await campaignProducts()
+    : await productsFor(Array.isArray(skus) ? (skus as unknown[]).map(String) : undefined)
 
   const from = Number(offset ?? 0)
   const rows = all.slice(from, from + Number(limit ?? all.length))

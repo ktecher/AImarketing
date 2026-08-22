@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { use, useCallback, useEffect, useRef, useState } from 'react'
 
 type Drift = {
   sku: string; template_id: string; name: string; exported_at: string
@@ -11,6 +11,9 @@ type Result = { sku: string; name: string; report: Report[]; png?: string; overr
 type Tpl = { id: string; name: string; slots: string[]; width: number; height: number }
 type NameCheck = { name: string; pass: boolean; span?: string; hint?: string }
 type NameRow = { sku: string; name_en: string; length: number; short: string; checks: NameCheck[]; source: string }
+/** A product chosen from the catalogue. The name is a label, the SKU is the identity. */
+type Pick = { sku: string; name: string }
+type Found = { sku: string; name_en: string | null; display_name: string | null; brand: string | null; has_photo: boolean }
 
 const PAGE = 12
 
@@ -40,7 +43,22 @@ function describe(r: Report): string {
   return r.slot
 }
 
-export default function Templates() {
+export default function Templates({
+  searchParams,
+}: {
+  // The chosen products live in the URL rather than in a file on disk: it
+  // survives a reload, it is what the Products tab hands over, and it needs no
+  // lifecycle of its own — closing the tab ends the selection, which is what
+  // somebody designing one product expects.
+  searchParams: Promise<{ skus?: string }>
+}) {
+  const fromUrl = (use(searchParams).skus ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+
+  const [picked, setPicked] = useState<Pick[]>(fromUrl.map((sku) => ({ sku, name: '' })))
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [hunt, setHunt] = useState('')
+  const [found, setFound] = useState<Found[]>([])
+  const [hunting, setHunting] = useState(false)
   const [templates, setTemplates] = useState<Tpl[]>([])
   const [active, setActive] = useState('brand-poster')
   const [results, setResults] = useState<Result[]>([])
@@ -90,6 +108,31 @@ export default function Templates() {
   }, [])
 
   useEffect(() => { void loadTemplates(); void loadSheet() }, [loadTemplates, loadSheet])
+
+  // Searching the catalogue. Debounced: this fires on every keystroke, and the
+  // answer for "mac" is worthless the moment "macb" is typed.
+  useEffect(() => {
+    const q = hunt.trim()
+    if (!q) { setFound([]); setHunting(false); return }
+    setHunting(true)
+    const t = setTimeout(() => {
+      fetch(`/api/products?q=${encodeURIComponent(q)}&limit=8`)
+        .then((r) => r.json())
+        .then((d) => setFound(d.rows ?? []))
+        .catch(() => setFound([]))
+        .finally(() => setHunting(false))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [hunt])
+
+  /** Chosen products go into the URL, so a reload designs the same products. */
+  const choose = useCallback((next: Pick[]) => {
+    setPicked(next)
+    history.replaceState(
+      null, '',
+      next.length ? `${location.pathname}?skus=${encodeURIComponent(next.map((p) => p.sku).join(','))}` : location.pathname,
+    )
+  }, [])
 
   async function suggestNames() {
     setNamesBusy('suggesting'); setError(''); setNotice('')
@@ -196,7 +239,12 @@ export default function Templates() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // A grid does not need full-size renders; 320px keeps the payload sane.
-        body: JSON.stringify({ templateId: id, limit: PAGE, offset, width: 320 }),
+        // No SKUs means the imported sheet, which is what this page has always
+        // rendered.
+        body: JSON.stringify({
+          templateId: id, limit: PAGE, offset, width: 320,
+          skus: picked.length ? picked.map((p) => p.sku) : undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok) setError(data.error ?? 'Render failed.')
@@ -209,8 +257,9 @@ export default function Templates() {
       setError(e instanceof Error ? e.message : 'Render failed.')
     }
     setBusy(false)
-  }, [])
+  }, [picked])
 
+  // Re-runs when the chosen products change, because `render` closes over them.
   useEffect(() => { void render(active, 0, true) }, [active, render])
 
   /**
@@ -236,7 +285,10 @@ export default function Templates() {
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: active, formats, width: exportWidth || undefined }),
+        body: JSON.stringify({
+          templateId: active, formats, width: exportWidth || undefined,
+          skus: picked.length ? picked.map((p) => p.sku) : undefined,
+        }),
       })
       if (!res.ok) {
         setError((await res.json()).error ?? 'Export failed.')
@@ -289,12 +341,17 @@ export default function Templates() {
   const flagged = results.filter((r) => r.report.length > 0)
   const shown = onlyFlagged ? flagged : results
 
+  const chosen = new Set(picked.map((p) => p.sku))
+  // A product picked here brought its name with it; one that arrived in the URL
+  // did not, and the render that follows is where its name comes from.
+  const labelFor = (p: Pick) => p.name || results.find((r) => r.sku === p.sku)?.name || p.sku
+
   return (
     <main>
       <h1>Designs</h1>
       <p className="sub">
-        A product sheet, a template, and one finished design per product. Everything
-        happens here.
+        A template, and one finished design per product. Pick products from the
+        catalogue for a post or two, or import a sheet for a whole campaign.
       </p>
 
       <div className="chips" style={{ marginBottom: 14 }}>
@@ -368,6 +425,88 @@ export default function Templates() {
       </div>
 
       {error && <div className="err">{error}</div>}
+
+      <div className="panel">
+        <div className="export-head" style={{ margin: 0 }}>
+          <div>
+            <b>
+              {picked.length
+                ? `Designing ${picked.length} ${picked.length === 1 ? 'product' : 'products'} from the catalogue`
+                : 'Design a product you already have'}
+            </b>
+            <span>
+              Pick from the catalogue and skip the sheet entirely. Names and prices come
+              from the Products tab, so a design made this way is never older than the
+              row behind it.
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {picked.length > 0 && (
+              <button className="chip" onClick={() => choose([])}>
+                {sheet ? 'back to the sheet' : 'clear'}
+              </button>
+            )}
+            <button className="chip" onClick={() => setPickerOpen((o) => !o)}>
+              {pickerOpen ? '× close' : picked.length ? 'Add another' : 'Choose products'}
+            </button>
+          </div>
+        </div>
+
+        {picked.length > 0 && (
+          <div className="chips" style={{ marginTop: 12 }}>
+            {picked.map((p) => (
+              <button key={p.sku} className="chip on" onClick={() => choose(picked.filter((x) => x.sku !== p.sku))}>
+                {labelFor(p)} <span aria-hidden="true">×</span>
+                <span className="sr"> — remove {p.sku}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {pickerOpen && (
+          <div style={{ marginTop: 12 }}>
+            <input type="search" value={hunt} style={{ width: '100%' }}
+                   aria-label="Search the catalogue"
+                   placeholder="Search the catalogue by name, SKU or brand"
+                   onChange={(e) => setHunt(e.target.value)} />
+
+            {hunting && <p className="hint">Searching…</p>}
+            {!hunting && hunt.trim() && !found.length && (
+              <p className="hint">Nothing in the catalogue matches &ldquo;{hunt.trim()}&rdquo;.</p>
+            )}
+
+            {found.length > 0 && (
+              <div className="scroll" style={{ marginTop: 8 }}>
+                <table>
+                  <tbody>
+                    {found.map((r) => {
+                      const name = r.display_name || r.name_en || r.sku
+                      const already = chosen.has(r.sku)
+                      return (
+                        <tr key={r.sku}>
+                          <td>
+                            <span className="cap-name">{name}</span>
+                            <span className="tag">{r.sku}</span>
+                            {/* Said before the design is built, not after: a
+                                product with no photo renders a placeholder. */}
+                            {!r.has_photo && <span className="note">no photo yet</span>}
+                          </td>
+                          <td style={{ width: 96, textAlign: 'right' }}>
+                            <button className="chip" disabled={already}
+                                    onClick={() => choose([...picked, { sku: r.sku, name }])}>
+                              {already ? 'chosen' : 'add'}
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="panel catalogue">
         <div className="export-head" style={{ margin: 0 }}>
@@ -497,7 +636,7 @@ export default function Templates() {
           </div>
         )}
 
-        {!sheet && (
+        {!sheet && !picked.length && (
           <div className="drop" style={{ marginTop: 12 }}
             onClick={() => sheetRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
@@ -508,7 +647,10 @@ export default function Templates() {
         )}
       </div>
 
-      {total > 0 && (
+      {/* Only while the sheet is what is being rendered. Clearing removes the
+          import, not the products picked from the catalogue, and offering it
+          under a catalogue selection reads as "delete these". */}
+      {sheet && !picked.length && total > 0 && (
         <div className="panel clear-panel">
           {!confirmClear ? (
             <div className="export-head" style={{ margin: 0 }}>
@@ -545,11 +687,11 @@ export default function Templates() {
         <div className="panel export">
           <div className="export-head">
             <div>
-              <b>Download all {total} designs</b>
+              <b>{total === 1 ? 'Download the design' : `Download all ${total} designs`}</b>
               <span>One ZIP, one folder per format, with a note listing every design that needs a look.</span>
             </div>
             <button className="btn" onClick={() => void download()} disabled={exporting || !formats.length}>
-              {exporting ? 'Building the ZIP…' : `Download ${total} designs`}
+              {exporting ? 'Building the ZIP…' : total === 1 ? 'Download it' : `Download ${total} designs`}
             </button>
           </div>
 
@@ -636,7 +778,7 @@ export default function Templates() {
       )}
 
       <div className="stats">
-        <div className="stat"><b>{total}</b><span>products imported</span></div>
+        <div className="stat"><b>{total}</b><span>{picked.length ? 'products chosen' : 'products imported'}</span></div>
         <div className="stat"><b>{results.length}</b><span>rendered so far</span></div>
         <div className="stat">
           <b style={{ color: flagged.length ? 'var(--warn)' : undefined }}>{flagged.length}</b>

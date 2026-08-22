@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
-import { campaignProducts } from '@/lib/template/columns'
+import { productsFor } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
 import { readJson } from '@/lib/http'
 import { recordExport } from '@/lib/assets'
@@ -29,9 +29,15 @@ export async function POST(req: Request) {
   const shape = templateShape(template.svg)
   const [tw, th] = [shape.width, shape.height]
 
-  const all = await campaignProducts()
-  const rows: ProductValues[] = skus?.length ? all.filter((p) => skus.includes(String(p.sku))) : all
-  if (!rows.length) return Response.json({ error: 'Nothing to export — import a product sheet first.' }, { status: 400 })
+  // Resolved rather than filtered: a SKU chosen from the catalogue is not in
+  // any sheet, and filtering the sheet for it returned an empty ZIP.
+  const rows: ProductValues[] = await productsFor(skus)
+  if (!rows.length) {
+    return Response.json(
+      { error: 'Nothing to export — choose products from the catalogue, or import a sheet.' },
+      { status: 400 },
+    )
+  }
 
   const px = Number(width) || tw * 2
   const zip = new JSZip()
