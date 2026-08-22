@@ -33,7 +33,7 @@ import JSZip from 'jszip'
  */
 const COMMENT_REL = /<Relationship\b[^>]*\/(?:comments|vmlDrawing)"[^>]*\/>/g
 
-async function withoutCommentRels(data: ArrayBuffer | Buffer): Promise<ArrayBuffer | Buffer> {
+export async function withoutCommentRels(data: ArrayBuffer | Buffer): Promise<ArrayBuffer | Buffer> {
   let zip
   try {
     zip = await JSZip.loadAsync(data as ArrayBuffer)
