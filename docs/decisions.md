@@ -1231,3 +1231,46 @@ zero: that one is the "no preview" stand-in inside a figure, where a bottom
 margin would push the caption off its image.
 
 Checked on every screen that has panels rather than only the one that broke.
+
+## D66 — The localhost rule is checked, and it is not ESLint
+
+CLAUDE.md claimed an ESLint `no-restricted-imports` rule on HTTP clients as one
+of the two structural enforcements of rule 1. There was no eslint config, no
+eslint dependency, and no lint script. The rule had never existed, so the whole
+guarantee rested on the boot-time loopback assert in `lib/ai/generate.ts` — which
+covers the model's own destination and nothing else.
+
+It cannot be installed. No published typescript-eslint supports TypeScript 7:
+`@typescript-eslint/parser` peers at `<6.1.0`, and forcing it produces an install
+that breaks `npm ci` on a clone. Nor can the compiler stand in — TypeScript 7 is
+the Go port, and `node_modules/typescript/lib` holds a launcher and a version
+string, with no `createSourceFile` to parse with.
+
+So `scripts/check-localhost.mjs` runs the source through esbuild, which `tsx`
+already installs, purely to strip comments and type syntax; what is left is code,
+and a module name or URL found in it is really there. No counting quotes, and a
+documentation link in a comment cannot raise a false alarm. An import esbuild
+drops as unused is one nothing calls, which is one that cannot make a request.
+
+**The second check is the one that matters.** `no-restricted-imports` would never
+have caught the realistic mistake: `fetch` is a global, so the way this rule gets
+broken is a URL literal, not an import. The check refuses any absolute http(s)
+string in `app/`, `lib/` or `db/` whose host is not this machine. The W3C
+namespaces are allowed by name — they are XML identifiers, and an SVG that
+declares a different one is not an SVG.
+
+The seam's exemption is import-only, proved by planting: `lib/ai/generate.ts` may
+import `openai` — pointed at localhost that is the correct implementation — and
+still may not name an external host.
+
+`scripts/` is outside the check, deliberately. Seeding a catalogue from a public
+site happened once, by hand, before the app existed. The app may not reach the
+internet; a one-off tool a person runs is not the app, and keeping that line
+visible is better than a blanket ban nobody could honour.
+
+**Also: two dead cards on the home page.** `/typography` and `/import` were
+deleted in D52 and their cards were not, so the home page offered two 404s for
+three commits. D52 predicted the shape of this — "not by anyone deciding to
+un-merge it, but by a later change re-surfacing a route that was never deleted"
+— and this is the same failure from the other end: the page outlived the route.
+Every remaining internal link was checked against the routes that exist.

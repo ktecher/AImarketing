@@ -14,10 +14,11 @@ const CARDS: Card[] = [
     desc: 'The workspace: load a product sheet, pick or add a template, edit the layout, and download every design.' },
   { href: '/api/template', pillar: 'Catalogue', title: 'Download the blank sheet', state: 'live', label: 'working',
     desc: 'Hand this to marketing. Its columns are exactly what the importer reads, so nothing has to be guessed at.' },
-  { href: '/typography', pillar: 'Templates', title: 'Typography bench', state: 'live', label: 'reference',
-    desc: 'The layout engine on its own, for testing a string against a box. The controls that matter now live in the layout editor, on the slot they affect.' },
-  { href: '/import', pillar: 'Catalogue', title: 'Import in detail', state: 'live', label: 'working',
-    desc: 'The full import screen — every column understood, every skipped row with its reason. Reached from Designs when you need it.' },
+  // No card for /typography or /import. D52 deleted both routes, and their own
+  // descriptions here said why: the controls moved into the layout editor and
+  // the mapping moved into Designs. These two outlived the pages by three
+  // commits and 404'd the whole time — which is exactly the way D52 said a
+  // merged page comes back, so they go rather than get re-pointed.
   { href: '/studio', pillar: 'Marketing', title: 'Content studio', state: 'live', label: 'working',
     desc: 'Slogans, captions, hashtags, and video scripts — including what not to say. English only, and no figure the model wrote: prices are placeholders the catalogue fills in.' },
   { href: '/advisor', pillar: 'Marketing', title: 'Creative advisor', state: 'todo', label: 'planned',

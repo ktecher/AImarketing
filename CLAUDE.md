@@ -19,7 +19,11 @@ The company's requirement is absolute: catalog rows, customer messages, uploaded
 Enforcement is structural, not a promise:
 
 - A boot-time assert that `OLLAMA_BASE_URL`'s host is a loopback address, throwing with an actionable message.
-- ESLint `no-restricted-imports` on HTTP clients everywhere except `lib/ai/generate.ts`.
+- `scripts/check-localhost.mjs`, first in `npm test`. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
+
+  Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
+
+  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app.
 
 Note what this rule does **not** say. It does not ban the `openai` package — Ollama's endpoint is OpenAI-compatible, so the `openai` client pointed at localhost is the correct implementation. Do not hand-roll HTTP to avoid an import.
 
