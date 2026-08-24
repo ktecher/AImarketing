@@ -23,7 +23,7 @@ Enforcement is structural, not a promise:
 
   Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
 
-  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app.
+  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app. One route — `/api/kuwait/trends` — may EXECUTE `scripts/pull-trends.mjs`, by fixed path, with no arguments, never reading the request body: a staff click is a person running the tool, and the request code stays in `scripts/` where it takes no input and can carry nothing out (D72).
 
 Note what this rule does **not** say. It does not ban the `openai` package — Ollama's endpoint is OpenAI-compatible, so the `openai` client pointed at localhost is the correct implementation. Do not hand-roll HTTP to avoid an import.
 

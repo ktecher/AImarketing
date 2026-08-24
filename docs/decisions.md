@@ -1504,3 +1504,40 @@ sixty posters; that is the exact incident that created the D-series assertion,
 and this time the suite refused instead of sixty posters shipping. The literal
 was removed rather than moved to an override: the slot's bind already resolves
 to that text for that product, so the override would say nothing.
+
+## D72 — A click is a person running the tool
+
+The trends pull shipped in D71 as a terminal command, and the people who will
+actually use this system do not have a terminal. So the Kuwait tab gets a
+Refresh button — and the question is what that does to rule 1's boundary,
+because a button implies an API route, and an API route lives in `app/`.
+
+The answer: the route (`/api/kuwait/trends`) EXECUTES `scripts/pull-trends.mjs`
+and does nothing else. The distinction between running a tool and being the
+tool is kept structural, not aspirational:
+
+- executed by fixed path, with **no arguments**;
+- the request body is **never read** — nothing a caller sends reaches the
+  script;
+- the script itself takes no input from anything, fetches one constant URL
+  whose only parameter is `geo=KW`, and writes one local file.
+
+So there is no path, even a contrived one, by which a catalogue row, a customer
+message or anything else on this machine rides along. What rule 1 actually
+protects — company data cannot leave — holds by construction. What changed is
+only the trigger: a click instead of a keystroke, which is the difference
+between a system for its authors and a system for the marketing team.
+
+check-localhost still passes over `app/` unmodified: the route imports no HTTP
+client and names no external host. The request code stays quarantined in
+`scripts/`, reviewable in one place. The check cannot see child-process
+execution, and this is acknowledged rather than patched: a check that tried to
+police `execFile` would have to whitelist this exact call, and a rule with a
+whitelist teaches the next session to extend the whitelist. CLAUDE.md instead
+names the one permitted execution and its conditions — fixed path, no
+arguments, body never read — so a second one has to argue its case in a diff
+that touches the hard rules.
+
+Single-flight in the route: a double-click shares one pull rather than racing
+two writes into the same file. A failed pull reports failure and leaves the
+stale file on screen with its honest date — D56 from the other side.

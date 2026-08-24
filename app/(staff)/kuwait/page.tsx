@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ReactNode } from 'react'
+import { RefreshTrends } from './refresh'
 
 /**
  * The Kuwait screen: knowledge/kuwait/ rendered, not retyped.
@@ -171,10 +172,11 @@ export default function Kuwait() {
           <p className={t.days > 7 ? 'notice warn' : 'hint'}>
             {t.verified
               ? t.days > 7
-                ? `Pulled ${t.verified} \u2014 ${t.days} days old and past its shelf life. Refresh: npm run kuwait:trends`
-                : `Pulled ${t.verified} by a person running npm run kuwait:trends \u2014 the app itself never fetches.`
-              : 'Undated \u2014 treat as stale. Refresh: npm run kuwait:trends'}
+                ? `Pulled ${t.verified} \u2014 ${t.days} days old and past its shelf life.`
+                : `Pulled ${t.verified}. The pull sends nothing \u2014 it reads one public feed and writes a file here.`
+              : 'Undated \u2014 treat as stale.'}
           </p>
+          <RefreshTrends />
           {markdown(t.body)}
         </div>
       ))}
@@ -182,10 +184,11 @@ export default function Kuwait() {
         <div className="panel knowledge">
           <h2>Trending searches</h2>
           <p>
-            Nothing pulled yet. Run <code>npm run kuwait:trends</code> in a terminal \u2014 it fetches
-            today\u2019s Kuwait search trends (public data, one request, run by you rather than by the
-            app) and this panel renders the result with its date.
+            Nothing pulled yet. The button fetches today\u2019s Kuwait search trends \u2014 public
+            data, one request on your click, nothing sent \u2014 and this panel renders the result
+            with its date.
           </p>
+          <RefreshTrends />
         </div>
       )}
 

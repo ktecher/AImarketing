@@ -2,12 +2,14 @@
 /**
  * Pull today's Kuwait search trends into knowledge/kuwait/timely/.
  *
- * A PERSON runs this — `npm run kuwait:trends` — and that distinction is
- * load-bearing. Rule 1 forbids the APP from reaching the internet, and
- * scripts/check-localhost.mjs fails the suite on any outbound URL in app/, lib/
- * or db/. scripts/ is exempt for exactly this shape: a one-off tool a person
- * runs is not the app (the retailer seeder set the precedent). Nothing from this
- * machine is sent — one GET of a public RSS feed, no query beyond `geo=KW`.
+ * A PERSON runs this — `npm run kuwait:trends` in a terminal, or the Refresh
+ * button on the Kuwait tab, which executes this file unchanged with no
+ * arguments (see app/api/kuwait/trends/route.ts). Either way the request code
+ * lives HERE, in scripts/, outside the app: check-localhost fails the suite on
+ * any outbound URL in app/, lib/ or db/, and this script takes no input from
+ * anything, so no catalogue row or customer message can ride along. Nothing
+ * from this machine is sent — one GET of a public RSS feed, no query beyond
+ * `geo=KW` (the retailer seeder set the scripts/ precedent).
  *
  * The Kuwait screen renders the file this writes, with its date beside it, so
  * freshness is a visible parameter rather than a hidden assumption — the
@@ -61,7 +63,7 @@ const lines = [
   '',
   '# Trending searches in Kuwait',
   '',
-  `What Kuwait searched for on ${today}, by approximate search volume. Pulled by hand with \`npm run kuwait:trends\` — the app itself never fetches (rule 1).`,
+  `What Kuwait searched for on ${today}, by approximate search volume. Refresh from the Kuwait tab's button, or with \`npm run kuwait:trends\`.`,
   '',
   'A raw feed, not a recommendation: most days it is sport, weather and world news. The judgement of whether a trend is usable for retail — and whether it is appropriate at all — stays with you. The compliance guardrails apply to trends exactly as they apply to copy.',
   '',
