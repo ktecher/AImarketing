@@ -1464,3 +1464,43 @@ Overridden to 0 inside `.knowledge`.
 retailer catalogue was replaced by a re-import of the 60-row campaign sheet on
 2026-08-22, before D67 was written. The retailer rows live in
 `retailer-products/retailer-catalogue.xlsx`, not in the database.
+
+## D71 — Trends reach the Kuwait screen without the app reaching the internet
+
+The ask was for the Kuwait tab to "pull all the latest trends." The app cannot:
+rule 1 is absolute, check-localhost fails the suite on any outbound URL in
+`app/`, and the grilling that settled the Kuwaiti advisor recorded why — nothing
+offline knows this week, and a model asked will confidently invent a dead sound.
+
+The compliant shape already existed on both sides. `scripts/` is exempt from the
+localhost check because a tool a person runs by hand is not the app (the retailer
+seeder set the precedent), and `timely/` was specified from the start as dated
+files whose freshness is displayed in the UI. This connects them:
+
+- **`npm run kuwait:trends`** (`scripts/pull-trends.mjs`) — one GET of Google
+  Trends' public RSS for `geo=KW`, run by a person. Nothing from this machine is
+  sent; there is no query beyond the country code. It writes
+  `knowledge/kuwait/timely/trending-searches.md` with `last_verified` and the
+  source in frontmatter, and refuses to write if the feed's shape drifts —
+  a stale file that says its date beats a fresh file of garbage.
+- **The Kuwait page renders `timely/`** above the evergreen layer, date first:
+  "Pulled 2026-08-24 by a person running npm run kuwait:trends — the app itself
+  never fetches." Past seven days the line turns into a warning naming the
+  refresh command; viral shelf life is 3–14 days per timely/README, and a
+  two-week-old trend without a warning is the exact failure vision.md names.
+
+What deliberately did not change: **no model reads the feed and no
+recommendation is derived from it.** It is a raw fact about what Kuwait searched
+today — most days sport and world news — and the file itself says the judgement
+of what is usable, and whether it is appropriate at all, stays human. The angle
+still gets typed on the campaign. The guardrails apply to trends exactly as to
+copy.
+
+**Also: the template-literal trap fired again, and the assertion caught it.**
+`brand-poster.json`'s `name_ar` slot arrived at this session carrying a literal
+Arabic name — the HP OmniBook X Flip's — typed in the layout editor since the
+last green run. On the template it would print one laptop's Arabic name on all
+sixty posters; that is the exact incident that created the D-series assertion,
+and this time the suite refused instead of sixty posters shipping. The literal
+was removed rather than moved to an override: the slot's bind already resolves
+to that text for that product, so the override would say nothing.

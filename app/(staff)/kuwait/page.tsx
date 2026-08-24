@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ReactNode } from 'react'
 
@@ -12,10 +12,11 @@ import type { ReactNode } from 'react'
  * in 2029. CLAUDE.md: lib/kuwait is markdown plus one read function; this is
  * that function, wearing a page.
  *
- * What this deliberately is not: a trends feed. Nothing offline can know this
- * week, and a model asked will answer confidently and be wrong (vision.md).
- * This week's specifics have a home already — the campaign's context box — and
- * the header sends people there.
+ * The dated layer renders here too — timely/ files a PERSON pulls by running
+ * `npm run kuwait:trends` — but the page itself never fetches: rule 1, enforced
+ * by check-localhost. And no model is asked what is trending, ever; a model
+ * asked will answer confidently and be wrong (vision.md). The feed says what is
+ * moving; what to do with it is typed on the campaign by the person who knows.
  */
 
 const DIR = join(process.cwd(), 'knowledge/kuwait')
@@ -34,6 +35,32 @@ const SECTIONS = [
 
 const read = (rel: string): string => {
   try { return readFileSync(join(DIR, rel), 'utf8') } catch { return '' }
+}
+
+/**
+ * The dated layer: timely/ files, each pulled by a person running a script.
+ * Frontmatter's last_verified is separated from the body because it is not
+ * content — it is the one fact the reader needs BEFORE the content, and the
+ * timely/ contract says the date is displayed in the UI beside what it dates.
+ */
+function timely(): { name: string; verified: string; days: number; body: string }[] {
+  let files: string[] = []
+  try {
+    files = readdirSync(join(DIR, 'timely')).filter((f) => f.endsWith('.md') && f !== 'README.md')
+  } catch { return [] }
+  return files.sort().map((name) => {
+    const raw = read(join('timely', name))
+    const fm = raw.match(/^---\n([\s\S]*?)\n---\n/)
+    const verified = fm?.[1].match(/last_verified:\s*(\S+)/)?.[1] ?? ''
+    const days = verified
+      ? Math.floor((Date.now() - new Date(verified).getTime()) / 86_400_000)
+      : Infinity
+    const body = (fm ? raw.slice(fm[0].length) : raw)
+      // The renderer drops h1 because the evergreen panels are named by the
+      // page. A timely file is named by ITSELF, so its title survives as an h2.
+      .replace(/^# /m, '## ')
+    return { name, verified, days, body }
+  })
 }
 
 /* ── A markdown renderer the size of the markdown it renders ──────────────
@@ -130,10 +157,37 @@ export default function Kuwait() {
       <h1>Kuwait</h1>
       <p className="sub">
         The stable layer of &ldquo;knows Kuwait&rdquo; — the calendar, the hard rules, and the
-        conventions. What is trending <i>this week</i> lives on the{' '}
-        <a href="/campaigns">campaign</a>, typed in by the person who knows, because nothing
-        offline can — and a system that pretends otherwise will confidently recommend a dead sound.
+        conventions — plus a dated snapshot of what Kuwait is searching, pulled by hand. A feed
+        says what is moving, never what to do with it: the angle built on any of this is typed
+        on the <a href="/campaigns">campaign</a> by the person who knows.
       </p>
+
+      {timely().map((t) => (
+        <div className="panel knowledge" key={t.name}>
+          {/* The date is the first thing on the panel, and going stale is said
+              plainly. Viral specifics live 3\u201314 days (timely/README); a
+              two-week-old trend presented without a warning is the exact
+              "confidently recommend a dead sound" failure vision.md names. */}
+          <p className={t.days > 7 ? 'notice warn' : 'hint'}>
+            {t.verified
+              ? t.days > 7
+                ? `Pulled ${t.verified} \u2014 ${t.days} days old and past its shelf life. Refresh: npm run kuwait:trends`
+                : `Pulled ${t.verified} by a person running npm run kuwait:trends \u2014 the app itself never fetches.`
+              : 'Undated \u2014 treat as stale. Refresh: npm run kuwait:trends'}
+          </p>
+          {markdown(t.body)}
+        </div>
+      ))}
+      {timely().length === 0 && (
+        <div className="panel knowledge">
+          <h2>Trending searches</h2>
+          <p>
+            Nothing pulled yet. Run <code>npm run kuwait:trends</code> in a terminal \u2014 it fetches
+            today\u2019s Kuwait search trends (public data, one request, run by you rather than by the
+            app) and this panel renders the result with its date.
+          </p>
+        </div>
+      )}
 
       {SECTIONS.map(({ file, pair }) => {
         const main = read(file)

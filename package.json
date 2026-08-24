@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/css-dead-decls.mjs app/globals.css && node scripts/check-localhost.mjs && tsx scripts/make-fixture.mjs && tsx scripts/test-parse.mjs && tsx scripts/test-template.mjs && tsx scripts/test-layout.mjs && tsx scripts/test-content.mjs && tsx scripts/test-names.mjs && tsx scripts/test-copy-export.mjs && tsx scripts/test-snapshot.mjs && tsx scripts/test-chat.mjs && tsx scripts/test-advisor.mjs && tsx scripts/test-catalogue.mjs && tsx scripts/test-campaigns.mjs && tsx scripts/test-assets.mjs",
     "eval:chat": "tsx scripts/eval-chat.mjs",
+    "kuwait:trends": "node scripts/pull-trends.mjs",
     "render:demo": "tsx scripts/render-demo.mjs",
     "template:build": "tsx scripts/make-template-svg.mjs",
     "db:migrate": "for f in db/*.sql; do docker compose exec -T db psql -U aimarketing -d aimarketing -v ON_ERROR_STOP=1 -f - < \"$f\" || exit 1; done",
