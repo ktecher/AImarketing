@@ -20,6 +20,11 @@ import { RefreshTrends } from './refresh'
  * moving; what to do with it is typed on the campaign by the person who knows.
  */
 
+// Never prerendered. A static build freezes the timely/ read at build time, so
+// the Refresh button would write the file and production would keep serving the
+// build day's trends with a freshness line asserting otherwise.
+export const dynamic = 'force-dynamic'
+
 const DIR = join(process.cwd(), 'knowledge/kuwait')
 
 /**

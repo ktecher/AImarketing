@@ -11,13 +11,13 @@ A raw feed, not a recommendation: most days it is sport, weather and world news.
 
 | Search | Volume | In the news |
 |---|---|---|
-| **dhruv jurel** | 2000+ | Live Blog - Pant, Jurel put India on top at lunch *(Cricinfo)* · Devdutt Padikkal's second Test ton vs Sri Lanka: Chaos, calm and constant *(Cricbuzz)* |
-| **santos vs mirassol** | 100+ | Licensable picture: Brasileiro Championship - Santos v Mirassol *(Reuters Connect)* · Neymar and Barreal impress as Santos are held by Mirassol *(OneFootball)* |
+| **dhruv jurel** | 2000+ | Ball by Ball Commentary & Live Score - SL vs IND, 2nd Test *(Cricinfo)* · Devdutt Padikkal has made the most of opportunity: Sitanshu Kotak *(BCCI)* |
+| **santos vs mirassol** | 100+ | Licensable picture: Brasileiro Championship - Santos v Mirassol *(Reuters Connect)* · Barreal strike earns Santos a point after Mirassol VAR red *(OneFootball)* |
 | **torino vs milan** | 100+ | Licensable picture: Torino FC v AC Milan - Serie A 2026/27 *(Reuters Connect)* · 'I never thought I could score' - Teenager Alphadjo Cisse reacts to dream AC Milan debut goal *(Goal.com)* |
-| **laliga** | 100+ | How to get Getafe vs Celta Vigo tickets: LaLiga prices, fixture information, last-minute sales & more *(Goal.com)* · How to get Deportivo Alaves vs Osasuna tickets: LaLiga prices, fixture information, last-minute sales & more *(Goal.com)* |
-| **ترتيبات النادي الأهلي – نادى انبى** | 5000+ | بالفيديو: بداية مجنونة لعموتة.. الأهلي يحول تأخره بهدفين إلى انتصار مثير *(Kooora)* · ركلة جزاء من وحي الخيال.. محلل كويتي يهاجم حكم مباراة الأهلي والشرقية إنبي *(إرم نيوز)* |
-| **رين ضد بي اس جي** | 200+ | باريس سان جرمان يستهل حملة الدفاع عن لقبه بالتعادل مع رين *(جريدة الأنباء الكويتية)* · إنريكي يوجه صفعة لديمبلي.. استبدال مفاجئ ورسالة قاسية *(Kooora)* |
-| **إلتشيه ضد برشلونة** | 5000+ | برشلونة "يتفنن" بخماسية في شباك إلتشي *(جريدة الأنباء الكويتية)* · ليس بسبب ألفاريز.. الكشف عن السر الحقيقي وراء احتفال رافينيا *(Kooora)* |
-| **elche vs barcelona** | 5000+ | Elche vs Barcelona: Spanish La Liga stats & head-to-head *(BBC)* · Transfer imminent?! Hansi Flick explains Alejandro Balde shock omission amid left-back's decision to leave as Barcelona crush Elche 5-0 in La Liga opener *(Goal.com)* |
-| **حادث** | 200+ | مصرع ضابط ورجل أمن أثناء فحص حادث في الطريق الأوسطي بمصر *(العربية)* · فحص مخدرات للسائق.. قرارات النيابة فى استشهاد عقيد شرطة وفرد أمن بـ «أوسطى البدرشين» *(المصري اليوم)* |
-| **rennes vs psg** | 1000+ | LIVE: Stade Rennes vs. PSG in Ligue 1 on beIN SPORTS *(beIN SPORTS)* · Enrique deals a blow to Dembélé: a surprise substitution and a harsh message *(Goal.com)* |
+| **laliga** | 100+ | How to get Getafe vs Celta Vigo tickets: LaLiga prices, fixture information, last-minute sales & more *(Goal.com)* · How to get Elche vs Real Sociedad tickets: LaLiga prices, fixture information, last-minute sales & more *(Goal.com)* |
+| **ترتيبات النادي الأهلي – نادى انبى** | 5000+ | تعليق ناري من محمد أبو العلا على الاخطاء التحكيميه بمباراة الاهلى والشرقيه إنبي *(الزمالك اليوم)* · ملخص وأهداف مباراة الأهلي والشرقية إنبي في الدوري المصري *(annahar.com)* |
+| **رين ضد بي اس جي** | 200+ | بعد ثنائيته التاريخية.. فيران توريس يجد نفسه أمام مفاجأة غريبة *(Kooora)* · باريس سان جرمان يستهل حملة الدفاع عن لقبه بالتعادل مع رين *(جريدة الأنباء الكويتية)* |
+| **إلتشيه ضد برشلونة** | 5000+ | كيف صنع فليك خماسية برشلونة؟.. السر في غياب المهاجم الصريح! *(Kooora)* · برشلونة "يتفنن" بخماسية في شباك إلتشي *(جريدة الأنباء الكويتية)* |
+| **elche vs barcelona** | 5000+ | Elche vs Barcelona: Spanish La Liga stats & head-to-head *(BBC)* · How did Flick create Barcelona's five-goal haul? The secret lies in the absence of an out-and-out striker! *(Goal.com)* |
+| **حادث** | 200+ | مصرع ضابط ورجل أمن أثناء فحص حادث في الطريق الأوسطي بمصر *(العربية)* · استشهاد عقيد شرطة ومجند وإصابة 10 أشخاص فى تصادم بالبدرشين *(بوابة الأهرام)* |
+| **rennes vs psg** | 1000+ | PSG Coach Warns Players Need to Compete Out of their Comfort Zone *(ASHARQ AL-AWSAT English)* · Enrique deals a blow to Dembélé: a surprise substitution and a harsh message *(Goal.com)* |
