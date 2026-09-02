@@ -137,6 +137,51 @@ const FAITH_POLITICS =
   /\b(bless|blessing|blessed|halal|haram|pray(er|ers|ing)?|holy|sacred|faith|god[- ]?given|allah|barakah|thawab|government|minister|parliament|election|political|regime|war)\b/i
 
 /**
+ * The same four rules in Arabic.
+ *
+ * compliance-guardrails.md: "They apply identically in Arabic and English." They
+ * did not. Measured: "عرض مبارك! أرخص سعر بالكويت مضمون" — blessed offer,
+ * cheapest price in Kuwait, guaranteed — passed every check and the screen said
+ * "Nothing in this draft contradicts the catalogue."
+ *
+ * Substrings, not \b word boundaries: Arabic glues its prefixes on (و، ف، ب، ل،
+ * ك، ال), so "والأرخص" has to be caught by "أرخص". Matched over text with the
+ * alef and yaa forms normalised, because sources spell them inconsistently.
+ */
+const AR_SUPERLATIVE = ['ارخص', 'افضل', 'اسرع', 'اقوي', 'اكبر', 'اعلي جوده', 'الاول', 'رقم واحد', 'لا يعلي عليه']
+const AR_COMPARATIVE = ['ارخص من', 'افضل من', 'اسرع من', 'اقوي من']
+const AR_GUARANTEE = ['مضمون', 'نضمن', 'ضمان مدي الحياه', 'متوفر دائما', 'نعدك']
+const AR_FAITH_POLITICS = [
+  'مبارك', 'بركه', 'حلال', 'حرام', 'مقدس', 'صلاه', 'دعاء', 'الله', 'ديني',
+  'حكوم', 'وزير', 'برلمان', 'انتخاب', 'سياس', 'حرب',
+]
+
+/**
+ * Arabic text, made comparable.
+ *
+ * Two jobs, and both are needed before any check can read Arabic copy:
+ * Arabic-Indic digits become ASCII, so `\d` sees them at all and a price can be
+ * compared; and the alef and yaa forms are folded, so أرخص and ارخص are one word.
+ */
+export function normaliseArabic(s: string): string {
+  return s
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+    .replace(/٫/g, '.')
+    .replace(/٬/g, ',')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/[\u064B-\u0652\u0670]/g, '')
+}
+
+/** Whether this text carries Arabic at all — the checks report differently if so. */
+export const hasArabic = (s: string): boolean => /\p{Script=Arabic}/u.test(s)
+
+/** The first Arabic stem present, as a span to quote. */
+const arabicHit = (text: string, stems: string[]): string | undefined =>
+  stems.find((w) => text.includes(normaliseArabic(w)))
+
+/**
  * A digit-bearing word that is part of the product's own identity.
  *
  * `M4`, `iPhone 16`, `Wi-Fi 6`, `RT-AX88U` are what the product IS, and they
@@ -193,6 +238,11 @@ function bareDigits(text: string, values: Record<string, unknown>): string | und
  */
 export function check(text: string, values: Record<string, unknown>): Check[] {
   const checks: Check[] = []
+  // Arabic-Indic digits are invisible to `\d`, so a price written ٣٤٫٩٠٠ was not
+  // a number to any check here. Normalised for MATCHING; the spans quoted below
+  // come from this copy, which is honest — the reader sees the form that was
+  // actually judged.
+  text = hasArabic(text) ? normaliseArabic(text) : text
   const fail = (name: string, span: string | undefined, hint: string) =>
     checks.push({ name, pass: !span, ...(span ? { span, hint } : {}) })
 
@@ -230,10 +280,20 @@ export function check(text: string, values: Record<string, unknown>): Check[] {
     'This product has nothing in that column — the line would print with a gap where a number should be.',
   )
 
-  fail('no unsubstantiable superlative', text.match(SUPERLATIVE)?.[0], 'A claim the company cannot prove is a blocker, not a tone note.')
-  fail('no comparison to a competitor', text.match(COMPARATIVE)?.[0], 'Comparative claims against another product are a blocker.')
-  fail('no guarantee the company has not made', text.match(GUARANTEE)?.[0], 'Only promise what someone has actually committed to.')
-  fail('nothing religious or political', text.match(FAITH_POLITICS)?.[0], 'Neutral calendar facts only. See knowledge/kuwait/compliance-guardrails.md.')
+  // Comparatives are tested before superlatives on the Arabic side: أرخص من is
+  // both, and "cheaper than" is the more specific and more serious claim.
+  fail('no comparison to a competitor',
+       text.match(COMPARATIVE)?.[0] ?? arabicHit(text, AR_COMPARATIVE),
+       'Comparative claims against another product are a blocker.')
+  fail('no unsubstantiable superlative',
+       text.match(SUPERLATIVE)?.[0] ?? (arabicHit(text, AR_COMPARATIVE) ? undefined : arabicHit(text, AR_SUPERLATIVE)),
+       'A claim the company cannot prove is a blocker, not a tone note.')
+  fail('no guarantee the company has not made',
+       text.match(GUARANTEE)?.[0] ?? arabicHit(text, AR_GUARANTEE),
+       'Only promise what someone has actually committed to.')
+  fail('nothing religious or political',
+       text.match(FAITH_POLITICS)?.[0] ?? arabicHit(text, AR_FAITH_POLITICS),
+       'Neutral calendar facts only. See knowledge/kuwait/compliance-guardrails.md.')
 
   return checks
 }

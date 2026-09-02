@@ -32,10 +32,15 @@ export default function Editor({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ sku?: string }>
+  // `back` carries the chosen products the Designs page came in with. That
+  // selection lives only in that page's URL, so a bare "/templates" on the way
+  // out silently empties it — you save a layout, press Back, and the products
+  // you picked are gone along with their renders.
+  searchParams: Promise<{ sku?: string; back?: string }>
 }) {
   const { id } = use(params)
-  const { sku: editingSku } = use(searchParams)
+  const { sku: editingSku, back } = use(searchParams)
+  const backHref = back ? `/templates?skus=${encodeURIComponent(back)}` : '/templates'
 
   const [data, setData] = useState<Loaded | null>(null)
   const [boxes, setBoxes] = useState<Box[]>([])
@@ -61,8 +66,13 @@ export default function Editor({
   const drag = useRef<Drag | null>(null)
 
   useEffect(() => {
-    const q = editingSku ? `?sku=${encodeURIComponent(editingSku)}` : ''
-    fetch(`/api/templates/${id}${q}`).then((r) => r.json()).then((d: Loaded) => {
+    // `back` is the Designs page's own selection. It doubles as the answer to
+    // "which products is this layout for", so the preview shows one of them.
+    const p = new URLSearchParams()
+    if (editingSku) p.set('sku', editingSku)
+    if (back) p.set('skus', back)
+    const q = p.toString()
+    fetch(`/api/templates/${id}${q ? `?${q}` : ''}`).then((r) => r.json()).then((d: Loaded) => {
       setData(d); setBoxes(d.boxes); setManifest(d.manifest)
       setProducts(d.products ?? [])
       setHasOverride(Boolean(d.hasOverride))
@@ -70,7 +80,7 @@ export default function Editor({
       // Editing one product means previewing that product, not an arbitrary one.
       setProduct(editingSku || d.products?.[0]?.sku || '')
     })
-  }, [id, editingSku])
+  }, [id, editingSku, back])
 
   const apply = useCallback(async () => {
     if (!manifest || !boxes.length) return
@@ -277,7 +287,7 @@ export default function Editor({
             <input type="checkbox" checked={showGuide} onChange={(e) => setShowGuide(e.target.checked)} />
             clean area
           </label>
-          <a className="chip" href="/templates">Back</a>
+          <a className="chip" href={backHref}>Back</a>
           <button className="btn" onClick={save}>
             {saved ? 'Saved' : editingSku ? 'Save for this product' : 'Save layout'}
           </button>

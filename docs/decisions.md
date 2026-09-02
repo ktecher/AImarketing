@@ -1541,3 +1541,856 @@ that touches the hard rules.
 Single-flight in the route: a double-click shares one pull rather than racing
 two writes into the same file. A failed pull reports failure and leaves the
 stale file on screen with its honest date — D56 from the other side.
+
+## D73 — A typed topic may leave, and rule 1 says so out loud
+
+D72 drew the boundary at "a click is a person running the tool", and held it by
+making the trends route pass **no arguments** and never read the request body.
+The Kuwait screen then answered exactly one question: what is Kuwait searching
+today. Nobody can ask "what about cars" without typing "cars", so that question
+was unanswerable by construction.
+
+The maintainer widened the boundary deliberately: *"forget about D72 and all of
+them, they are more guidelines than strict rules — things may change as we add
+more features."* This entry records the widening rather than letting it happen
+quietly, because the thing that makes rule 1 worth anything is that its current
+shape is written down somewhere.
+
+What changed: `/api/kuwait/search` **does** read the request body, and runs
+`scripts/search-trends.mjs <topic>`.
+
+What did not:
+
+- the request code stays in `scripts/`, outside what `check-localhost` guards,
+  so "what can leave this machine" is still a question with a one-file answer;
+- the child process is handed **one argument and nothing else** — it has no
+  database handle, no sheet, no conversation, so no catalogue row or customer
+  message can ride along even by accident;
+- the topic is stripped to letters, digits and spaces and capped at sixty
+  characters, twice: once at the route (the trust boundary) and once in the
+  script (so running it by hand is equally safe). No operator, path or extra
+  parameter survives that.
+
+So what leaves is a topic a person typed, and only that. `/api/kuwait/trends`
+is unchanged and still passes no arguments — the two routes now sit either side
+of the line, which is the clearest possible documentation of where it is.
+
+**Google News, not Google Trends, and not a shortcut.** The Trends RSS feed is
+the day's rising searches with no query parameter; the keyword API behind
+trends.google.com answers 429 without a token handshake. News search takes a
+query, is public, needs no key, and accepts `gl=KW`. Measured: `cars` alone
+returns a Singapore congestion story, `cars Kuwait` returns Kuwait H1
+registrations and a Porsche anniversary — so " Kuwait" is appended unless the
+topic already contains it.
+
+**Nothing is written to disk.** `timely/` is a set of dated snapshots, and the
+date beside a snapshot is the only thing that makes it safe to read. A file per
+query turns that directory into a search log.
+
+## D74 — The sidebar had categories nobody was looking for
+
+The nav was three named groups: **Catalogue**, **Words**, **Customers**. The
+names were the problem. Nobody arrives at this system wanting "Words". They were
+categories invented to justify a grouping, and a category invented for the
+navigation's benefit costs the reader a translation step on every visit.
+
+Flat list now, in the order the work happens, with an icon per entry. Campaigns
+is first and carries the bricks icon, because it genuinely is first: everything
+else stamps its output with the campaign running today, so a system with no
+campaign has nothing to attach work to.
+
+The grouping that was real moved into the screens as tabs (`app/(staff)/tabs.tsx`):
+
+- **Products** and **Designs** are one job — load a sheet, make posters from it.
+- **Kuwait** is today's trends and looking a topic up.
+
+Two routes per pair rather than one merged page. Designs is 852 lines and
+Products 587; welding them buys a tab strip and costs a file nobody can edit —
+which is the same trade D52 made in the other direction and for the same reason.
+
+## D75 — The advisor gets a model, and a conversation
+
+architecture.md said **"v1 has no model and no score"** and **"no prose
+paragraph — if the model wants to write an essay, the schema stops it."** Half
+of that was right and stayed. The other half made a screen that, in the
+maintainer's words, *"is not working as it should"*: it listed *"hook, clarity,
+retention, CTA — advice needs a model, and v1 has none"* under **not looked at**,
+which is every reason a person opens a creative advisor.
+
+The split now runs down the middle of the feature rather than around it:
+
+- **`review.ts` is unchanged.** String operations and catalogue lookups, no
+  model, nothing to hallucinate. It stays the ground truth and its results are
+  fed to the model as settled facts it may not contradict.
+- **`converse.ts` is new.** Two calls a turn — prose, then a small structuring
+  call to pull out rewrites — for the reason CLAUDE.md gives about constrained
+  decoding. The prose cap is 120 words; the essay is prevented by asking for
+  less, not by a schema that also flattens the judgement.
+
+**It asks, and the asks are computed in TypeScript.** Which product, which
+channel, and "this draft carries two prices, which is which" are facts about the
+request, not judgements: either a row matched or it did not. A model asked to
+notice its own missing context will sometimes notice and sometimes proceed
+confidently, and the second one is the failure the question exists to prevent.
+The model may add at most one question of its own, and only when we had none.
+
+**Answering "which product" actually changes the checks.** `review` takes an
+optional `row`; a pinned row skips retrieval entirely, which also means the
+deterministic half answers with Ollama stopped — the moment somebody most needs
+it to.
+
+Rules that did not move: no score, no rating, no grade, in a field name or on
+screen. Rewrites go through the studio's own `check()`, so a suggestion carrying
+an invented price arrives visibly blocked instead of being copied into a
+caption. A rewrite whose `instead_of` is not literally in the draft is dropped —
+`isQuoted`, in TypeScript, never asked of the model. And the advisor's own prose
+is checked for figures and flagged, because advice gets pasted.
+
+## D76 — "More slogans" is one call, not four
+
+`draft()` always wrote the full set: three slogans, three captions, eight
+hashtags and a script, four model calls, twenty to forty seconds. Asking for one
+more slogan meant paying for all of it and scrolling past the rest.
+
+`draft(..., { only, note, improve })` now writes exactly what was asked for, with
+a JSON schema built from the requested kinds — the constrained decode cannot
+wander into fields nobody wanted. Each section on the screen has its own button.
+
+Two details that are the actual feature:
+
+- **`note` is the steer a person types beside the button** — shorter, funnier,
+  lead with the battery. It reaches the prompt as an instruction and never as a
+  fact: the no-number rule outranks it exactly as it outranks the campaign
+  context, or "half price this week" walks a figure past the catalogue.
+- **The script button is "Improve it", not "another one".** The model is handed
+  the script that exists and asked to rewrite it. Two unrelated scripts leave a
+  person diffing by eye, which is not what the button promised.
+
+Asking for more of one kind **keeps** what is on screen; a full run still keeps
+only approvals and replaces the rest. "More" that removes the drafts you were
+comparing against means "instead".
+
+## D77 — The first screen is not a blank Name box
+
+Campaigns is now the first thing in the nav, which makes an empty text input the
+first thing a new user sees — for a field that is stamped on every design and
+caption from then on, with nothing on screen saying what a good one looks like.
+
+A rough idea in ("laptops and tablets for students going back in September"), a
+name and a first draft of this week's context out, both editable before anything
+is saved. `POST /api/campaigns/assist` writes nothing to Postgres: the existing
+create route still does that, from whatever the person left in the fields. A
+model's wording is never what got saved, only what got offered.
+
+One constrained call rather than the studio's prose-then-structure pair, and
+that is a considered exception: the output is a label and a short internal note,
+not copy anybody publishes, so there is no writing quality to protect — and this
+call sits between a person and the first thing they do in the system, where the
+wait is the cost that matters.
+
+Figures are extracted from the result and shown as a warning rather than
+trusted. The context steers every prompt downstream, so a price invented here
+would ride into captions wearing a person's authority.
+
+## D78 — Rule 5 applies to what the feed SHOWS, not only to what we write
+
+The compliance rules were enforced on generated copy and on drafts pasted in for
+review, and not at all on the two Kuwait feeds. So the trends screen offered a
+marketing team "Trump threatens 50% tariffs on all Canadian vehicles" and
+"Accident on Kuwait motorway as Iranian missiles fly overhead" under a heading
+about what is trending in cars, and the day's top Kuwait search was a cleric
+calling for "وحدة الدول الإسلامية" beside "حكام الخليج". Nobody was going to
+build a campaign on any of it, and putting it in front of somebody looking for a
+hook is how one gets built.
+
+`scripts/not-for-marketing.mjs`, shared by both feed scripts so there is one
+vocabulary rather than two that drift. Over-eager on the guardrails' own
+instruction — "when something is close to the line, it is a blocker".
+
+**Arabic is not an afterthought, and the first version proved why.** It was
+English-only and passed every word of the example above; this feed is mostly
+Arabic. Matching now runs over text normalised for the alef and yaa forms
+(إسلامية / اسلامية), and the Arabic side matches STEMS as substrings because the
+language glues its prefixes on — و، ف، ب، ل، ك، ال — so "والحكومة" has to be
+caught by "حكوم".
+
+Two stems were rejected for colliding, and `scripts/test-trends.mjs` asserts the
+collisions so nobody adds them back: `حج` (pilgrimage) sits inside حجز booking
+and حجم size, and `سنة` is both "year" and "sunnah".
+
+**Ramadan and Eid pass.** The guardrails draw the line between acknowledging the
+season and using the faith; the retail calendar treats both as commercial
+seasons, and "Kuwait announces Eid holiday dates" is a date a retailer plans
+around. `أوقات الصلاة في عيد الفطر` is dropped — the worship word catches it.
+
+**Nothing is dropped silently.** The count and its split render on the search
+screen and in the timely/ markdown. A feed showing eighteen of twenty-five while
+saying nothing has quietly changed what "trending" means, and the reader cannot
+tell it happened.
+
+## D79 — The campaign form gets structure; the campaign column does not
+
+"This week's context" was one empty textarea, which asks a marketer to remember,
+unprompted, everything a brief normally asks them. They do not — so the studio
+wrote captions with no audience, no offer and no angle, which is most of what
+makes a caption specific.
+
+Campaigns are still four columns. `lib/brief.ts` composes seven short answers
+into one labelled plain-text string, and after creation that string is edited as
+free text exactly as before. **There is deliberately no parser and no
+round-trip**: reopening a campaign does not repopulate the questions. Parsing it
+back is the step that turns a composer into a schema, and a schema here is the
+CRM CLAUDE.md forbids.
+
+Its own file, dependency-free, because `lib/campaigns.ts` imports `pg` and the
+create form is a client component — composing from there ships a Postgres driver
+to the browser.
+
+The offer mechanics are a closed list from `pricing-and-offers.md`, because in
+retail the offer IS the campaign and "what kind of offer" has a real answer. A
+figure typed on that line is the person's own and is not a rule 2 violation:
+rule 2 forbids THE MODEL emitting a number, and `rules()` already fences the
+whole context as steer-not-fact (D69). The screen says so, or a marketer assumes
+their offer was thrown away.
+
+**Progressive disclosure, added after the first version shipped.** Seven fields
+on a blank page is a form; one question with a button beside it is a request.
+The brief opens only once there is something to check, or when somebody says
+they would rather type it themselves. The maintainer's words on the first
+version were "the workflow is confusing" — the fields were right and the
+sequence was wrong.
+
+## D80 — The assist gives back something you did not type
+
+The first version's entire grounding was a comma-list of twenty category names,
+so it restated the input: "laptops for students in September" came back as "Back
+to school — laptops" plus a paragraph about laptops, students and September.
+
+Now grounded in the four things the person genuinely does not have in front of
+them:
+
+- **Real catalogue rows**, retrieved for the idea, grouped by category, names
+  only. No price, no specs — the model has no use for a figure it may not write,
+  and a figure it has seen is one it paraphrases. This is the change that makes
+  the assist say something new.
+- **Where today sits in the Kuwait retail year**, derived in TypeScript from a
+  month lookup, never asked of the model. Only the Gregorian-fixed windows:
+  `retail-calendar.md` says the Hijri dates shift ~11 days a year and "always
+  confirm the actual dates; do not compute them", so Ramadan and the Eids are
+  never asserted and the prompt says a person confirms them.
+- **The offer mechanics and the compliance guardrails**, verbatim. A superlative
+  in the brief is worse than one in a caption: the brief steers every caption
+  written under it, so "best prices in Kuwait" typed once becomes sixty blocked
+  drafts later. Cheaper to prevent at brief time than to detect sixty times.
+- **What this team said last time.** Two campaigns, not ten — the point is
+  continuity of voice, and a model shown ten past briefs starts averaging them.
+
+It is asked for the single-minded proposition first, because that is the one
+field where a 12B model beats a blank box. It is also the field it is worst at:
+measured, it returns "Power your gaming and studies with high-performance
+laptops and headsets" — two ideas joined by "and". So the result is checked in
+TypeScript and the person is told, rather than the check being asked of the
+model that just failed it. Superlatives in `name`/`say` are caught by the
+studio's own `check()`, one definition of a safe claim rather than a second.
+
+**The news search does not feed this prompt.** It is a button beside the idea
+box that lists headlines for a person to read. Three reasons: D72/D73's design
+is that a staff click is a person running the tool, an assist that fires it
+silently makes the app the thing reaching out; vision.md commits that the system
+never says what is trending; and feeding headlines to the model lets a news
+story become the campaign angle with nobody having read it.
+
+**Two things deliberately not built**, with their reversal conditions. No SKU
+multi-select — it is `campaign_products` in a costume, and membership stays
+derived. No `starts_on`/`ends_on` — "runs through the first week of September"
+is text. The stated cost of the second: `report()` has no window, so results are
+measured over all time since `created_at`, and two campaigns cannot both be
+current. The reversal condition is already written in `db/004_campaigns.sql` —
+the day campaigns get planned weeks ahead.
+
+## D81 — Deleting a campaign keeps the work and kills the id
+
+A campaign can now be deleted, which it could not be, and the interesting half
+is what happens to everything stamped with it.
+
+The row goes; the work does not. Designs, drafts and conversations made under it
+are real work somebody did, and deleting a label is not a reason to lose them.
+What must not survive is the id itself: `campaign_id` pointing at a row that no
+longer exists makes `report()` answer **zero** for work that really happened,
+and a confident zero reads as a fact rather than a dangling reference.
+
+There is no foreign key to do this — deliberately, per `db/004_campaigns.sql`,
+because two of the three consumers are still files. So all three are cleared in
+the same call (`assets` in SQL, content drafts and conversations through
+`forgetCampaign` in their own stores) or the guarantee is worth nothing.
+
+The confirmation carries the counts. "Are you sure?" with nothing behind it is a
+button people learn to click through; naming what is about to be detached is the
+only version worth reading. Irreversible, and said so: the loop's history for
+that campaign is what is being thrown away, and nothing else can rebuild it.
+
+## D82 — What the advisor was getting wrong
+
+An audit ran the advisor offline against the real sixty-row catalogue. Every
+input below is measured, not reasoned, and every one is now a test.
+
+**An Arabic draft came back green.** `عرض مبارك! أرخص سعر بالكويت ٣٤٫٩٠٠ د.ك
+مضمون` — blessed offer, cheapest price in Kuwait, guaranteed, and a price the
+catalogue does not hold — produced `blockers: []`, both verdicts `ok`, and the
+screen printed "Nothing in this draft contradicts the catalogue." Three causes:
+every claim pattern was an English literal, `\d` does not see Arabic-Indic
+digits, and `MONEY` accepted `د.ك` only as a suffix. The guardrails say the rules
+"apply identically in Arabic and English"; they did not.
+
+Fixed by normalising Arabic once at the door (digits folded to ASCII, alef and
+yaa forms folded), widening `MONEY` to accept a leading currency word, and adding
+Arabic stems for all four claim rules. The stems are substrings, not `\b` words,
+for the prefix reason in D78. The vocabulary is a curated list rather than full
+parity, and `not_assessed` says so on every Arabic draft — a clean Arabic result
+is weaker evidence than a clean English one, and that belongs on screen.
+
+**A weak match issued a confident, wrong blocker.** `CONFIDENT = 0.47` gated only
+the `meaning` path, so "the fastest charger we sell — grab it for 12.000 KD"
+matched an Anker cable at `lexical 0.500` and the advisor said "Do not publish"
+quoting that cable's 1.100 KD. Worse, the written price was itself a search term:
+strip it and retrieval correctly declines at 0.461.
+
+Every reason is now gated. Measured on this catalogue: a draft naming the product
+exactly scores `lexical 0.625`, the generic charger caption scores `0.500`, so
+the floor sits at 0.58 between them. A `category` hit is refused outright for
+fact-checking — retrieval returns every row on the shelf at relevance 1, so
+whichever landed first became the row a price was judged against. A category can
+find a product; it can never be the row a fact is checked against. Declining
+costs nothing, because `missing()` already asks which product it is.
+
+**A correct price bought silence on the rest of the draft.** `bareDigits` reports
+the first offending span and no other, and the verified-price exemption filtered
+the result afterwards — so "Only 19.900 KD — the first 50 customers get a free
+case" reported nothing at all, and so did "that is 51% off". Now the verified
+figures are scrubbed from the text before the guard runs, leaving the rest to be
+caught.
+
+**The was/now caption was declined and misdescribed.** Both figures belong to the
+matched row, and the advisor said they belonged to different products — on the
+strongest-performing offer structure in electronics, which is every sale caption
+the team writes. Now: when every figure is one of this row's own two prices, all
+are verified; decline only when a figure is unaccounted for.
+
+**A struck price without a unit was a "Do not publish".** "was 40.500 now 19.900
+KD" writes the unit once, so the struck figure was not money to the regex and the
+guard called the row's own pre-discount price invented. Bare figures equal to a
+price on the matched row are now verified.
+
+**A neighbouring row's price could bless a wrong one.** `alsoKnown` folded the
+second and third retrieved rows into the known prices, so any figure matching any
+of six prices across three loosely-related rows was accepted — while the screen
+said "Checked against ⟨the one row⟩." The parameter is gone; the multi-figure
+rule above already does the job it existed for.
+
+**The advisor's own prose was held to two rules out of six.** `findings()` can
+only forbid spans the checks already rejected, so on a clean draft the model was
+unconstrained — free to suggest "the best cable we sell, guaranteed" in prose
+sitting directly above a panel that blocks exactly that wording in a caption.
+Every check now runs over its own writing. It caught one on the first live run.
+
+## D83 — Two hosts, one directory: posts leave this machine on purpose
+
+**Decided by the maintainer**, in these words: *"we can add later once hosted
+because we will not keep the database local because we will need to post. i know
+this changes the original scope, but that's evolution."* Rule 1 has been rewritten
+to say what the boundary now is rather than what it was, and this entry records
+the cost, because a widening nobody wrote down is the one that gets forgotten.
+
+A fifth pillar publishes a finished design and its caption to the company's own
+Facebook Page and Instagram Business account. Two companies now receive data
+from this machine: **Meta** (`graph.facebook.com`) and **Cloudinary**
+(`api.cloudinary.com`).
+
+**Exactly what leaves.** The rendered poster image — which carries a product name
+and a price — the caption text, and the Meta and Cloudinary credentials. Per
+post. Only for a post a person explicitly chose to publish.
+
+**Exactly what does not.** Catalogue rows in bulk, customer chat messages,
+uploaded Excel contents, and every product nobody chose to publish. The rest of
+rule 1 is unchanged, and `check-localhost` still fails the build on any host but
+those two, anywhere but `lib/social/`.
+
+**Publishing is opt-in per post and never automatic.** Nothing publishes on a
+render, on a save, or on a schedule. A person picks the design, reads the
+caption, and presses publish. That is the whole of the exception: without a
+deliberate click nothing reaches either company.
+
+**Why Cloudinary.** Meta's Graph API does not accept uploaded image bytes for a
+Page photo or an Instagram container — it takes a URL and **fetches** the image
+itself. So some host Meta can read is not optional; the only question was which.
+Three were offered. A tunnel (ngrok/Cloudflare) keeps the bytes on this machine
+but needs the laptop awake and reachable at publish time and hands Meta a URL
+that dies minutes later. A fully-manual assistant — generate here, upload by hand
+in the Meta app — leaks nothing but is not a pillar, it is a checklist. The
+maintainer chose Cloudinary ("1.a"): a real public URL, an account the company
+controls, and one more vendor.
+
+**Reverses if.** The app moves off this laptop onto a host the company controls.
+Then the rendered poster already sits at a public URL that Meta can fetch and
+Cloudinary has no job left to do — delete `lib/social/cloudinary.ts`, drop
+`api.cloudinary.com` from `check-localhost`, and the exception narrows back to
+one host. Also reverses, immediately and completely, if the company's own
+requirement changes back: the enforcement is one `SOCIAL_HOSTS` set.
+
+**Scheduling is deliberately not in this phase.** A laptop that sleeps cannot
+post at 7pm, and a scheduler that silently misses its window is worse than no
+scheduler — the team believes the post went out. Scheduling arrives when the app
+is hosted, alongside the database move, and not before.
+
+## D84 — `lib/` has a sixth module, and CLAUDE.md's "five" stands
+
+CLAUDE.md says *five lib modules, not seven*, and `lib/social/` makes six. That
+line is not being deleted, because the reasoning behind it is still right and
+this entry is the exception it needs.
+
+The five were **excel, template, ai, rag, advisor** — and the point of the count
+was that `lib/render` was not a sixth: it shares the manifest type, font loading
+and measurement with `lib/template`, so splitting it bought a directory and cost
+a seam. That is the test, and it is not "keep the number at five". It is: *does
+this share types and lifetime with something that already exists?*
+
+`lib/social/` fails that test in the useful direction. It shares nothing. It is
+the only code in `app/`, `lib/` or `db/` permitted to name a host off this
+machine, it holds OAuth tokens, and it is the one place a reader has to look to
+answer "what leaves?". Folding it into `lib/content` or `lib/template` would put
+network code in a directory that must not have any, and would cost the checker
+its directory-shaped rule — `check-localhost` allows those two hosts by path, so
+the boundary is only as sharp as the directory is.
+
+So: four files, no sub-modules, and nothing that is not publishing goes in it.
+`meta.ts` and `cloudinary.ts` talk to the network; `store.ts` and `tokens.ts` are
+local Postgres only. If a seventh module is ever proposed, this entry is the
+argument to beat, not the count.
+
+**Reverses if.** Publishing stops being a pillar, or the hosted move (D83) makes
+`cloudinary.ts` unnecessary and what remains is small enough to live beside the
+designs it publishes.
+
+## D85 — A third host, and it is not the same kind of host
+
+D83 permitted two hosts inside `lib/social/`. Building the Meta OAuth routes
+found a third that cannot be avoided: the login dialog lives at
+`www.facebook.com/v{ver}/dialog/oauth`, and Graph does not serve it —
+`graph.facebook.com` answers `/oauth/access_token` and nothing else in the OAuth
+flow. There is no API that returns the dialog URL, so it is written as a literal
+or it is hidden from the check. It is written as a literal.
+
+**It is weaker than the other two, and that is the point of this entry.** Nothing
+in the app fetches it. It goes into a 302 `Location` header and the person's
+browser follows it, carrying the client_id, the scope list and a random state —
+all public by construction. Compare what the other two receive: the caption and
+the image URL to Graph, the rendered poster to Cloudinary.
+
+**The check cannot tell those apart.** It reads URL literals, so a redirect
+target and a fetch target look identical to it. Adding `www.facebook.com` to
+`SOCIAL_HOSTS` therefore also permits a `fetch` to it that nobody intended, and
+no amount of structure in that file changes this — a second set called
+`REDIRECTS` would be decoration, enforcing nothing the first set does not. So the
+distinction is recorded here and in a comment, and it is honest about being
+documentation rather than enforcement.
+
+The rule that did NOT move: three hosts, one directory. A fourth host inside
+`lib/social/` still fails the build, and any of the three named outside it still
+fails. The widening is one host, it is named, and the reason it was unavoidable
+is above.
+
+**Reverses if.** The token exchange moves behind something that hands back a
+ready-made dialog URL, or publishing leaves this machine entirely (D83) — at
+which point the whole `lib/social/` exception is reconsidered, not just this line
+of it.
+
+**A note on how this arrived.** The first `www.facebook.com` in this project was
+not this. It was a permalink built by hand in `meta.ts`, and it was avoidable —
+Graph returns `permalink_url` on the publish response, which the Instagram path
+in the same file already used. That one was removed rather than permitted. Two
+literals, same host, opposite answers: the question is never "is this host
+familiar", it is "is there another way to get this".
+
+---
+
+## D86 — No Facebook Page: publishing moves to Instagram Login
+
+**2026-08-31.** D83 and D85 described a Facebook Page integration: connect the
+company's Page, find the Instagram Business account linked to it, publish to both
+with the Page's token. It never ran. The shop could not create the Meta Business
+portfolio that path requires, and the developer registration behind it stalled on
+a phone verification loop that had nothing to do with this code.
+
+Meta ships a second API for exactly this case. **Instagram API with Instagram
+Login**, in its own words: this setup "does not require a Facebook Page to be
+linked to the Instagram professional account." One consent screen, one account,
+no Page, no business portfolio.
+
+**What was traded away.** Facebook Page publishing, entirely. `publishToFacebook`
+and its three endpoints — `/feed`, `/photos`, and the unpublished-photo album
+dance — are deleted rather than kept warm; unreachable code with elaborate
+comments about Page tokens is exactly the stale documentation CLAUDE.md warns
+about, and git has it if a Page ever appears. Also gone: the `pages_*` scopes,
+the `me/accounts` field expansion, and the idea that one consent connects two
+accounts.
+
+**What it still needs, and could not be avoided.** A Meta app at
+developers.facebook.com — no API path skips developer registration. An Instagram
+account switched to Business or Creator; Instagram refuses to let an app post to
+a personal account on either path. And Cloudinary, unchanged: Instagram fetches
+the image from a public URL exactly as Graph did, so D83's reason for a public
+image host survives this entirely.
+
+**Three hosts where there were two, and the split is Meta's.**
+
+| Host | What it does |
+|---|---|
+| `www.instagram.com` | the login dialog — a `Location` header, never fetched (D85's category) |
+| `api.instagram.com` | spends the authorisation code for a one-hour token. POST only |
+| `graph.instagram.com` | the sixty-day token, `/me`, and every publish |
+
+The first two look foldable and are not: the exchange at `graph.instagram.com` is
+a 404 that reads like a bad client secret, which is the worst kind of error
+because it sends whoever is debugging into the wrong file. `graph.facebook.com`
+and `www.facebook.com` are removed from `SOCIAL_HOSTS` and are now allowed
+nowhere — the count went from three to four, but nothing in this project talks to
+Graph any more.
+
+**Two footguns worth writing down**, both of which produce errors that name the
+wrong cause:
+
+- The **Instagram** app id and secret are not the Facebook app id sitting beside
+  them in the same dashboard. Using the Facebook one fails at the token exchange
+  with a message about the client secret.
+- Meta appends `#_` to the redirect. It is not part of the code, and a code
+  carrying it is rejected as invalid — which reads exactly like a replayed or
+  expired code and sends the reader to the state check. `cleanCode` strips it.
+
+**The ceiling this leaves.** A Page token derived from a long-lived user token
+did not expire while the grant stood. An Instagram token expires in **sixty
+days**. It can be refreshed (`grant_type=ig_refresh_token`), but nothing in this
+app runs on a timer, so the remedy is a person pressing Connect again — said on
+the Social screen, and worth remembering the first time publishing fails two
+months from now. A refresh call belongs here the day something scheduled exists
+to run it, and not before.
+
+**What did not move.** Publishing is still opt-in per post, still never on a
+render or a save or a timer, and still leaves exactly one rendered poster and one
+caption a person read and approved. Catalogue rows in bulk, customer messages and
+Excel contents still never leave. The `social_accounts.platform` check constraint
+still allows `'facebook'`: dropping it is a migration that buys nothing and
+forecloses a Page path that may yet come back.
+
+**Reverses if.** The shop gets a Business portfolio and wants Facebook Page posts
+too — at which point this is additive, not a revert: a second module beside
+`instagram.ts`, its own hosts back in `SOCIAL_HOSTS`, and the publish route
+branching on `platform` again the way it did before this entry.
+
+---
+
+## D87 — Local development serves HTTPS, because Meta will not take an http callback
+
+**2026-08-31.** A postscript to D86, found by trying it rather than by reading.
+Meta's "Set up Instagram business login" dialog refuses
+`http://localhost:3000/api/social/instagram/callback` with one sentence — *"Error
+saving redirect URIs. Verify your redirect URIs and try again."* — and no hint as
+to which part it objects to. The same address with `https://` saves on the first
+attempt. The scheme is the whole objection.
+
+So `npm run dev:https` exists, and it does NOT use mkcert. `next dev
+--experimental-https` on its own downloads mkcert and runs `mkcert -install`,
+which writes a root CA into the system trust store and needs a password it cannot
+prompt for from a script — it fails, prints a stack trace, and silently falls
+back to HTTP, which is the one outcome that looks like it worked and is not.
+
+The certificate is generated once with `openssl`, into `certificates/`
+(gitignored), and the script points at it explicitly:
+
+    next dev --experimental-https \
+      --experimental-https-key ./certificates/localhost-key.pem \
+      --experimental-https-cert ./certificates/localhost.pem
+
+No password, no trust store, no root CA on the maintainer's machine. The cost is a
+browser warning the first time the OAuth redirect lands, clicked through once.
+Anybody who would rather not see it can run `mkcert -install` by hand and
+regenerate; nothing in the app cares which certificate it is.
+
+The plain `npm run dev` stays, because everything except connecting an account
+works over http and a certificate warning is friction nobody needs to see to
+render a poster.
+
+**What this does not change.** `INSTAGRAM_REDIRECT_URI` is compared by Meta as a
+string, character for character, so it must read `https://localhost:3000/...` in
+`.env` and match what the dashboard holds — a scheme mismatch fails at the code
+exchange, not at the dialog, which is later and reads like a bad secret. The
+state cookie already keyed its `secure` flag off the request's protocol, so it
+becomes a Secure cookie on its own with nothing to change.
+
+**Two more things this dashboard visit settled**, both worth having written down
+before somebody debugs them:
+
+- The **Instagram app ID** (`2160495468138853`) is not the Facebook App ID
+  (`1541608527588948`) shown on the app list page. D86 predicted this footgun
+  from the docs; it is confirmed. The dashboard's own generated login URL uses
+  the Instagram one.
+- `instagram_business_content_publish` shows no status on the permissions page,
+  while `instagram_business_basic` reads "Ready for testing". Whether that
+  matters in Development mode with an Instagram Tester is not yet known, and the
+  cheap way to find out is to run the login and read what Instagram grants —
+  not to submit an App Review for a permission that may already work.
+
+---
+
+## D88 — One post is about a list of products, not one
+
+**2026-08-31.** Instagram carousels carry up to ten images under one caption, so
+a post stopped being about one product. `social_posts.sku` was a single column
+and `postedFor()` grouped by it.
+
+Four shapes were on the table and three people were asked to attack all of them:
+replace the column with `skus text[]`; keep `sku` and add `skus` with the post
+type deciding which is filled; keep `sku` and write one row per product in a
+carousel; or a `social_post_products` join table. All three independently chose
+the first, and the reasons are worth keeping because the other three each look
+cheaper from a distance.
+
+**Two columns is the trap `db/005_social.sql` already refuses by name** — its own
+comment argues against "a second place to ask which post owns which image". Every
+reader would forever need `coalesce(nullif(skus,'{}'), array[sku])`, and the
+first one to forget gets a number that is *wrong*, not absent:
+
+```sql
+select sku, count(*) from social_posts
+ where campaign_id = $1 and status = 'posted' and sku is not null
+ group by sku            -- every carousel silently vanishes
+```
+
+A CHECK constraint does not rescue it. It makes the *data* consistent; it cannot
+make a *reader* consult both columns, and the bug is on reads. That is precisely
+the failure rule 4 exists to prevent.
+
+**One row per product looked cheapest and is the worst.** Ten rows would share
+`image_public_ids`, so the first cleanup written against one row deletes nine
+siblings' images. And `startPost` writes `publishing` before the request leaves:
+a crash mid-publish leaves four rows `posted` and six stuck `publishing` forever,
+with no way to tell which without opening Instagram.
+
+**A join table** buys referential integrity this schema has explicitly refused —
+`skus` is deliberately not a foreign key, because a SKU leaving the catalogue
+must not take the history of promoting it with it — so its one advantage is
+unavailable by design.
+
+**So: one column, one shape.** A single-image post is a one-element array. The
+migration was free because the table had zero rows, and it would not have been
+next week.
+
+**The `distinct` in `postedFor` is load-bearing.** A carousel with the hero
+product on slide one and again on slide ten unnests to two rows for one post, and
+without it that post is counted twice.
+
+**What the number means, now written where it is computed:** posts carrying the
+SKU. Not customers, not products. `startPost` runs once per ACCOUNT, so the same
+design published to two Instagram accounts is two — which is correct, two
+audiences saw it, but it is not what "how many products did we promote" means and
+somebody will read it that way otherwise.
+
+**There is no `mode` parameter.** "Post these five separately" is the screen
+calling `/api/social/publish` five times; the route never learns the difference.
+Adding a mode flag would put the loop in two places.
+
+**Deliberately not done.** `postedFor` is still not wired into
+`campaigns.report()` — nothing has ever called it outside tests, and a column
+nobody reads is not worth designing a table row around today. A GIN index on
+`skus` is also skipped: the two questions asked of this table are by campaign and
+by recency, both already indexed, and a per-SKU lookup scans a few hundred rows.
+
+**A note on how this was found.** The first patch to `posts()` was written with
+`String.replace`, which interprets `$$` in a replacement as a literal `$` — so
+`` `$${params.push(sku)} = any(skus)` `` became `1 = any(skus)`, a query that
+matched nothing. It did not fail: `posts()` catches its own errors and returns an
+empty list, so a broken filter read exactly like "no posts yet". The test caught
+it; nothing on a screen would have.
+
+---
+
+## D89 — Posting later, and admitting when later never came
+
+**2026-08-31.** D83 said publishing is opt-in per post and "never automatic. Not
+on render, not on save, not on a timer." `db/005_social.sql` said "No scheduling:
+nothing here runs while the laptop is shut." `scripts/test-social.mjs` asserted
+`no scheduled_at` as an alarm on exactly this.
+
+The maintainer asked for scheduling. This is that widening, written down rather
+than quietly done — and the alarm moved rather than went.
+
+**What the opt-in became.** It did not disappear; it moved from the moment of
+sending to the moment of scheduling. Nothing is posted that a person did not
+build, read and set a time on. The sweep decides *now* or *too late*, and nothing
+else — it cannot pick a product, write a caption, or create a post.
+
+**`missed` is the entire reason this is safe to add.** A post whose moment passed
+while nothing was running has three possible endings:
+
+- sit on `scheduled` forever — a screen promising a future that will not come
+- fire whenever the machine next wakes — a "tonight only" offer reaching
+  customers the following morning
+- land as `missed`, visibly, and a person decides
+
+The first two are the failure this project keeps refusing: a confident statement
+that is not true. So the sweep publishes inside a **30-minute grace window** and
+gives up outside it. The row keeps its caption, its images and its time, and the
+screen offers to send it now — giving up marks a decision as needed, it does not
+throw the work away.
+
+The window is not configurable. A knob here is a knob that gets turned up until
+the first bad post; the honest fix for wanting a bigger one is a machine that
+stays on. The maintainer's answer when asked was that this eventually moves to a
+hosted server, at which point `missed` becomes rare rather than routine — the
+design does not change, it just stops firing.
+
+**Rendered at schedule time, not at send time.** The images are on Cloudinary and
+the caption is fixed before the row is written, so the sweep has one Instagram
+call left and no decisions. A render failure happens while somebody is watching
+rather than at 7pm. The cost is that the poster's price is frozen when it is
+scheduled: if the price changes before it fires, the poster shows the old one.
+That is a real edge and it is named on the screen rather than hidden.
+
+**`claim()` is what makes concurrency safe.** One `update … where status in
+('scheduled','missed')` decides who publishes. Two overlapping sweeps, or a sweep
+racing somebody pressing "Post it now", cannot both send the same row — Postgres
+picks, and the loser does nothing. Tested with two concurrent sweeps: exactly one
+`media_publish`.
+
+**Where the clock lives.** `instrumentation.ts`, Next's server-start hook, which
+must sit at the project root. That is outside `app/`, `lib/` and `db/` — every
+directory `scripts/check-localhost.mjs` reads — so it would have been the one
+server file where a `fetch` to anywhere was invisible to the check that exists to
+stop exactly that. **The checker now reads root server files too**
+(`instrumentation.ts`, `middleware.ts`, `proxy.ts`), proved with a negative
+control. The file itself holds nothing but a timer; the work lives in
+`lib/social/scheduler.ts` where the check can see it.
+
+**Two tests were passing for the wrong reason and are now honest.**
+
+- `no scheduled_at` became: the column may exist only alongside a `missed`
+  status. Delete `'missed'` from the constraint and it fails. A schedule with
+  nowhere to record "its time passed and nothing sent it" is the version that
+  quietly lies, and it is one migration away at all times.
+- The probe for an invalid status inserted `'scheduled'` — which this decision
+  made real. It now uses `'queued'`, invented on purpose: if a job queue is ever
+  added against rule 6, that test failing is the correct first sign.
+
+**Still not built.** No recurrence, no time zones beyond the browser's own, no
+retry of a failed send. A failed scheduled post is `failed` with the platform's
+words, and a person decides — the same as one sent by hand.
+
+---
+
+## D90 — The way through, and three screens that lied
+
+**2026-08-31.** The maintainer: "the design social media UI are all over the
+place, nothing seems straight, to do one thing you have to go some place else."
+Three reviews were run against the code. They agreed, and quantified it.
+
+**The complaint was navigation, not decoration.** Promoting five laptops crossed
+six screens and **not one was reachable from the previous one**. `templates/`
+held exactly one outbound link in 1,069 lines and it pointed at an API route: you
+finished the posters and the screen said nothing about what came next. There was
+no Publish card on the front page at all — the only door was the sidebar.
+
+Three fixes, all removing a hop rather than adding a control:
+
+- **The accordion stopped swallowing the first click.** It preventDefault'd so
+  that both doors were seen before landing on one — but the parent href IS the
+  first door, and `open` becomes true on arrival, so the accordion unfolds
+  anyway. The swallow bought nothing and cost a click on every single visit.
+- **Designs points onward.** One `Write captions →` in the deck, shown only once
+  something is chosen. It carries nothing in the URL: the selection is already in
+  sessionStorage and Write reads the same one.
+- **A Publish card on the front page.**
+
+**Three things on screen were false, and two of them were text nobody had
+re-read since the code beneath them changed.**
+
+- `no approved caption — write one first` was not a link. The `/studio?sku=` link
+  that fixes it already existed 200 lines below, inside an empty state only
+  reachable when there were no captions at all.
+- **Publish promised "counted in its report" and the report did not count it.**
+  Posts have been stamped with the campaign since D83 and `postedFor` had never
+  been called outside its own test. The loop's last step was invisible on the
+  screen built to show the loop. `report()` now reads it: a `Posted` column and
+  one headline figure. A posted SKU also counts as promoted, or a product
+  published without ever being designed here drops out of the table entirely.
+- **"Posted" showed `created_at`**, so a Monday-scheduled Thursday post filed
+  under Monday. It shows when it actually went out.
+
+**Two lists became one.** "Waiting to go out" and "Posted" were the same row
+about the same thing at different moments, and splitting them meant reading two
+headings to answer "did it go out". The badge already carries the difference.
+Waiting sorts first: what has not happened is what needs a decision.
+
+**Deleted, because something adjacent already said it:** the page blurb (it is
+the front-page card's description), the "needs an image" bar (the button says
+`Publish — needs an image`, computed for exactly that), and "Tick an account
+below first".
+
+**The sticky bar had no background at all.** It read
+`background: color-mix(...94%, transparent)` over an already-translucent `--tone`
+— and the attempted fix, `background: <color>, <color>`, is INVALID CSS: the
+shorthand allows a colour only in the final layer, so the whole declaration was
+dropped and a grid of posters scrolled visibly through the controls. It is now a
+flat gradient over `--bg-flat`. Found by scrolling the page, not by reading the
+rule — the second time this session that a CSS or string bug survived a clean
+build and a passing suite.
+
+**Not done, and deliberately left for a decision.** The reviews' largest
+proposals were to merge Write and Publish into one screen, and to promote the
+product selection out of the three pages into a single strip in the shell — today
+three screens each rebuild "N picked / use every product / drop this one" from
+the same array in three different styles. Both are restructures, not tidying, and
+the ask was to tidy. Also still open: a caption edited on Publish is never saved
+back, and the product dropdown's `N approved` counts every kind, so an approved
+slogan makes a product read "1 approved" beside a panel saying it has no caption.
+
+---
+
+## D91 — One product's buttons sit against the product
+
+**2026-09-01.** A rule, applied to all three screens, because the same confusion
+appeared on each: **anything that acts on ONE product sits beside the control
+that names it; anything about the SET stays on the set's line.**
+
+It started as "Drop this one" on the Content studio, which sat a line *above* the
+product dropdown — so "this one" pointed at nothing you could see. It is now
+`Drop it` / `+ Keep it` against the select, on Write and on Publish both.
+
+**Publish can edit the selection now.** It could only read it, so noticing a
+product did not belong while looking at its poster meant walking back to Designs
+to say so — the exact hop D90 was about. Both screens read and write the same
+store, so they cannot disagree.
+
+**"Use every product" became "Show all 62".** It reads like it is about to *do*
+something to every product; it only widens a dropdown. The count is the whole
+answer to "what will this show me", and the paired label is `Show my 26`.
+
+**The trap under that label.** Widening the list, writing for a product outside
+the selection, and finding it silently missing from "Write for all N", from
+Publish's batch list and from the campaign report — because writing never touched
+the selection. Writing a caption for something IS choosing it, so it is adopted,
+on success only, and only when a selection already exists: with none, everything
+is in scope and inventing a selection of one would narrow the app on somebody's
+behalf. The notice says so, because it changes what the other screens will do.
+
+**Designs, same rule, different shape.** Every card already carries its own
+actions, so nothing moved. What was wrong there was width: the search box sized
+itself to the row and pushed `Remove all` onto a line of its own — four ragged
+rows for what is now two.
+
+- The search input is capped, like the product select on Publish already was.
+- `needs attention` and `clean` were two checkboxes that already turned each
+  other off — one control wearing two bodies, and the pair took the width that
+  broke the row. One select, three states, and no fourth state to get into.
+- **`Remove all` is gone.** Beside `Select all` it was one mis-click from
+  throwing away the working set, and it was the same button as `Remove N` once
+  everything was marked. Select all, then `Remove N` — one destructive button,
+  and it always says how many it will take.

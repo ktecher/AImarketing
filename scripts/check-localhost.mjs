@@ -23,6 +23,31 @@
  * docs/retailer-api.md. Keeping that distinction visible is the point: the app may
  * not reach the internet; a one-off tool a person runs is not the app.
  *
+ * ── the one place inside the app that may reach out (D83) ──
+ *
+ * Publishing a finished post to the company's own Instagram account cannot be
+ * done from localhost: Meta FETCHES the image from a public URL rather than
+ * accepting uploaded bytes, so the poster has to be hosted somewhere Meta can
+ * read it. The maintainer chose Cloudinary over a tunnel and over a
+ * fully-manual assistant, knowing the cost.
+ *
+ * So four hosts are allowed, and only inside lib/social/. Not app/, not a route,
+ * not lib/content. Three of them carry data — api.instagram.com,
+ * graph.instagram.com and api.cloudinary.com — and www.instagram.com is the
+ * OAuth dialog the browser is redirected to; see SOCIAL_HOSTS below for why it
+ * is not the same kind of thing. Everything else is unchanged: the same host
+ * named one directory over still fails, and a fifth host named inside
+ * lib/social/ still fails. What leaves is one rendered poster and its caption,
+ * for a post a person chose to publish. Catalogue rows in bulk, customer
+ * messages and Excel contents still never leave.
+ *
+ * graph.facebook.com and www.facebook.com were the two allowed here until D86.
+ * Nothing in this project talks to Graph any more, so they are not allowed
+ * anywhere — reintroducing either is a decision, not a refactor.
+ *
+ * Remove this exception when publishing no longer runs from a laptop — once the
+ * app is hosted, the image already has a public URL and Cloudinary has no job.
+ *
  * ── why this is not the ESLint rule CLAUDE.md used to promise ──
  *
  * It could not be installed. No published typescript-eslint supports TypeScript
@@ -41,6 +66,17 @@ import { join, relative } from 'node:path'
 import { transformSync } from 'esbuild'
 
 const ROOTS = ['app', 'lib', 'db']
+
+/**
+ * Files that are not under any of those roots and still run on the server.
+ *
+ * `instrumentation.ts` has to sit at the project root — Next will not look for
+ * it anywhere else — and it runs on every server start. Left out of this list it
+ * would be the one server file where a `fetch` to anywhere is invisible to this
+ * check, which is exactly the hole a boundary like this exists to not have
+ * (D89). Anything else that must live at the root belongs here too.
+ */
+const ALSO = ['instrumentation.ts', 'middleware.ts', 'proxy.ts']
 
 /** The one module allowed to originate a request. */
 const SEAM = 'lib/ai/generate.ts'
@@ -65,6 +101,38 @@ const CLIENTS = new Set([
  * different one is not an SVG. Nothing ever fetches them.
  */
 const NAMESPACES = new Set(['www.w3.org'])
+
+/**
+ * The one directory that may name a host off this machine, and the only hosts it
+ * may name.
+ *
+ * Three of the four carry data. `api.instagram.com` spends the authorisation
+ * code; `graph.instagram.com` receives the caption and the image URL and hands
+ * back the long-lived token; `api.cloudinary.com` receives the poster itself.
+ *
+ * Meta really does split the login across those two hosts — the code is
+ * exchanged at api.instagram.com and everything afterwards at
+ * graph.instagram.com — so neither can be dropped for tidiness.
+ *
+ * `www.instagram.com` is weaker, and is here for one reason: the OAuth login
+ * dialog lives at `www.instagram.com/oauth/authorize` and neither API host
+ * serves it. Nothing fetches it. It goes in a 302 Location header and the
+ * person's browser follows it, carrying the client_id, the scope list and a
+ * random state, all public by construction. No catalogue row, caption, image or
+ * credential rides on it.
+ *
+ * That distinction is a comment, not an enforcement — this check reads literals
+ * and cannot tell a redirect target from a fetch target. If a `fetch` to
+ * www.instagram.com is ever added, this set is not what will catch it (D85, D86).
+ */
+const SOCIAL = 'lib/social/'
+const SOCIAL_HOSTS = new Set([
+  'api.instagram.com',
+  'graph.instagram.com',
+  'www.instagram.com',
+  'api.cloudinary.com',
+])
+
 const isLoopback = (host) =>
   host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' ||
   host.endsWith('.localhost')
@@ -86,20 +154,26 @@ const URL_LITERAL = /["'`]https?:\/\/([^/:?#"'`\s]+)/gi
 
 const problems = []
 
-for (const root of ROOTS) {
+for (const root of [...ROOTS, ...ALSO]) {
   let files
-  try { files = sources(root) } catch { continue }
+  try {
+    // A root may be a directory to walk or a single file that may not exist.
+    files = statSync(root).isDirectory() ? sources(root) : [root]
+  } catch { continue }
 
   for (const file of files) {
     const rel = relative(process.cwd(), file)
     const isSeam = rel === SEAM
+    const isSocial = rel.startsWith(SOCIAL)
 
     // Comments and types out; strings and imports left exactly as written.
     // An import esbuild drops as unused is one nothing calls, which is one that
     // cannot make a request.
+    const src = readFileSync(file, 'utf8')
+
     let code
     try {
-      code = transformSync(readFileSync(file, 'utf8'), {
+      code = transformSync(src, {
         loader: file.endsWith('.tsx') ? 'tsx' : 'ts',
         jsx: 'preserve',
       }).code
@@ -108,17 +182,48 @@ for (const root of ROOTS) {
       continue
     }
 
-    const lineOf = (index) => code.slice(0, index).split('\n').length
+    // Line numbers come from the SOURCE, never from the stripped code. esbuild
+    // deletes the comments, so a line counted in `code` is short by however many
+    // comment lines came before it — always wrong, and worst in the files that
+    // document themselves most.
+    //
+    // Detection still runs on the stripped code, so a URL in a comment cannot
+    // raise a false alarm — only the line reported for a real one is at stake.
+    //
+    // This takes the matched TEXT and never the match index. `m.index` is an
+    // offset into the stripped code; passing it here made `src.indexOf(48)`
+    // search for the characters "48", which is how a violation on line 141 was
+    // reported as line 48. Every violation this check ever printed pointed at
+    // the wrong line, and nobody noticed because a passing run prints none.
+    //
+    // The whole match is tried first because it is the most specific; the
+    // capture is the fallback for a match whose surrounding syntax esbuild
+    // rewrote. A literal repeated in one file reports its first occurrence —
+    // worse than a sourcemap, better than a number that is wrong every time.
+    const lineOf = (...needles) => {
+      for (const needle of needles) {
+        const at = typeof needle === 'string' ? src.indexOf(needle) : -1
+        if (at >= 0) return src.slice(0, at).split('\n').length
+      }
+      return 1
+    }
 
     for (const m of code.matchAll(SPECIFIER)) {
       if (!CLIENTS.has(m[1]) || isSeam) continue
-      problems.push(`${rel}:${lineOf(m.index)}  imports "${m[1]}" — only ${SEAM} may originate a request`)
+      problems.push(`${rel}:${lineOf(m[0], m[1])}  imports "${m[1]}" — only ${SEAM} may originate a request`)
     }
 
     for (const m of code.matchAll(URL_LITERAL)) {
       const host = m[1].toLowerCase()
       if (isLoopback(host) || NAMESPACES.has(host)) continue
-      problems.push(`${rel}:${lineOf(m.index)}  names "${host}" — nothing here may leave this machine`)
+      if (isSocial && SOCIAL_HOSTS.has(host)) continue
+      problems.push(
+        SOCIAL_HOSTS.has(host)
+          ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — publishing lives in ${SOCIAL}, and only there`
+          : isSocial
+            ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — ${SOCIAL} may name only ${[...SOCIAL_HOSTS].join(', ')}`
+            : `${rel}:${lineOf(m[0], m[1])}  names "${host}" — nothing here may leave this machine`,
+      )
     }
   }
 }
@@ -129,4 +234,4 @@ if (problems.length) {
   process.exit(1)
 }
 
-console.log(`${ROOTS.join(', ')}: no request can leave this machine (${SEAM} excepted, and it asserts loopback)`)
+console.log(`${ROOTS.join(', ')} and ${ALSO.length} root files: no request can leave this machine (${SEAM} excepted, and it asserts loopback)`)

@@ -64,3 +64,6 @@ data/.trash/
 
 # Backups are the data they are backing up — same rule.
 backups/
+
+# next dev --experimental-https writes its self-signed cert here (D86).
+certificates/

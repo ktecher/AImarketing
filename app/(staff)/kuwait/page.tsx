@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ReactNode } from 'react'
+import { KUWAIT_TABS, Tabs } from '../tabs'
 import { RefreshTrends } from './refresh'
 
 /**
@@ -161,11 +162,13 @@ export default function Kuwait() {
   return (
     <main>
       <h1>Kuwait</h1>
+      <Tabs items={KUWAIT_TABS} />
       <p className="sub">
         The stable layer of &ldquo;knows Kuwait&rdquo; — the calendar, the hard rules, and the
         conventions — plus a dated snapshot of what Kuwait is searching, pulled by hand. A feed
         says what is moving, never what to do with it: the angle built on any of this is typed
-        on the <a href="/campaigns">campaign</a> by the person who knows.
+        on the <a href="/campaigns">campaign</a> by the person who knows. To look up one topic
+        rather than read today&rsquo;s, use <a href="/kuwait/search">Search a topic</a>.
       </p>
 
       {timely().map((t) => (

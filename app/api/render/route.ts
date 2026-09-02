@@ -55,6 +55,10 @@ export async function POST(req: Request) {
 
     return {
       sku, name: p.name_en ?? p.name_ar ?? sku, report, png, faults,
+      // For the Designs grid's category filter. A rendered batch is often the
+      // whole of what a campaign is pushing, and "show me only the laptops" is
+      // the first thing anybody asks of a list that long.
+      category: p.category ? String(p.category) : undefined,
       overridden,
       svg: format === 'svg' ? svg : undefined,
     }

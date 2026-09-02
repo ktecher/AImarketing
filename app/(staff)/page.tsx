@@ -10,30 +10,32 @@ type Card = {
 }
 
 const CARDS: Card[] = [
-  { href: '/templates', pillar: 'Catalogue', title: 'Designs',
-    desc: 'The workspace: load a product sheet or pick from the catalogue, choose a template, edit the layout, and download every design.' },
-  { href: '/api/template', pillar: 'Catalogue', title: 'Download the blank sheet',
+  { href: '/templates', pillar: 'Products', title: 'Designs',
+    desc: 'The workspace: load a product sheet or pick rows from the Products tab, choose a template, edit the layout, and download every design.' },
+  { href: '/api/template', pillar: 'Products', title: 'Download the blank sheet',
     desc: 'Hand this to marketing. Its columns are exactly what the importer reads, so nothing has to be guessed at.' },
   // No card for /typography or /import. D52 deleted both routes, and their own
   // descriptions here said why: the controls moved into the layout editor and
   // the mapping moved into Designs. These two outlived the pages by three
   // commits and 404'd the whole time — which is exactly the way D52 said a
   // merged page comes back, so they go rather than get re-pointed.
-  { href: '/products', pillar: 'Catalogue', title: 'Products',
+  { href: '/products', pillar: 'Products', title: 'Products',
     desc: 'The full catalogue in Postgres — everything the shop sells. What the assistant and the advisor read, because a customer can ask about anything in stock.' },
   { href: '/studio', pillar: 'Marketing', title: 'Content studio',
     desc: 'Slogans, captions, hashtags, and video scripts — including what not to say. English only, and no figure the model wrote: prices are placeholders the catalogue fills in.' },
   { href: '/advisor', pillar: 'Marketing', title: 'Creative advisor',
     // Kept to two words: the badge is an uppercase pill floated into the card's
     // corner, and a sentence in it wraps under the title.
-    part: 'checks work',
-    desc: 'Reviews drafts the team wrote. Named checks with the exact line that triggered each one. Never a score. Comparison against past posts waits on the social export.' },
+    part: 'no post history',
+    desc: 'Reviews drafts the team wrote, and talks them through — it asks when it cannot tell what it is looking at. Named checks with the exact line that triggered each one. Never a score. Comparison against past posts waits on the social export.' },
   { href: '/kuwait', pillar: 'Marketing', title: 'Kuwait',
     desc: 'The stable layer: the retail calendar with the hard rules beside it, pricing conventions, channels, and the dialect question. This week’s specifics live on the campaign.' },
   { href: '/chat', pillar: 'Sales', title: 'Sales assistant',
     desc: 'Answers product questions from the catalogue, escalates when it cannot, hands over to a person mid-conversation.' },
   { href: '/sales', pillar: 'Sales', title: 'Sales inbox',
     desc: 'Leads the assistant could not close, with the full transcript, why it escalated, and a takeover button.' },
+  { href: '/social', pillar: 'Marketing', title: 'Publish',
+    desc: 'The end of the loop: a design and a caption that already exist, posted to the company\u2019s own Instagram \u2014 now, or at a time you set. Nothing here writes anything.' },
   { href: '/campaigns', pillar: 'The loop', title: 'Campaigns',
     desc: 'What ties marketing to sales in both directions — including the questions the assistant could not answer.' },
 ]
@@ -105,7 +107,7 @@ export default function Home() {
         <div className="kv"><span>Text layout — shape, fit, bidi, outline</span><b>working</b></div>
         <div className="kv"><span>Rendering and export — SVG, PNG, JPG, PDF, ZIP</span><b>working</b></div>
         <div className="kv"><span>Copy, advisor, assistant, inbox</span><b>working</b></div>
-        <div className="kv"><span>Campaigns — the loop</span><b>not built</b></div>
+        <div className="kv"><span>Campaigns — the loop</span><b>working</b></div>
         <div className="kv"><span>Local models installed and verified</span><b>4 models, 21 GB</b></div>
         <div className="kv"><span>Automated checks</span><b>{total} across {suites} suites</b></div>
       </div>

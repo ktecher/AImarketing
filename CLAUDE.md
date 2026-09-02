@@ -19,11 +19,25 @@ The company's requirement is absolute: catalog rows, customer messages, uploaded
 Enforcement is structural, not a promise:
 
 - A boot-time assert that `OLLAMA_BASE_URL`'s host is a loopback address, throwing with an actionable message.
-- `scripts/check-localhost.mjs`, first in `npm test`. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
+- `scripts/check-localhost.mjs`, first in `npm test`. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine or one of the two publishing hosts named below, inside `lib/social/` and nowhere else. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
 
   Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
 
-  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app. One route — `/api/kuwait/trends` — may EXECUTE `scripts/pull-trends.mjs`, by fixed path, with no arguments, never reading the request body: a staff click is a person running the tool, and the request code stays in `scripts/` where it takes no input and can carry nothing out (D72).
+  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app. Two routes may EXECUTE a script in `scripts/`, by fixed path, and do nothing else — a staff click is a person running the tool, and the request code stays where there is one file to read to know what leaves:
+
+  - `/api/kuwait/trends` runs `scripts/pull-trends.mjs` with **no arguments**, never reading the request body (D72).
+  - `/api/kuwait/search` runs `scripts/search-trends.mjs <topic>` with **one argument**: a topic a person typed, stripped to letters, digits and spaces and capped at sixty characters, at the route and again in the script. Nothing else reaches the child process (D73).
+
+  **Publishing a post is the second exception, and the only one inside the app** (D83). Meta does not accept uploaded image bytes — it FETCHES the image from a public URL — so a finished poster has to be hosted somewhere Meta can read it, and the maintainer chose Cloudinary over a tunnel and over publishing by hand. Four hosts, one directory, and the checker enforces exactly that:
+
+  - `api.instagram.com`, `graph.instagram.com` and `api.cloudinary.com` may be named **only inside `lib/social/`**. Those exact hosts, that exact directory. The same host one directory over fails the build, and a fifth host inside `lib/social/` fails the build. Meta splits the login across two of them — the authorisation code is spent at `api.instagram.com`, the long-lived token and every publish happen at `graph.instagram.com` — so neither can be folded into the other.
+  - `www.instagram.com` is the fourth, and is not the same kind of thing (D85). It is the OAuth login dialog, which neither API host serves. Nothing fetches it — it goes in a 302 `Location` header and the person’s browser follows it, carrying the client_id, the scope list and a random state. No catalogue row, caption, image or credential rides on it.
+  - **Instagram only, and no Facebook Page** (D86). Publishing through a Page needs a Meta Business portfolio the shop could not create, so this uses **Instagram API with Instagram Login**, which Meta ships for accounts that have no Page. `graph.facebook.com` and `www.facebook.com` are no longer allowed anywhere in this project; nothing here talks to Graph.
+  - `lib/social/instagram.ts` and `lib/social/cloudinary.ts` are the two files that reach out. `lib/social/store.ts` and `lib/social/tokens.ts` are local Postgres only.
+  - **What leaves:** the rendered poster image (it carries a product name and a price), the caption text, and the Instagram/Cloudinary credentials. Per post.
+  - **Publishing is opt-in per post and never automatic.** Not on render, not on save, not on a timer. A person picks the design, reads the caption, and presses publish.
+
+  Note what the rule above still says, unchanged: catalogue rows in bulk, customer messages, uploaded Excel contents, and any product nobody chose to publish never leave. A topic somebody typed into a search box and a post somebody chose to publish are the exceptions, they are enumerated here, and widening this again is a decision that gets written down.
 
 Note what this rule does **not** say. It does not ban the `openai` package — Ollama's endpoint is OpenAI-compatible, so the `openai` client pointed at localhost is the correct implementation. Do not hand-roll HTTP to avoid an import.
 
@@ -77,6 +91,15 @@ Not as a topic, not as a marketing angle, not as a seasonal hook. Religious occa
 | Text shaping | `harfbuzzjs` — **not** `opentype.js` |
 | PNG export | `resvg-js` — **not** `sharp` |
 | PDF export | Installed Chrome via `puppeteer-core` |
+
+Publishing (D83, D86) adds the only credentials in this project that are not local. Placeholders live in `.env.example`; the real values never enter a tracked file.
+
+| Variable | What it is |
+|---|---|
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | The **Instagram** app id and secret from the Meta app dashboard — not the Facebook app id beside them |
+| `INSTAGRAM_REDIRECT_URI` | OAuth callback — `https://localhost:3000/api/social/instagram/callback`. **HTTPS, not HTTP**: Meta refuses to save an http redirect URI, so local dev runs `npm run dev:https` (D86) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | The account hosting the poster for Meta to fetch |
+| `APP_ENCRYPTION_KEY` | Encrypts the stored Instagram tokens at rest. A long-lived token is a standing permission to post as the company, and it lasts sixty days |
 
 **No Python anywhere.** A second toolchain for one script is real cost for a solo maintainer.
 

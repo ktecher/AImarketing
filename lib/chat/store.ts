@@ -87,6 +87,19 @@ export function append(c: Conversation, m: Omit<Message, 'id' | 'at'>): Conversa
 }
 
 /** Everything a rep should see, newest activity first. */
+/**
+ * Drop a deleted campaign's stamp from every conversation that carries it.
+ * Same reasoning as the content store: the transcript stays, the dangling id
+ * does not. See lib/campaigns.ts `remove`.
+ */
+export function forgetCampaign(campaignId: string): number {
+  let cleared = 0
+  for (const c of inbox()) {
+    if (c.campaign_id === campaignId) { c.campaign_id = null; save(c); cleared++ }
+  }
+  return cleared
+}
+
 export function inbox(): Conversation[] {
   const d = dir()
   if (!existsSync(d)) return []

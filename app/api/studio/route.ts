@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
-import { importedProducts } from '@/lib/template/columns'
+import { campaignProducts } from '@/lib/template/columns'
 import { check, fill } from '@/lib/content/guard'
-import { approve, coverage, draft, load, save, type Channel, type Piece } from '@/lib/content/studio'
+import { approve, coverage, draft, load, save, type Channel, type Kind, type Piece } from '@/lib/content/studio'
 import { currentCampaign, get } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
@@ -10,10 +10,14 @@ export const runtime = 'nodejs'
 export const maxDuration = 300
 
 const CHANNELS = new Set<Channel>(['instagram', 'snapchat', 'tiktok'])
+const KINDS = new Set<Kind>(['slogan', 'caption', 'hashtags', 'script'])
+
+/** A steer a person typed. Capped because it goes into a prompt, not a field. */
+const NOTE_LIMIT = 300
 
 /** The row a draft is grounded in. Copy without its row cannot be checked. */
-function row(sku: string): Record<string, string | number> | undefined {
-  return importedProducts().find((p) => String(p.sku) === sku)
+async function row(sku: string): Promise<Record<string, string | number> | undefined> {
+  return (await campaignProducts()).find((p) => String(p.sku) === sku)
 }
 
 /**
@@ -41,7 +45,7 @@ const dress = (pieces: Piece[], values: Record<string, unknown>) =>
 
 export async function GET(req: Request) {
   const sku = new URL(req.url).searchParams.get('sku')
-  const products = importedProducts()
+  const products = await campaignProducts()
 
   if (!sku) {
     const done = coverage()
@@ -56,20 +60,21 @@ export async function GET(req: Request) {
     })
   }
 
-  const values = row(sku)
+  const values = await row(sku)
   if (!values) return NextResponse.json({ error: `No product ${sku} in the loaded sheet.` }, { status: 404 })
   return NextResponse.json({ product: values, pieces: dress(load(sku), values) })
 }
 
 export async function POST(req: Request) {
-  const { sku, channel, campaignId } = (await readJson(req)) as {
+  const { sku, channel, campaignId, only, note } = (await readJson(req)) as {
     sku?: string; channel?: Channel; campaignId?: string | null
+    only?: string[]; note?: string
   }
   if (!sku) return NextResponse.json({ error: 'Pick a product first.' }, { status: 400 })
   if (!channel || !CHANNELS.has(channel)) {
     return NextResponse.json({ error: 'Pick a channel.' }, { status: 400 })
   }
-  const values = row(sku)
+  const values = await row(sku)
   if (!values) return NextResponse.json({ error: `No product ${sku} in the loaded sheet.` }, { status: 404 })
 
   try {
@@ -81,10 +86,35 @@ export async function POST(req: Request) {
     const camp = campaignId
       ? await get(campaignId).catch(() => null)
       : await currentCampaign()
-    const fresh = await draft(values, channel, camp?.id ?? campaignId ?? null, camp?.context ?? '')
+    // "More slogans" is one kind, one call. Anything not on this list is
+    // dropped rather than trusted: it reaches a schema and a prompt.
+    const kinds = Array.isArray(only) ? only.filter((k): k is Kind => KINDS.has(k as Kind)) : []
+    const partial = kinds.length > 0
+    const current = load(sku)
+
+    // Improving the script means a better one, not a second one — so the model
+    // is handed the script that exists. Only when the script is the ONLY thing
+    // asked for; inside a full run it is a fresh write like everything else.
+    const improve = partial && kinds.length === 1 && kinds[0] === 'script'
+      ? current.find((p) => p.kind === 'script' && p.script)?.script
+      : undefined
+
+    const fresh = await draft(values, channel, camp?.id ?? campaignId ?? null, camp?.context ?? '', {
+      only: kinds,
+      note: typeof note === 'string' ? note.slice(0, NOTE_LIMIT) : '',
+      improve,
+    })
+
     // Approved pieces survive a re-run. Losing an approval to a click that was
     // meant to produce alternatives is not recoverable from the UI.
-    const kept = load(sku).filter((p) => p.status === 'approved')
+    //
+    // Asking for MORE of one kind keeps the drafts already on screen — the
+    // point of the button is another option beside the ones you are comparing,
+    // and replacing them would make "more" mean "instead". The rewritten script
+    // is the exception, for the reason above.
+    const kept = partial
+      ? current.filter((p) => !(improve && p.kind === 'script' && p.status !== 'approved'))
+      : current.filter((p) => p.status === 'approved')
     const pieces = [...kept, ...fresh.map((p, i) => ({ ...p, id: `${p.id}:${Date.now()}${i}` }))]
     save(sku, pieces)
     return NextResponse.json({ pieces: dress(pieces, values) })
@@ -105,7 +135,7 @@ export async function PUT(req: Request) {
     sku?: string; id?: string; text?: string; action?: 'edit' | 'approve' | 'unapprove' | 'delete'
   }
   if (!sku || !id) return NextResponse.json({ error: 'Missing draft.' }, { status: 400 })
-  const values = row(sku)
+  const values = await row(sku)
   if (!values) return NextResponse.json({ error: `No product ${sku} in the loaded sheet.` }, { status: 404 })
 
   try {

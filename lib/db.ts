@@ -9,6 +9,24 @@
 
 import { Pool } from 'pg'
 
+// `.env` is read here when nothing has already set DATABASE_URL, because the
+// fallback below is a REAL database on most machines and a wrong one is silent.
+//
+// Measured cost of not doing this: `npm test` sets no DATABASE_URL, so it fell
+// through to 5432 — a stale Homebrew Postgres with 60 products and different
+// embeddings — while the app on 5434 had 62. The advisor suite failed there and
+// passed against the real database, and three separate readers in one afternoon
+// diagnosed it as a code regression before anyone checked which database they
+// were talking to. Several scripts already did this by hand; doing it in the one
+// module that talks to Postgres means no future script has to remember.
+//
+// Node does not let a file override an already-set variable, so an explicit
+// DATABASE_URL on the command line still wins, and Next's own .env loading is
+// unaffected.
+if (!process.env.DATABASE_URL) {
+  try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
+}
+
 // Matches docker-compose.yml, so a clone works with no .env at all:
 // `docker compose up -d && npm run db:migrate` and the app connects. Set
 // DATABASE_URL for anything else — a Homebrew Postgres on trust auth, or a

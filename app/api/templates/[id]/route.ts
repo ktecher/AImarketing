@@ -30,7 +30,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!t) return Response.json({ error: 'Template not found.' }, { status: 404 })
 
   // ?sku=… edits one product's exception rather than the template itself.
-  const sku = new URL(_req.url).searchParams.get('sku') ?? ''
+  // ?skus=… is what the Designs page had chosen, so editing the template for
+  // all of them still previews against one of them and not a stranger.
+  const q = new URL(_req.url).searchParams
+  const sku = q.get('sku') ?? ''
+  const picked = (q.get('skus') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   const overrides = loadOverrides(id)
   const mine = sku ? overrides[sku] : undefined
 
@@ -47,7 +51,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     columns,
     columnSource: source,
     sample: sampleValues(),
-    products: previewProducts(),
+    products: await previewProducts(sku, picked),
     fonts: fontFiles().map(familyOf),
   })
 }

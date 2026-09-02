@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
-import { displayNames, importedProducts, saveDisplayNames } from '@/lib/template/columns'
+import { campaignProducts, displayNames, saveDisplayNames } from '@/lib/template/columns'
 import { checkName, nameBlockers, suggestNames, POSTER_MAX } from '@/lib/content/names'
 
 export const runtime = 'nodejs'
@@ -8,9 +8,9 @@ export const runtime = 'nodejs'
 export const maxDuration = 600
 
 /** Every product, with its short name resolved and checked against the rest. */
-function rows(pending: Record<string, string> = {}) {
+async function rows(pending: Record<string, string> = {}) {
   const saved = displayNames()
-  const products = importedProducts()
+  const products = await campaignProducts()
 
   // Resolved names for the WHOLE catalogue first — the collision check is
   // meaningless against a subset, and a pending edit has to collide with what
@@ -41,7 +41,7 @@ function rows(pending: Record<string, string> = {}) {
 }
 
 export async function GET() {
-  const all = rows()
+  const all = await rows()
   return NextResponse.json({
     posterMax: POSTER_MAX,
     products: all,
@@ -56,20 +56,20 @@ export async function GET() {
 /** Propose short names. Nothing is saved — the response is a draft to review. */
 export async function POST(req: Request) {
   const { skus } = (await readJson(req)) as { skus?: string[] }
-  const products = importedProducts()
+  const products = await campaignProducts()
   const wanted = skus?.length
     ? products.filter((p) => skus.includes(String(p.sku)))
     : // Default to the ones that actually need it. A name already inside the
       // poster range does not need a model to look at it.
       products.filter((p) => String(p.name_en ?? '').length > POSTER_MAX)
 
-  if (!wanted.length) return NextResponse.json({ products: rows(), suggested: 0 })
+  if (!wanted.length) return NextResponse.json({ products: await rows(), suggested: 0 })
 
   try {
     const suggestions = await suggestNames(
       wanted.map((p) => ({ sku: String(p.sku), name_en: String(p.name_en ?? ''), brand: String(p.brand ?? '') })),
     )
-    return NextResponse.json({ products: rows(suggestions), suggested: Object.keys(suggestions).length })
+    return NextResponse.json({ products: await rows(suggestions), suggested: Object.keys(suggestions).length })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Could not suggest names.'
     return NextResponse.json(
@@ -89,9 +89,9 @@ export async function POST(req: Request) {
  */
 export async function PUT(req: Request) {
   const { edits } = (await readJson(req)) as { edits?: Record<string, string> }
-  if (!edits || !Object.keys(edits).length) return NextResponse.json({ products: rows(), saved: 0, refused: [] })
+  if (!edits || !Object.keys(edits).length) return NextResponse.json({ products: await rows(), saved: 0, refused: [] })
 
-  const checked = rows(edits)
+  const checked = await rows(edits)
   const refused = checked
     .filter((r) => edits[r.sku]?.trim() && nameBlockers(r.checks).length)
     .map((r) => ({ sku: r.sku, short: r.short, failed: nameBlockers(r.checks).map((c) => c.name) }))
@@ -110,5 +110,5 @@ export async function PUT(req: Request) {
   const accepted = Object.fromEntries(Object.entries(edits).filter(([sku]) => !refusedSkus.has(sku)))
   saveDisplayNames(accepted)
 
-  return NextResponse.json({ products: rows(), saved: Object.keys(accepted).length, refused })
+  return NextResponse.json({ products: await rows(), saved: Object.keys(accepted).length, refused })
 }

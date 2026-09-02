@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CATALOGUE_TABS, Tabs } from '../tabs'
 
 type Row = {
   sku: string
@@ -271,10 +272,11 @@ export default function Products() {
 
   return (
     <main className="wide">
-      <h1>Products</h1>
+      <h1>Products &amp; designs</h1>
+      <Tabs items={CATALOGUE_TABS} />
       <p className="sub">
         Everything the shop sells. The assistant answers from this, so a customer can ask about
-        anything in stock. Designs works from the sheet you load there.
+        anything in stock. The Designs tab works from the same rows.
       </p>
 
       {down && (

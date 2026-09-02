@@ -164,9 +164,13 @@ Postgres full-text search over the real product rows, with the three or four spe
 
 Deliberately separate from the generator, and the signature enforces it: `review(text, {channel, lang})` takes **text, not a draft object**, so there is nowhere to put the generator's context and the compiler enforces what would otherwise be discipline.
 
-### v1 has no model and no score
+### The checks have no model. The advice does. (D75)
 
-Paste a draft, see the five most similar past posts with their real reach, saves, and shares. A search over the company's own history. No hallucination surface, honest by construction, and most of the value.
+The checking half — price drift, claim safety, compliance — is string operations and catalogue lookups, and stays that way: no hallucination surface, nothing to be wrong about, and most of the value. It is the ground truth, and the model is shown its results as settled facts it may not contradict.
+
+The advice half was empty for a while, and it was the half people opened the screen for: v1 listed *hook, clarity, retention, CTA* under **not looked at**. `lib/advisor/converse.ts` answers those now, and asks — which product, which channel, which price belongs to which — when it cannot tell what it is looking at. Those questions are computed in TypeScript from what is actually missing, never asked of the model, because either a row matched or it did not.
+
+Answering "which product" pins the row and skips retrieval, so the checking half also answers with Ollama stopped.
 
 ### When commentary is added
 
@@ -199,7 +203,7 @@ fixes:        [ { quote, change, why, criterion } ] -> max 3, ranked
 not_assessed: [ "trend fit — no live feed; Kuwait context: 2026-07" ]
 ```
 
-No prose paragraph. If the model wants to write an essay, the schema stops it.
+The prose paragraph is capped at 120 words and asked for, not schema-shaped — grammar-constrained decoding measurably degrades writing, so the judgement is written freely and a second cheap call pulls the rewrites out of it. The essay is prevented by asking for less, not by a schema that also flattens the judgement (D75). Every rewrite is verified to quote the draft (`isQuoted`) and run through the studio's own `check()` before it is shown.
 
 The most valuable check needs no cleverness: *your caption says 129 KD; the catalog says 119.500 as of yesterday.* That is a call to `lib/rag` which the chatbot builds anyway.
 

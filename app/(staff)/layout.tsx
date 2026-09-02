@@ -9,42 +9,61 @@ import { usePathname } from 'next/navigation'
  * It lives in the (staff) group and not in the root layout, which matters: the
  * customer widget at /chat is a public page, and it was rendering links to the
  * Inbox, the Products table and Campaigns. A customer asking the price of a
- * stylus should not be shown the way into the catalogue.
+ * stylus should not be shown the way into the product list.
  *
- * Grouped rather than listed. Seven flat links is a list you read every time;
- * four groups of two is a shape you learn once.
+ * One flat list, in the order the work happens. It used to be three named
+ * groups — Catalogue, Words, Customers — and the names were the problem: they
+ * were categories invented to justify the grouping rather than anything a
+ * person looks for. Nobody arrives wanting "Words". The pairs that ARE one job
+ * became tabs inside a screen instead (see tabs.tsx), which is where the
+ * grouping actually belonged.
+ *
+ * Campaigns is first because it is first: everything else stamps its output
+ * with the campaign running today, so making one is the thing you do before
+ * the rest of the system has anything to attach work to.
  */
-const GROUPS: {
-  title: string
-  items: { href: string; label: string; hint: string; external?: boolean }[]
+const NAV: {
+  href: string
+  icon: string
+  label: string
+  /** Other routes that are this entry — the far half of a tab pair. */
+  also?: string[]
+  /** Sub-entries revealed when this one is open. */
+  under?: { href: string; label: string }[]
+  external?: boolean
 }[] = [
+  { href: '/campaigns', icon: '\u{1F9F1}', label: 'Campaigns' },
   {
-    title: 'Catalogue',
-    items: [
-      { href: '/products', label: 'Products', hint: 'everything you sell' },
-      { href: '/templates', label: 'Designs', hint: 'sheet in, posters out' },
+    href: '/products', icon: '\u{1F4E6}', label: 'Products & designs', also: ['/templates'],
+    // The two halves are one job, so they are one entry — but they are also two
+    // screens, and the tab strip inside them is invisible until you have already
+    // arrived. The accordion puts both doors in the sidebar without putting two
+    // destinations there.
+    under: [
+      { href: '/products', label: 'Products' },
+      { href: '/templates', label: 'Designs' },
     ],
   },
   {
-    title: 'Words',
-    items: [
-      { href: '/studio', label: 'Studio', hint: 'copy from the same rows' },
-      { href: '/advisor', label: 'Advisor', hint: 'check a draft you wrote' },
-      { href: '/kuwait', label: 'Kuwait', hint: 'the calendar and the rules' },
+    href: '/studio', icon: '\u{270D}\uFE0F', label: 'Social media', also: ['/social'],
+    // Writing a caption and posting it are one job in two screens, which is the
+    // same shape as Products & designs \u2014 so it gets the same accordion rather
+    // than a second top-level entry. A flat "Publish" beside "Social media"
+    // would read as somewhere you go INSTEAD of writing, and it is where you go
+    // after.
+    under: [
+      { href: '/studio', label: 'Write' },
+      { href: '/social', label: 'Publish' },
     ],
   },
-  {
-    title: 'Customers',
-    items: [
-      { href: '/sales', label: 'Inbox', hint: 'what the assistant could not answer' },
-      // Opens in a new tab, and that is not a detail. /chat is the PUBLIC
-      // widget: it has no sidebar, so navigating there in this tab strands you
-      // on a page with no way back. It is listed because staff need to see what
-      // a customer sees, and a link buried in the footer is not findable.
-      { href: '/chat', label: 'Customer widget', hint: 'what a customer sees ↗', external: true },
-      { href: '/campaigns', label: 'Campaigns', hint: 'the loop' },
-    ],
-  },
+  { href: '/advisor', icon: '\u{1F50E}', label: 'Advisor' },
+  { href: '/kuwait', icon: '\u{1F1F0}\u{1F1FC}', label: 'Kuwait' },
+  { href: '/sales', icon: '\u{1F4AC}', label: 'Inbox' },
+  // Opens in a new tab, and that is not a detail. /chat is the PUBLIC widget:
+  // it has no sidebar, so navigating there in this tab strands you on a page
+  // with no way back. It is listed because staff need to see what a customer
+  // sees, and a link buried in the footer is not findable.
+  { href: '/chat', icon: '\u{1F441}\uFE0F', label: 'Customer widget', external: true },
 ]
 
 /*
@@ -72,6 +91,8 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
   // server's. The switch then reads "Light" on a deep page until you click it.
   // Correcting in an effect costs one extra render and is right afterwards.
   const [deep, setDeep] = useState(false)
+  // Which accordion the person clicked open, independent of where they are.
+  const [opened, setOpened] = useState<string | null>(null)
 
   useEffect(() => {
     // The head script always writes the attribute now, so there is no
@@ -98,32 +119,57 @@ export default function StaffLayout({ children }: { children: ReactNode }) {
       <nav className="side" aria-label="Staff sections">
         <a className="brand" href="/">AImarketing</a>
 
-        {/* A <div role="group">, not an <h2>. As headings these three sat in the
-            same outline as page content and preceded every page's <h1>, which
-            makes the outline useless for navigating by heading. */}
-        {GROUPS.map((g) => (
-          <div className="side-group" key={g.title} role="group" aria-labelledby={`sg-${g.title}`}>
-            <div className="side-group-title" id={`sg-${g.title}`}>{g.title}</div>
-            {g.items.map((n) => {
-              // startsWith, so /templates/brand-poster/edit still lights up
-              // Designs. Landing on a sub-page with nothing selected reads as
-              // having navigated out of the app.
-              const on = !n.external && (path === n.href || path.startsWith(`${n.href}/`))
-              return (
+        <div className="side-group">
+          {NAV.map((n) => {
+            // startsWith, so /templates/brand-poster/edit still lights up
+            // Products & designs. Landing on a sub-page with nothing selected
+            // reads as having navigated out of the app.
+            const mine = [n.href, ...(n.also ?? [])]
+            const on = !n.external && mine.some((h) => path === h || path.startsWith(`${h}/`))
+            // Open when you are inside it, or when you have clicked it open.
+            // Two sources, because the sidebar has to be usable from a page that
+            // is not underneath it — otherwise the only way to reach Designs
+            // from Campaigns is to go to Products first.
+            const open = n.under ? (on || opened === n.href) : false
+            return (
+              <div key={n.href} className={open ? 'nav-open' : undefined}>
                 <a
-                  key={n.href}
                   href={n.href}
                   className={on ? 'on' : ''}
                   aria-current={on ? 'page' : undefined}
+                  aria-expanded={n.under ? open : undefined}
                   {...(n.external ? { target: '_blank', rel: 'noreferrer' } : {})}
+                  onClick={() => {
+                    // Open AND navigate. This used to swallow the first click so
+                    // that both doors were seen before landing on one — but the
+                    // parent href IS the first door, and `open` becomes true the
+                    // moment you arrive, so the accordion unfolds anyway. The
+                    // swallow bought nothing and cost a click on every visit.
+                    if (n.under) setOpened(n.href)
+                  }}
                 >
+                  <i className="ico" aria-hidden="true">{n.icon}</i>
                   <b>{n.label}</b>
-                  <span>{n.hint}</span>
+                  {n.under && <i className="caret" aria-hidden="true" />}
                 </a>
-              )
-            })}
-          </div>
-        ))}
+                {n.under && open && (
+                  <div className="side-under">
+                    {n.under.map((u) => (
+                      <a
+                        key={u.href}
+                        href={u.href}
+                        className={path === u.href || path.startsWith(`${u.href}/`) ? 'on' : ''}
+                        aria-current={path === u.href ? 'page' : undefined}
+                      >
+                        {u.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
 
         <div className="side-foot">
           {/* Same before-first-paint reasoning as the head script: the click

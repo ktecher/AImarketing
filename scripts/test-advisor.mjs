@@ -89,9 +89,104 @@ ok('the guarantee is still caught',    noProduct.blockers.some((b) => b.quote ==
 ok('claims verdict is problem',        noProduct.verdicts['claims and compliance'] === 'problem')
 ok('facts verdict is honest, not ok',  noProduct.verdicts['facts against the catalogue'] === 'needs work')
 
+console.log('\n--- a person naming the product settles what retrieval guesses at ---')
+// The advisor now ASKS which product a draft is for, so the answer has to
+// actually change what gets checked — otherwise the question is decoration.
+// It also means these run with Ollama stopped: a pinned row skips retrieval,
+// so there is no embedding call in this path at all.
+const pinned = await review('Grab it for only 129 KD today!', { row: ROW })
+ok('the pinned row is what matched',    pinned.matched?.sku === '502037', JSON.stringify(pinned.matched))
+ok('and it says the person named it',   pinned.matched?.confidence === 'sku')
+ok('the price is judged against it',    pinned.blockers.some((b) => b.quote === '129 KD'))
+ok('with the pinned row\u2019s price',      pinned.blockers[0]?.why.includes('119.500 KD'), pinned.blockers[0]?.why)
+
+// The draft says nothing about this product at all. Retrieval would decline
+// (correctly); a person pointing at the row overrides that, which is the whole
+// point of being able to answer the question.
+const elsewhere = await review('Only 5.000 KD this weekend.', { row: NOSALE })
+ok('an unrelated draft still checks',   elsewhere.matched?.sku === 'P1')
+ok('and the wrong price is caught',     elsewhere.blockers.some((b) => b.quote === '5.000 KD'),
+   JSON.stringify(elsewhere.blockers.map((b) => b.quote)))
+
+const right = await review('Only 10.000 KD this weekend.', { row: NOSALE })
+ok('the right price raises nothing',    right.blockers.length === 0,
+   JSON.stringify(right.blockers.map((b) => [b.quote, b.criterion])))
+
+console.log('\n--- Arabic is checked, not waved through ---')
+// compliance-guardrails.md: "They apply identically in Arabic and English."
+// They did not. This draft — blessed offer, cheapest price in Kuwait, a price
+// the catalogue does not hold, guaranteed — came back with zero blockers and
+// the screen said "Nothing in this draft contradicts the catalogue."
+const ar = await review('عرض مبارك! أرخص سعر بالكويت ٣٤٫٩٠٠ د.ك مضمون', { row: ROW, lang: 'ar' })
+const named = (r, n) => r.blockers.some((b) => b.criterion === n)
+ok('the superlative is caught in Arabic',   named(ar, 'no unsubstantiable superlative'),
+   JSON.stringify(ar.blockers.map((b) => [b.quote, b.criterion])))
+ok('the guarantee is caught in Arabic',     named(ar, 'no guarantee the company has not made'))
+ok('the religious framing is caught',       named(ar, 'nothing religious or political'))
+ok('and Arabic-Indic digits are a price',   named(ar, 'the price matches the catalogue'))
+ok('so the claims verdict is not ok',       ar.verdicts['claims and compliance'] === 'problem')
+ok('the Arabic limit is stated, not implied',
+   ar.not_assessed.some((n) => n.includes('curated list')), JSON.stringify(ar.not_assessed))
+
+// The currency word may LEAD in Arabic, and half of Arabic retail writes it that way.
+ok('a leading currency word is still a price',
+   priceDrift('د.ك 34.900 فقط', ROW).length === 1,
+   JSON.stringify(priceDrift('د.ك 34.900 فقط', ROW).map((b) => b.quote)))
+
+console.log('\n--- a draft about no product is not placed against one ---')
+// Measured: eight mostly-generic words matched an Anker cable at lexical 0.500,
+// and the advisor issued an authoritative "Do not publish" quoting that cable's
+// price. Declining costs one question; being confidently wrong costs the reader.
+const vague = await review('the fastest charger we sell — grab it for 12.000 KD')
+ok('nothing is matched',            vague.matched === null, JSON.stringify(vague.matched))
+ok('and no price is asserted',      !vague.blockers.some((b) => b.criterion.startsWith('the price')),
+   JSON.stringify(vague.blockers.map((b) => b.quote)))
+ok('the superlative still lands',    vague.blockers.some((b) => b.quote === 'fastest'))
+
+console.log('\n--- a correct price does not buy silence on the rest ---')
+// bareDigits reports the FIRST offending span and no other, so filtering the
+// result afterwards let a right price consume the whole check.
+const swallowed = await review('Only 119.500 KD — the first 50 customers get a free case.', { row: ROW })
+ok('the invented figure is still caught', swallowed.blockers.some((b) => b.quote.includes('50')),
+   JSON.stringify(swallowed.blockers.map((b) => b.quote)))
+ok('and the correct price is not',        !swallowed.blockers.some((b) => b.quote.includes('119.500')))
+
+console.log('\n--- was/now belongs to one product ---')
+// The strongest-performing offer structure in electronics. It was declined as
+// "two products", on every sale caption the team writes.
+const sale = await review('Was 149.900 KD, now 119.500 KD.', { row: ROW })
+ok('both prices are verified',      sale.blockers.length === 0,
+   JSON.stringify(sale.blockers.map((b) => [b.quote, b.criterion])))
+ok('and the facts verdict is ok',   sale.verdicts['facts against the catalogue'] === 'ok',
+   sale.verdicts['facts against the catalogue'])
+ok('nothing is said about two products',
+   !sale.not_assessed.some((n) => n.includes('more than one')), JSON.stringify(sale.not_assessed))
+
+// A genuinely unattributable pair still declines: 34.900 is not this row's.
+const mixed = await review('Pencil 119.500 KD and AirPods 34.900 KD.', { row: ROW })
+ok('a figure this row does not hold still declines',
+   mixed.verdicts['facts against the catalogue'] === 'needs work' && mixed.blockers.length === 0,
+   JSON.stringify([mixed.verdicts, mixed.blockers.map((b) => b.quote)]))
+
+console.log('\n--- the unit written once ---')
+// "was 40.500 now 19.900 KD" — the struck figure carries no unit, so it was not
+// money, and the guard called the row's own pre-discount price invented.
+const bare = await review('was 149.900 now 119.500 KD', { row: ROW })
+ok('a bare struck price is verified, not invented', bare.blockers.length === 0,
+   JSON.stringify(bare.blockers.map((b) => [b.quote, b.criterion])))
+
+console.log('\n--- one row, and only that row, decides a price ---')
+// A neighbouring retrieved row used to be folded into the known prices, so any
+// figure matching any of six prices across three rows was accepted — while the
+// screen said "Checked against <the one row>."
+ok('a wrong price cannot be blessed by another product',
+   priceDrift('Apple Pencil for 34.900 KD.', ROW).length === 1)
+ok('priceDrift takes a row, not a neighbourhood', priceDrift.length === 2, String(priceDrift.length))
+
 console.log('\n--- rule 4: no score, rating or grade anywhere ---')
 const src = await import('node:fs').then((fs) =>
-  fs.readFileSync('lib/advisor/review.ts', 'utf8') + fs.readFileSync('app/(staff)/advisor/page.tsx', 'utf8'))
+  ['lib/advisor/review.ts', 'lib/advisor/converse.ts', 'app/(staff)/advisor/page.tsx']
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n'))
 // Comments may name the words to forbid them; code and UI text may not use them.
 const offending = src
   .split('\n')

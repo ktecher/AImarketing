@@ -1,13 +1,17 @@
 'use client'
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
+import { CATALOGUE_TABS, Tabs } from '../tabs'
+import { CurrentCampaign } from '../current-campaign'
+import { readPicked, writePicked } from '../picked'
+import { pushingFrom } from '@/lib/brief'
 
 type Drift = {
   sku: string; template_id: string; name: string; exported_at: string
   changed: Record<string, { was: string; now: string }>
 }
 type Report = { slot: string; truncated?: boolean; shrunkTo?: number; empty?: boolean; missingImage?: boolean; boxTooShort?: { need: number; have: number }; literalText?: { printing: string; insteadOf: string } }
-type Result = { sku: string; name: string; report: Report[]; png?: string; overridden?: boolean }
+type Result = { sku: string; name: string; category?: string; report: Report[]; png?: string; overridden?: boolean }
 type Tpl = { id: string; name: string; slots: string[]; width: number; height: number }
 type NameCheck = { name: string; pass: boolean; span?: string; hint?: string }
 type NameRow = { sku: string; name_en: string; length: number; short: string; checks: NameCheck[]; source: string }
@@ -56,6 +60,11 @@ export default function Templates({
 
   const [picked, setPicked] = useState<Pick[]>(fromUrl.map((sku) => ({ sku, name: '' })))
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Named when the selection came from the campaign rather than from a person,
+  // so the screen can say so and offer a way out of it.
+  const [fromCampaign, setFromCampaign] = useState('')
+  // Designs ticked on the grid, for removing several at once.
+  const [marked, setMarked] = useState<Set<string>>(new Set())
   const [hunt, setHunt] = useState('')
   const [found, setFound] = useState<Found[]>([])
   const [hunting, setHunting] = useState(false)
@@ -66,6 +75,10 @@ export default function Templates({
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
   const [onlyFlagged, setOnlyFlagged] = useState(false)
+  const [onlyClean, setOnlyClean] = useState(false)
+  // Free text over the rendered grid, and one category at a time.
+  const [grep, setGrep] = useState('')
+  const [kind, setKind] = useState('')
   const [faults, setFaults] = useState<Report[]>([])
   const [drift, setDrift] = useState<Drift[]>([])
   const [watching, setWatching] = useState(true)
@@ -125,13 +138,68 @@ export default function Templates({
     return () => clearTimeout(t)
   }, [hunt])
 
-  /** Chosen products go into the URL, so a reload designs the same products. */
+  /**
+   * Chosen products go into the URL, so a reload designs the same products, and
+   * into the tab's own storage, so walking to Social media and back finds them
+   * still chosen. The sidebar links are bare paths — without the second write,
+   * every trip off this screen silently emptied the selection.
+   */
   const choose = useCallback((next: Pick[]) => {
     setPicked(next)
+    // Editing the selection by hand makes it yours, not the campaign's.
+    setFromCampaign('')
+    writePicked(next.map((p) => p.sku))
     history.replaceState(
       null, '',
       next.length ? `${location.pathname}?skus=${encodeURIComponent(next.map((p) => p.sku).join(','))}` : location.pathname,
     )
+  }, [])
+
+  /**
+   * What this screen designs when nobody has said, in order of authority.
+   *
+   * 1. The URL — a deliberate hand-over from the Products tab, or from the
+   *    layout editor on the way back.
+   * 2. What this tab was working on before it walked off to another screen.
+   * 3. The campaign. A campaign that says it is pushing *laptops and
+   *    accessories* means those, and arriving here from it used to preload the
+   *    whole catalogue: sixty-two posters nobody chose, with no way to tell
+   *    which ones the campaign was actually about.
+   *
+   * If all three are silent this screen renders NOTHING and asks. Designing the
+   * entire shop is never a sensible default — it is just the largest possible
+   * amount of work presented as a starting point.
+   */
+  useEffect(() => {
+    if (fromUrl.length) { writePicked(fromUrl); return }
+    const saved = readPicked()
+    if (saved.length) { choose(saved.map((sku) => ({ sku, name: '' }))); return }
+
+    void (async () => {
+      try {
+        const d = await fetch('/api/campaigns').then((r) => r.json())
+        const now = (d.campaigns ?? []).find((c: { id: string }) => c.id === d.current)
+        const terms = now ? pushingFrom(String(now.context ?? '')) : []
+        if (!terms.length) return
+        // The same union the campaign screen counts with, so the number it
+        // promised and the designs that appear here are the same products.
+        const lists = await Promise.all(
+          terms.map((t) =>
+            fetch(`/api/products?q=${encodeURIComponent(t)}&skusOnly=1`)
+              .then((r) => r.json())
+              .then((x) => (Array.isArray(x.skus) ? (x.skus as string[]) : []))
+              .catch(() => [] as string[])),
+        )
+        const skus = [...new Set(lists.flat())]
+        if (!skus.length) return
+        choose(skus.map((sku) => ({ sku, name: '' })))
+        setFromCampaign(String(now.name ?? ''))
+      } catch {
+        // No campaign, or Postgres is down. The screen asks instead of guessing.
+      }
+    })()
+    // Once, on arrival: this restores state rather than tracking it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function suggestNames() {
@@ -259,8 +327,18 @@ export default function Templates({
     setBusy(false)
   }, [picked])
 
-  // Re-runs when the chosen products change, because `render` closes over them.
-  useEffect(() => { void render(active, 0, true) }, [active, render])
+  /**
+   * Re-runs when the chosen products change, because `render` closes over them.
+   *
+   * With nothing chosen and no sheet imported there is nothing to render, and
+   * asking anyway now means the whole catalogue — sixty-two posters that
+   * nobody requested and that take a minute to appear. An empty grid with a
+   * question on it is the honest state.
+   */
+  useEffect(() => {
+    if (!picked.length && !sheet) { setResults([]); setTotal(0); setBusy(false); return }
+    void render(active, 0, true)
+  }, [active, render, picked.length, sheet])
 
   /**
    * Which already-downloaded designs have gone stale.
@@ -339,131 +417,214 @@ export default function Templates({
   }
 
   const flagged = results.filter((r) => r.report.length > 0)
-  const shown = onlyFlagged ? flagged : results
+
+  /**
+   * Narrowing a long grid.
+   *
+   * Twenty-six posters is already more than fits on a screen, and a full
+   * catalogue is sixty-two — with one checkbox to filter them by. Three
+   * independent narrowings, because they answer different questions: which
+   * product ("the Vivobook"), which kind ("laptops"), and which state ("the
+   * ones that need a look").
+   */
+  const categories = [...new Set(results.map((r) => r.category).filter(Boolean))].sort() as string[]
+  const needle = grep.trim().toLowerCase()
+  const shown = results.filter((r) => {
+    if (onlyFlagged && r.report.length === 0) return false
+    if (onlyClean && r.report.length > 0) return false
+    if (kind && r.category !== kind) return false
+    return !needle || r.name.toLowerCase().includes(needle) || r.sku.toLowerCase().includes(needle)
+  })
+  const filtering = Boolean(needle || kind || onlyFlagged || onlyClean)
+
+  // The second bar carries two jobs that both act on the grid — narrowing it
+  // and removing from it — so it exists if either has something to offer.
+  const canFilter = results.length > 6
+  const canSelect = picked.length > 0 && shown.length > 0
 
   const chosen = new Set(picked.map((p) => p.sku))
   // A product picked here brought its name with it; one that arrived in the URL
   // did not, and the render that follows is where its name comes from.
   const labelFor = (p: Pick) => p.name || results.find((r) => r.sku === p.sku)?.name || p.sku
 
+  const activeTpl = templates.find((t) => t.id === active)
+
+  // The layout editor is a full navigation away, and the chosen products live
+  // in this page's query string — so the way back has to carry them, or saving
+  // a layout costs you the selection and every render on screen.
+  const editHref = (sku?: string) => {
+    const q = new URLSearchParams()
+    if (sku) q.set('sku', sku)
+    if (picked.length) q.set('back', picked.map((p) => p.sku).join(','))
+    const s = q.toString()
+    return `/templates/${active}/edit${s ? `?${s}` : ''}`
+  }
+
   return (
     <main>
-      <h1>Designs</h1>
-      <p className="sub">
-        A template, and one finished design per product. Pick products from the
-        catalogue for a post or two, or import a sheet for a whole campaign.
-      </p>
+      <h1>Products &amp; designs</h1>
+      <Tabs items={CATALOGUE_TABS} />
+      <CurrentCampaign verb="Every design exported here is stamped" />
 
-      <div className="chips" style={{ marginBottom: 14 }}>
-        {templates.map((t) => (
-          <button key={t.id} className={`chip ${t.id === active ? 'on' : ''}`}
-                  onClick={() => { setActive(t.id); setConfirmDelete(false); setNotice('') }}>
-            {t.name} · {t.width}×{t.height}
+      {/* Everything that acts on the grid, pinned above it.
+          The template chips, the "Designing N products" panel, the four stat
+          tiles, the filter bar and the export panel were five full-width blocks
+          answering two questions between them — what am I working on, and how
+          did it go — and three of them had to be scrolled past to reach a design
+          and scrolled back to act on one. One bar, two rows, always in reach. */}
+      <div className="deck">
+        <div className="deck-row">
+          <select className="deck-tpl" aria-label="Template" value={active}
+                  onChange={(e) => { setActive(e.target.value); setConfirmDelete(false); setNotice('') }}>
+            {/* An empty list would otherwise render a select with no options and
+                no explanation of why. */}
+            {templates.length === 0 && <option value={active}>loading…</option>}
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name} · {t.width}×{t.height}</option>
+            ))}
+          </select>
+          <a className="chip" href={editHref()}>Edit layout</a>
+
+          {/* The selection reads as a count, not as a wall of chips: with a
+              campaign's twenty-six the chips were mostly bare SKUs. The chips
+              themselves live behind this button, where removing one is the
+              reason you opened it. */}
+          <button className="chip" aria-expanded={pickerOpen} onClick={() => setPickerOpen((o) => !o)}>
+            {pickerOpen
+              ? '× close'
+              : picked.length
+                ? `${picked.length} chosen${fromCampaign ? ` · ${fromCampaign}` : ''}`
+                : sheet ? `Sheet · ${sheet.products}` : 'Choose products'}
           </button>
-        ))}
-        <button className="chip add" onClick={() => setAdding((a) => !a)}>
-          {adding ? '× close' : '+ add a template'}
-        </button>
-      </div>
 
-      {adding && (
-        <div
-          className="drop"
-          style={{ marginBottom: 16 }}
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault()
-            const f = e.dataTransfer.files[0]
-            if (f) void addTemplate(f)
-          }}
-        >
-          <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.webp,.avif,.tif,.tiff"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void addTemplate(f) }} />
-          {uploading ? 'Reading the artwork…' : (
-            <>
-              <b>Drop brand artwork here</b><br />
-              <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-                PNG, JPG, WebP or AVIF. The clear area is measured and the fields are
-                placed inside it — you move them afterwards. Your existing templates are kept.
-              </span>
-            </>
-          )}
-        </div>
-      )}
-
-      {notice && <div className="notice">{notice}</div>}
-
-      <div className="starter">
-        <div>
-          <b>{templates.find((t) => t.id === active)?.name ?? active}</b>
-          <span>
-            Slots: {templates.find((t) => t.id === active)?.slots.join(', ') || '…'}.
-            Their positions live in the SVG; the manifest only says what binds to
-            what and how it should fit.
+          {/* What the four stat tiles said, on one line. The other two figures —
+              flagged and clean — are the filter labels below, because a number
+              you can click is worth more than a number you can only read. */}
+          <span className="deck-count">
+            {marked.size
+              ? `${marked.size} selected`
+              : total ? `${results.length} of ${total} rendered` : 'nothing chosen yet'}
           </span>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {confirmDelete ? (
-            <>
-              <span style={{ fontSize: 12.5, color: 'var(--err)' }}>
-                Delete this template and its per-product changes? Products are kept.
-              </span>
-              <button className="chip" onClick={() => setConfirmDelete(false)}>Keep</button>
-              <button className="btn danger-btn" onClick={() => void deleteTemplate()}>Delete</button>
-            </>
-          ) : (
-            <>
-              {templates.length > 1 && (
-                <button className="chip danger" onClick={() => setConfirmDelete(true)}>Delete</button>
-              )}
-              <a className="chip" href="/api/template">Product sheet</a>
-              <a className="btn" href={`/templates/${active}/edit`}>Edit layout</a>
-            </>
+
+          {total > 0 && (
+            <button className="btn small" onClick={() => void download()} disabled={exporting || !formats.length}>
+              {exporting ? 'Building the ZIP…' : total === 1 ? 'Download it' : `Download ${total}`}
+            </button>
+          )}
+
+          {/* The way on. Only once something is chosen, because before that
+              there is nothing to write about. */}
+          {picked.length > 0 && (
+            <a className="btn small" href="/studio">Write captions →</a>
           )}
         </div>
+
+        {(canFilter || canSelect) && (
+          <div className="deck-row filters">
+            {canFilter && (
+              <>
+                <input type="search" value={grep} placeholder="Find a design by name or SKU"
+                       aria-label="Find a design" style={{ maxWidth: 260 }}
+                       onChange={(e) => setGrep(e.target.value)} />
+                {categories.length > 1 && (
+                  <select value={kind} aria-label="Category" onChange={(e) => setKind(e.target.value)}>
+                    <option value="">every category</option>
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                )}
+                <select aria-label="Which designs"
+                        value={onlyFlagged ? 'flagged' : onlyClean ? 'clean' : ''}
+                        onChange={(e) => {
+                          setOnlyFlagged(e.target.value === 'flagged')
+                          setOnlyClean(e.target.value === 'clean')
+                        }}>
+                  <option value="">all {results.length}</option>
+                  <option value="flagged">needs attention {flagged.length}</option>
+                  <option value="clean">clean {results.length - flagged.length}</option>
+                </select>
+                {/* Only while something is narrowed. Unfiltered it reads "12 of
+                    12", which is a second copy of a number already in the row
+                    above and, next to the two toggle counts, a third number in
+                    a line of numbers. */}
+                {filtering && (
+                  <>
+                    <span className="sub">{shown.length} of {results.length}</span>
+                    <button className="chip" onClick={() => { setGrep(''); setKind(''); setOnlyFlagged(false); setOnlyClean(false) }}>
+                      clear filters
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Removing designs. Ticking a card removes that product from what is
+                being designed, which is the only thing "delete this design" can
+                honestly mean — the poster is derived from the product and the
+                template, so there is nothing else to delete. Exported files
+                already downloaded are untouched; this is the working set. */}
+            {canSelect && (
+              <>
+                <button className="chip"
+                        onClick={() => setMarked(marked.size === shown.length ? new Set() : new Set(shown.map((r) => r.sku)))}>
+                  {marked.size === shown.length ? 'Select none' : 'Select all'}
+                </button>
+                {marked.size > 0 && (
+                  <button className="chip danger"
+                          onClick={() => { choose(picked.filter((p) => !marked.has(p.sku))); setMarked(new Set()) }}>
+                    Remove {marked.size}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {error && <div className="err">{error}</div>}
-
-      <div className="panel">
-        <div className="export-head" style={{ margin: 0 }}>
-          <div>
-            <b>
-              {picked.length
-                ? `Designing ${picked.length} ${picked.length === 1 ? 'product' : 'products'} from the catalogue`
-                : 'Design a product you already have'}
-            </b>
-            <span>
-              Pick from the catalogue and skip the sheet entirely. Names and prices come
-              from the Products tab, so a design made this way is never older than the
-              row behind it.
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+      {pickerOpen && (
+        <div className="panel">
+          <div className="export-head" style={{ margin: 0 }}>
+            <div>
+              <b>
+                {picked.length
+                  ? `Designing ${picked.length} ${picked.length === 1 ? 'product' : 'products'}${fromCampaign ? ` for ${fromCampaign}` : ' from the catalogue'}`
+                  : 'Design a product you already have'}
+              </b>
+              <span>
+                Names and prices come from the Products tab, so a design made this way is
+                never older than the row behind it.
+              </span>
+            </div>
             {picked.length > 0 && (
               <button className="chip" onClick={() => choose([])}>
                 {sheet ? 'back to the sheet' : 'clear'}
               </button>
             )}
-            <button className="chip" onClick={() => setPickerOpen((o) => !o)}>
-              {pickerOpen ? '× close' : picked.length ? 'Add another' : 'Choose products'}
-            </button>
           </div>
-        </div>
 
-        {picked.length > 0 && (
-          <div className="chips" style={{ marginTop: 12 }}>
-            {picked.map((p) => (
-              <button key={p.sku} className="chip on" onClick={() => choose(picked.filter((x) => x.sku !== p.sku))}>
-                {labelFor(p)} <span aria-hidden="true">×</span>
-                <span className="sr"> — remove {p.sku}</span>
+          {/* A hand-picked selection is a few chips and reads well. A campaign's
+              is twenty-six, most of them not yet named — the label comes from the
+              render, and only the first page has rendered — so it printed a wall
+              of bare SKUs. Say what matched instead; the grid below is where a
+              campaign's designs get removed. */}
+          {picked.length > 0 && (fromCampaign ? (
+            <p className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
+              Matched from what this campaign is pushing. Select any below to remove them,
+              or{' '}
+              <button className="chip" onClick={() => { choose([]); setPickerOpen(true) }}>
+                choose products yourself
               </button>
-            ))}
-          </div>
-        )}
+            </p>
+          ) : (
+            <div className="chips" style={{ marginTop: 12, marginBottom: 0 }}>
+              {picked.map((p) => (
+                <button key={p.sku} className="chip on" onClick={() => choose(picked.filter((x) => x.sku !== p.sku))}>
+                  {labelFor(p)} <span aria-hidden="true">×</span>
+                  <span className="sr"> — remove {p.sku}</span>
+                </button>
+              ))}
+            </div>
+          ))}
 
-        {pickerOpen && (
           <div style={{ marginTop: 12 }}>
             {/* Opening the picker is already the decision to search; landing the
                 cursor anywhere else would just be a click to undo. */}
@@ -507,11 +668,82 @@ export default function Templates({
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="panel">
-        <div className="export-head" style={{ margin: 0 }}>
+      {notice && <div className="notice">{notice}</div>}
+      {error && <div className="err">{error}</div>}
+
+      {/* One fold over everything that is set up once and then left alone: the
+          template's own artwork, the optional sheet, the short names, and what an
+          export contains. As four open panels they cost most of the first screen
+          and pushed the designs — the point of the page — below the fold. */}
+      <details className="panel">
+        <summary className="fold">
+          Setup
+          <span> — template, product sheet, short names, export</span>
+        </summary>
+
+        <div className="export-head" style={{ marginTop: 14 }}>
+          <div>
+            <b>{activeTpl?.name ?? active}</b>
+            <span>
+              Slots: {activeTpl?.slots.join(', ') || '…'}.
+              Their positions live in the SVG; the manifest only says what binds to
+              what and how it should fit.
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {confirmDelete ? (
+              <>
+                <span style={{ fontSize: 12.5, color: 'var(--err)' }}>
+                  Delete this template and its per-product changes? Products are kept.
+                </span>
+                <button className="chip" onClick={() => setConfirmDelete(false)}>Keep</button>
+                <button className="btn danger-btn" onClick={() => void deleteTemplate()}>Delete</button>
+              </>
+            ) : (
+              <>
+                {templates.length > 1 && (
+                  <button className="chip danger" onClick={() => setConfirmDelete(true)}>Delete</button>
+                )}
+                <button className="chip add" onClick={() => setAdding((a) => !a)}>
+                  {adding ? '× close' : '+ add a template'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {adding && (
+          <div
+            className="drop"
+            style={{ marginTop: 12 }}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault()
+              const f = e.dataTransfer.files[0]
+              if (f) void addTemplate(f)
+            }}
+          >
+            <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.webp,.avif,.tif,.tiff"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void addTemplate(f) }} />
+            {uploading ? 'Reading the artwork…' : (
+              <>
+                <b>Drop brand artwork here</b><br />
+                <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                  PNG, JPG, WebP or AVIF. The clear area is measured and the fields are
+                  placed inside it — you move them afterwards. Your existing templates are kept.
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        <p className="step">The product sheet — optional, designs read the catalogue.</p>
+
+        <div className="export-head">
           <div>
             {sheet ? (
               <>
@@ -532,8 +764,14 @@ export default function Templates({
               </>
             ) : (
               <>
-                <b>No products loaded</b>
-                <span>Drop the product sheet below, or download a blank one to fill in.</span>
+                {/* "No products loaded" was a lie the moment the catalogue
+                    stopped needing a sheet — it sat over a screen designing
+                    twenty-six of them. A sheet is now one way in, not the way. */}
+                <b>No sheet imported</b>
+                <span>
+                  Not needed — designs read the catalogue. Drop a sheet only to design a
+                  batch the catalogue does not describe, or download a blank one to fill in.
+                </span>
               </>
             )}
           </div>
@@ -542,6 +780,14 @@ export default function Templates({
             <button className="chip" onClick={() => sheetRef.current?.click()}>
               {sheet ? 'Use a different sheet' : 'Choose a sheet'}
             </button>
+            {/* Only while the sheet is what is being rendered. Clearing removes
+                the import, not the products picked from the catalogue, and
+                offering it under a catalogue selection reads as "delete these". */}
+            {sheet && !picked.length && total > 0 && !confirmClear && (
+              <button className="chip danger" onClick={() => setConfirmClear(true)}>
+                Clear catalogue
+              </button>
+            )}
           </div>
         </div>
 
@@ -549,6 +795,23 @@ export default function Templates({
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void importSheet(f) }} />
 
         {importing && <p className="hint">Reading the sheet…</p>}
+
+        {confirmClear && (
+          <div className="confirm">
+            <b>Remove {total} products?</b>
+            <p>
+              Goes: the products, their photos, and any single-product layout
+              changes. <b>Stays: your templates and their layouts.</b> Nothing
+              here touches the original Excel file.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="chip" onClick={() => setConfirmClear(false)}>Keep them</button>
+              <button className="btn danger-btn" onClick={() => void clearCatalogue()} disabled={clearing}>
+                {clearing ? 'Clearing…' : `Yes, remove ${total}`}
+              </button>
+            </div>
+          </div>
+        )}
 
         {sheet && sheetOpen && (
           <div style={{ marginTop: 12 }}>
@@ -638,7 +901,7 @@ export default function Templates({
           </div>
         )}
 
-        {!sheet && !picked.length && (
+        {!sheet && (
           <div className="drop" style={{ marginTop: 12 }}
             onClick={() => sheetRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
@@ -647,82 +910,37 @@ export default function Templates({
             <span style={{ color: 'var(--muted)', fontSize: 13 }}>embedded photos are read too</span>
           </div>
         )}
-      </div>
 
-      {/* Only while the sheet is what is being rendered. Clearing removes the
-          import, not the products picked from the catalogue, and offering it
-          under a catalogue selection reads as "delete these". */}
-      {sheet && !picked.length && total > 0 && (
-        <div className="panel">
-          {!confirmClear ? (
-            <div className="export-head" style={{ margin: 0 }}>
-              <div>
-                <b>Finished with these {total} products?</b>
-                <span>Clear them out and import a different sheet.</span>
-              </div>
-              <button className="chip danger" onClick={() => setConfirmClear(true)}>
-                Clear catalogue
-              </button>
-            </div>
-          ) : (
-            <div className="export-head" style={{ margin: 0 }}>
-              <div>
-                <b style={{ color: 'var(--err)' }}>Remove {total} products?</b>
-                <span>
-                  Goes: the products, their photos, and any single-product layout
-                  changes. <b>Stays: your templates and their layouts.</b> Nothing
-                  here touches the original Excel file.
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="chip" onClick={() => setConfirmClear(false)}>Keep them</button>
-                <button className="btn danger-btn" onClick={() => void clearCatalogue()} disabled={clearing}>
-                  {clearing ? 'Clearing…' : `Yes, remove ${total}`}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+        <p className="step">
+          What a download contains — one ZIP, one folder per format, with a note
+          listing every design that needs a look.
+        </p>
 
-      {total > 0 && (
-        <div className="panel export">
-          <div className="export-head">
-            <div>
-              <b>{total === 1 ? 'Download the design' : `Download all ${total} designs`}</b>
-              <span>One ZIP, one folder per format, with a note listing every design that needs a look.</span>
-            </div>
-            <button className="btn" onClick={() => void download()} disabled={exporting || !formats.length}>
-              {exporting ? 'Building the ZIP…' : total === 1 ? 'Download it' : `Download ${total} designs`}
-            </button>
-          </div>
-
-          <div className="fmt-grid">
-            {FORMATS.map((f) => (
-              <label key={f.id} className={`fmt ${formats.includes(f.id) ? 'on' : ''}`}>
-                <input type="checkbox" checked={formats.includes(f.id)}
-                  onChange={(e) => setFormats((p) =>
-                    e.target.checked ? [...p, f.id] : p.filter((x) => x !== f.id))} />
-                <b>{f.label}</b>
-                <span>{f.use}</span>
-              </label>
-            ))}
-          </div>
-
-          <div className="row" style={{ marginTop: 12, maxWidth: 280 }}>
-            <label className="fld">
-              <span>Size</span>
-              <select value={exportWidth} onChange={(e) => setExportWidth(+e.target.value)}>
-                {SIZES.map((s) => <option key={s.px} value={s.px}>{s.label}</option>)}
-              </select>
+        <div className="fmt-grid">
+          {FORMATS.map((f) => (
+            <label key={f.id} className={`fmt ${formats.includes(f.id) ? 'on' : ''}`}>
+              <input type="checkbox" checked={formats.includes(f.id)}
+                onChange={(e) => setFormats((p) =>
+                  e.target.checked ? [...p, f.id] : p.filter((x) => x !== f.id))} />
+              <b>{f.label}</b>
+              <span>{f.use}</span>
             </label>
-          </div>
-          <p className="hint" style={{ marginTop: 0 }}>
-            The artwork is a raster file, so enlarging past its own size softens it.
-            PDF is RGB — good for approvals, not a print master.
-          </p>
+          ))}
         </div>
-      )}
+
+        <div className="row" style={{ marginTop: 12, maxWidth: 280 }}>
+          <label className="fld">
+            <span>Size</span>
+            <select value={exportWidth} onChange={(e) => setExportWidth(+e.target.value)}>
+              {SIZES.map((s) => <option key={s.px} value={s.px}>{s.label}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="hint" style={{ marginTop: 0 }}>
+          The artwork is a raster file, so enlarging past its own size softens it.
+          PDF is RGB — good for approvals, not a print master.
+        </p>
+      </details>
 
       {drift.length > 0 && (
         <div className="notice warn-notice" role="alert" style={{ marginBottom: 14 }}>
@@ -761,7 +979,7 @@ export default function Templates({
       )}
 
       {!watching && (
-        <p className="sub">
+        <p className="hint">
           Designs already downloaded are not being watched for price changes — Postgres is not
           running. Start it with <code>npm run db:up</code>.
         </p>
@@ -779,24 +997,20 @@ export default function Templates({
         </div>
       )}
 
-      <div className="stats">
-        <div className="stat"><b>{total}</b><span>{picked.length ? 'products chosen' : 'products imported'}</span></div>
-        <div className="stat"><b>{results.length}</b><span>rendered so far</span></div>
-        <div className="stat">
-          <b style={{ color: flagged.length ? 'var(--warn)' : undefined }}>{flagged.length}</b>
-          <span>needed attention</span>
+      {/* The honest state when all three sources of a selection are silent. It
+          used to be an empty grid under a panel headed "Design a product you
+          already have", which read as a description rather than a question. */}
+      {!busy && !error && !total && (
+        <div className="panel">
+          <div className="export-head" style={{ margin: 0 }}>
+            <div>
+              <b>Nothing to design yet</b>
+              <span>Choose products from the catalogue, or import a sheet under Setup.</span>
+            </div>
+            <button className="chip" onClick={() => setPickerOpen(true)}>Choose products</button>
+          </div>
         </div>
-        <div className="stat"><b>{results.length - flagged.length}</b><span>clean</span></div>
-      </div>
-
-      {flagged.length > 0 && (
-        <label className="toggle" style={{ marginBottom: 14 }}>
-          <input type="checkbox" checked={onlyFlagged} onChange={(e) => setOnlyFlagged(e.target.checked)} />
-          show only the ones that need a look
-        </label>
       )}
-
-
 
       <div className="renders">
         {shown.map((r) => (
@@ -816,9 +1030,20 @@ export default function Templates({
                     <span key={x.slot} className={`note ${x.truncated ? 'bad' : ''}`}>{describe(x)}</span>
                   ))}
               <div className="card-actions">
-                <a className="chip" href={`/templates/${active}/edit?sku=${encodeURIComponent(r.sku)}`}>
+                <a className="chip" href={editHref(r.sku)}>
                   Edit this one
                 </a>
+                {picked.length > 0 && (
+                  <label className="toggle" style={{ marginBottom: 0 }}>
+                    <input type="checkbox" checked={marked.has(r.sku)}
+                           onChange={(e) => setMarked((m) => {
+                             const next = new Set(m)
+                             if (e.target.checked) next.add(r.sku); else next.delete(r.sku)
+                             return next
+                           })} />
+                    select
+                  </label>
+                )}
               </div>
             </figcaption>
           </figure>
@@ -834,18 +1059,14 @@ export default function Templates({
         </button>
       )}
 
+      {/* "N of M needed attention" is a more trustworthy claim than "M designs,
+          all perfect" — and it is the one that survives somebody finding the
+          broken one. It is a line, not a panel: the same two numbers are in the
+          bar at the top of the screen. */}
       {!busy && results.length > 0 && results.length === total && (
-        <div className="panel" style={{ marginTop: 22 }}>
-          <p style={{ marginTop: 0 }}>
-            All {total} rendered. <b>{flagged.length} needed attention</b> — every
-            shrink and every truncation is listed rather than hidden.
-          </p>
-          <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
-            &ldquo;{flagged.length} of {total} needed attention&rdquo; is a more
-            trustworthy claim than &ldquo;{total} designs, all perfect&rdquo; — and it
-            is the one that survives somebody finding the broken one.
-          </p>
-        </div>
+        <p className="hint" style={{ marginTop: 18 }}>
+          All {total} rendered — {flagged.length} needed attention.
+        </p>
       )}
     </main>
   )

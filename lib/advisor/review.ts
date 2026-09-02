@@ -16,9 +16,9 @@
  * grade do not appear — not in a field name, not in the UI.
  */
 
-import { check as copyChecks } from '@/lib/content/guard'
+import { check as copyChecks, hasArabic, normaliseArabic } from '@/lib/content/guard'
 import { formatKwd } from '@/lib/money'
-import { retrieve, type Row } from '@/lib/rag/retrieve'
+import { retrieve, type Hit, type Row } from '@/lib/rag/retrieve'
 
 /** Advice tops out at "needs work". Only a check may say "problem". */
 export type Verdict = 'ok' | 'needs work' | 'problem'
@@ -38,10 +38,22 @@ export type Review = {
   matched: { sku: string; name: string; confidence: 'sku' | 'category' | 'lexical' | 'meaning' } | null
 }
 
-export type ReviewOptions = { channel?: string; lang?: 'en' | 'ar' }
+export type ReviewOptions = {
+  channel?: string
+  lang?: 'en' | 'ar'
+  /**
+   * The row to check against, when a person has said which product this is.
+   *
+   * Retrieval exists to guess at that question; a person answering it settles
+   * it, so nothing is retrieved and the checks run against the row they chose.
+   * That also makes the deterministic half answer with Ollama stopped — no
+   * embedding call — which is exactly when somebody most needs it to.
+   */
+  row?: Row
+}
 
 /** A figure a person typed that looks like money. `19.900 KD`, `KD 19.9`, `129KD`. */
-const MONEY = /(?:(?:KWD|KD)\s*([\d][\d.,]*)|([\d][\d.,]*)\s*(?:KWD|KD|دينار|د\.ك))/gi
+const MONEY = /(?:(?:KWD|KD|د\.ك|دينار)\s*([\d][\d.,]*)|([\d][\d.,]*)\s*(?:KWD|KD|دينار|د\.ك))/gi
 
 const num = (v: string) => Number(v.replace(/,/g, ''))
 
@@ -62,13 +74,17 @@ export function moneyFigures(text: string): string[] {
  * which it does not. Two scans would be the duplication D32/D38/D39 record.
  */
 function scanPrices(
-  text: string, row: Row, alsoKnown: Row[],
+  text: string, row: Row,
 ): { drift: Blocker[]; verified: string[]; unjudged: string[] } {
   const spans = [...text.matchAll(MONEY)].map((m) => m[0].trim())
   const now = Number(row.price_now)
   const was = Number(row.price_was)
-  const known = [now, was, ...alsoKnown.flatMap((r) => [Number(r.price_now), Number(r.price_was)])]
-    .filter((n) => Number.isFinite(n) && n > 0)
+  // This row's own two prices, and nothing else. A second retrieved row used to
+  // be folded in here to suppress false drift on multi-product drafts — but the
+  // multi-figure rule below already does that job, and folding meant any figure
+  // matching any of six prices from three loosely-related rows was accepted
+  // while the screen said "Checked against <the one row>."
+  const known = [now, was].filter((n) => Number.isFinite(n) && n > 0)
   if (!known.length) return { drift: [], verified: [], unjudged: spans }
 
   // Two prices in one draft means two products, and retrieval returns one. The
@@ -80,7 +96,16 @@ function scanPrices(
   // Those figures come back as `unjudged`, not as nothing: saying "we cannot
   // check your prices" while a second check calls one of them invented is two
   // answers to one question, and the reader believes the harsher one.
-  if (moneyFigures(text).length > 1) return { drift: [], verified: [], unjudged: spans }
+  //
+  // Except when every figure is one of THIS row's own prices. "Was 40.500 KD,
+  // now 19.900 KD" is one product written the way the strongest-performing
+  // offer in electronics is always written, and declining to judge it — while
+  // announcing that the two prices belong to different products — was wrong on
+  // every sale caption the team writes.
+  const own = moneyFigures(text).map(Number)
+  if (own.length > 1 && !own.every((f) => known.some((k) => Math.abs(k - f) < 0.0005))) {
+    return { drift: [], verified: [], unjudged: spans }
+  }
 
   const drift: Blocker[] = []
   const verified: string[] = []
@@ -102,12 +127,22 @@ function scanPrices(
       } for ${row.name_en ?? row.sku}.`,
     })
   }
+
+  // A figure written without its unit, equal to a price this row holds. "was
+  // 40.500 now 19.900 KD" writes the unit once; the struck figure is then not
+  // money to the regex above, and the copy guard called the row's own
+  // pre-discount price an invented number and blocked the caption.
+  for (const m of text.matchAll(/\d[\d.,]*/g)) {
+    const v = num(m[0])
+    if (Number.isFinite(v) && known.some((k) => Math.abs(k - v) < 0.0005)) verified.push(m[0])
+  }
+
   return { drift, verified, unjudged: [] }
 }
 
 /** Prices in the draft that the catalogue does not agree with. */
-export function priceDrift(text: string, row: Row, alsoKnown: Row[] = []): Blocker[] {
-  return scanPrices(text, row, alsoKnown).drift
+export function priceDrift(text: string, row: Row): Blocker[] {
+  return scanPrices(text, row).drift
 }
 
 /**
@@ -136,10 +171,13 @@ const FACT_CHECKS = new Set([
  * thing that is missing rather than the capability, so it doubles as the list
  * of what to go and get.
  */
-function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false): string[] {
+function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false, arabic = false): string[] {
   const out = [
     'trend fit — nothing offline knows what is trending this week',
-    'hook, clarity, retention, CTA — advice needs a model, and v1 has none',
+    // True of the CHECKS, which is what this function is. When the model layer
+    // answers, converse.ts drops this line rather than leaving it contradicting
+    // the note printed directly above it.
+    'hook, clarity, retention, CTA — not something a check can decide. The advisor answers these in its written note, which needs the model running.',
   ]
   if (!hasHistory) {
     out.push(
@@ -159,6 +197,17 @@ function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false)
         'Judge agreement in Arabic is measured near zero on harder tasks, and scale does not fix it.',
     )
   }
+  if (arabic) {
+    // Said whether or not the checks found something, because "ok" on Arabic
+    // used to mean "no English patterns matched" and read as "this is fine".
+    // The Arabic vocabulary is a curated list, not the parity the guardrails
+    // ask for, and the difference belongs on screen rather than in a comment.
+    out.push(
+      'the full range of Arabic claim wording — superlatives, guarantees and religious framing ' +
+        'are matched against a curated list of terms, not the complete vocabulary the English ' +
+        'checks cover. A clean result here is weaker evidence than a clean result in English.',
+    )
+  }
   return out
 }
 
@@ -170,7 +219,11 @@ function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false)
  */
 export async function review(text: string, opts: ReviewOptions = {}): Promise<Review> {
   const lang = opts.lang ?? 'en'
-  const body = text.trim()
+  // Normalised once, at the door. Arabic-Indic digits are invisible to every
+  // check below, and the alef forms make the same word two words. Everything
+  // downstream — retrieval, the price scan, the quoted spans — reads this copy,
+  // so what is judged is what is quoted back.
+  const body = (hasArabic(text) ? normaliseArabic(text) : text).trim()
 
   if (!body) {
     return {
@@ -179,7 +232,14 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     }
   }
 
-  const hits = await retrieve(body, 3)
+  const pinned = opts.row ?? null
+  // The money is stripped from the retrieval query. Measured: "the fastest
+  // charger we sell" alone scores 0.461 and correctly declines to match, while
+  // the same sentence "for 12.000 KD" scores 0.500 lexically against an Anker
+  // cable — the figure you asked to have checked was promoting the row that
+  // then failed it. Advisor only; the chatbot's retrieval, where a customer
+  // typing a model number is meaningful, is untouched.
+  const hits = pinned ? [] : await retrieve(body.replace(MONEY, ' '), 3)
   // A draft the retriever could only place by meaning, and weakly, is a draft
   // we have not placed. Measured on this catalogue: text about no product at
   // all tops out around 0.43, a real product mention runs 0.50-0.58. Telling
@@ -193,28 +253,51 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
   // nobody can hallucinate into, which is the whole point of the rule.
   const top = hits[0] ?? null
   const relevance = top?.relevance ?? 0
-  const hit = top && (top.why !== 'meaning' || relevance >= CONFIDENT) ? top : null
+  // Every reason is gated, not only `meaning`. A lexical hit was accepted at any
+  // strength, so eight mostly-generic words matched an Anker cable at 0.500 and
+  // the advisor issued a specific, authoritative, wrong "Do not publish" naming
+  // an unrelated product's price. A CATEGORY hit is refused outright: retrieval
+  // returns every row on the shelf at relevance 1, so whichever landed first
+  // became the row a price was judged against. A category can find a product;
+  // it can never be the row a fact is checked against.
+  // ponytail: two thresholds tuned on this one catalogue — revisit if the sheet
+  // changes shape. Measured, money stripped from the query first:
+  //   "Grab the Apple Pencil 1st generation for only ..."  lexical 0.625  — a real match
+  //   "the fastest charger we sell — grab it for ..."      lexical 0.500  — no product at all
+  // 0.58 sits between them. Below it a draft is not placed, and `missing()` in
+  // converse.ts asks which product it is for, which costs the reader one answer
+  // and costs nothing when they decline.
+  const FLOOR: Record<Hit['why'], number> = {
+    sku: 0, lexical: 0.58, meaning: CONFIDENT, category: Infinity,
+  }
+  const hit: { sku: string; row: Row; why: Hit['why'] } | null = pinned
+    ? { sku: String(pinned.sku ?? ''), row: pinned, why: 'sku' }
+    : top && relevance >= FLOOR[top.why] ? top : null
   const row = hit?.row ?? null
 
   const blockers: Blocker[] = []
 
   // The flagship check. Needs no model and no cleverness.
   const prices = row
-    ? scanPrices(body, row, hits.slice(1).map((h) => h.row))
+    ? scanPrices(body, row)
     : { drift: [], verified: [] as string[], unjudged: [] as string[] }
   blockers.push(...prices.drift)
+
+  // Scrubbed, not filtered. `bareDigits` reports the FIRST offending span and
+  // nothing else, so filtering the result afterwards meant a correct price
+  // consumed the whole check: "Only 19.900 KD — the first 50 customers get a
+  // free case" came back green, and so did "that is 51% off". Removing the
+  // verified figures from the text first leaves the rest to be caught. The
+  // spans are literal substrings of `body`, so removing them is safe.
+  const scrubbed = [...prices.verified, ...prices.unjudged]
+    .reduce((t, span) => t.split(span).join(' '), body)
 
   // Claim safety, reusing the checks the studio approves copy with — one
   // definition of "is this claim safe", not a second one that drifts. The claim
   // half runs whether or not a product was matched.
-  for (const c of copyChecks(body, (row ?? {}) as Record<string, unknown>)) {
+  for (const c of copyChecks(scrubbed, (row ?? {}) as Record<string, unknown>)) {
     const wanted = row ? CLAIM_CHECKS.has(c.name) || FACT_CHECKS.has(c.name) : CLAIM_CHECKS.has(c.name)
     if (c.pass || !wanted || !c.span) continue
-    // A price the catalogue AGREES with is verified, not invented. The copy
-    // guard exists to stop a model writing a figure at all; a person reviewing
-    // their own draft has every right to type the correct price, and calling it
-    // an invented number is the check crying wolf on the one thing it got right.
-    if ([...prices.verified, ...prices.unjudged].some((v) => v.includes(c.span as string))) continue
     // A figure already reported as drifting must not be reported twice under
     // a second name. The customer-facing problem is one problem.
     if (blockers.some((b) => b.quote.includes(c.span as string))) continue
@@ -231,8 +314,11 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
   const claimProblem = blockers.some((b) => CLAIM_CHECKS.has(b.criterion))
 
   const verdicts: Record<string, Verdict> = {
+    // `prices.unjudged`, not a second count of the figures: scanPrices now
+    // verifies a was/now pair belonging to this row, and re-deriving "more than
+    // one price" here said "needs work" on a draft it had just checked.
     'facts against the catalogue': factProblem ? 'problem'
-      : !row || moneyFigures(body).length > 1 ? 'needs work' : 'ok',
+      : !row || prices.unjudged.length ? 'needs work' : 'ok',
     'claims and compliance': claimProblem ? 'problem' : 'ok',
   }
 
@@ -253,7 +339,7 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     verdicts,
     blockers,
     fixes,
-    not_assessed: notAssessed(lang, false, moneyFigures(body).length > 1),
+    not_assessed: notAssessed(lang, false, prices.unjudged.length > 0, hasArabic(body)),
     matched: hit ? { sku: hit.sku, name: String(hit.row.name_en ?? hit.sku), confidence: hit.why } : null,
   }
 }

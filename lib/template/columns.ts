@@ -106,18 +106,40 @@ export function availableColumns(): { columns: Column[]; source: string } {
 }
 
 /**
- * Real products to preview a layout against. The longest name comes first,
- * because a layout that survives the worst case survives everything else.
+ * Real products to preview a layout against.
+ *
+ * The editor must preview what the Designs page is designing, in that order.
+ * Two ways it got this wrong, both fixed here:
+ *
+ * 1. It read `data/state/last-import.json` alone — the last sheet uploaded
+ *    through the importer. The grid renders through `productsFor`, which
+ *    resolves a SKU from the catalogue when no sheet mentions it, so on a
+ *    catalogue loaded any other way the editor had NO products, fell back to
+ *    placeholder samples, and printed "IMAGE MISSING" for a product whose
+ *    photo the grid had just drawn.
+ * 2. Falling back to the longest-named products in the catalogue opened the
+ *    editor on an HP OmniBook when the person had picked a Mac. A worst-case
+ *    name is the right stress test and the wrong thing to show somebody who
+ *    just chose a product; the chosen products are the answer, and the grid
+ *    already carries them in its URL.
+ *
+ * So: the product being given its own layout, else the products picked on the
+ * Designs page, else the imported sheet, else nothing.
  */
-export function previewProducts(): { sku: string; label: string; values: Record<string, string | number> }[] {
-  const imported = lastImport()
-  if (!imported?.preview?.length) return []
+export async function previewProducts(
+  sku?: string,
+  picked?: string[],
+): Promise<{ sku: string; label: string; values: Record<string, string | number> }[]> {
+  // `productsFor` keeps the caller's order and reads sheet first, catalogue
+  // second — the same resolution the grid and the export already use.
+  const wanted = [...new Set([sku, ...(picked ?? [])].filter(Boolean))] as string[]
+  const rows = wanted.length
+    ? await productsFor(wanted)
+    : (lastImport()?.preview ?? []).map((p) => flatten(p, displayNames()))
 
-  const names = displayNames()
-  return imported.preview.map((p) => {
-    const values = flatten(p, names)
-    const name = String(p.name_en ?? p.sku)
-    return { sku: p.sku, label: name.length > 46 ? `${name.slice(0, 44)}…` : name, values }
+  return rows.map((values) => {
+    const name = String(values.name_en ?? values.sku)
+    return { sku: String(values.sku), label: name.length > 46 ? `${name.slice(0, 44)}…` : name, values }
   })
 }
 
@@ -197,7 +219,13 @@ export function importedProducts(): Record<string, string | number>[] {
  */
 export async function campaignProducts(): Promise<Record<string, string | number>[]> {
   const rows = importedProducts()
-  if (!rows.length) return rows
+  // No sheet is not the same as no products. A catalogue can arrive without one
+  // — seeded, restored, or typed in on the Products tab — and every screen that
+  // asked this question got an empty answer: the content studio said "No
+  // products loaded" on a catalogue of sixty-two, and the advisor and the name
+  // editor were equally blind. The sheet narrows the catalogue to a campaign
+  // when there is one; when there is not, the campaign is the catalogue.
+  if (!rows.length) return catalogueProducts()
 
   try {
     const { query } = await import('@/lib/db')
@@ -261,9 +289,12 @@ export function sampleValues(): Record<string, string | number | undefined> {
  * way and a design built from a sheet carry identical bindings.
  */
 export async function catalogueProducts(
-  skus: string[],
+  skus?: string[],
 ): Promise<Record<string, string | number>[]> {
-  if (!skus.length) return []
+  // A list means those products; no list at all means the whole catalogue. An
+  // EMPTY list still means nothing — "resolve these zero SKUs" must not turn
+  // into "render everything".
+  if (skus && !skus.length) return []
   try {
     const { query } = await import('@/lib/db')
     const rows = await query<{
@@ -277,8 +308,9 @@ export async function catalogueProducts(
     }>(
       `select sku, name_en, name_ar, display_name, brand, category, category_path,
               description_en, description_ar, price_now, price_was, in_stock, extra
-         from products where sku = any($1)`,
-      [skus],
+         from products where $1::text[] is null or sku = any($1)
+         order by sku`,
+      [skus ?? null],
     )
 
     const names = displayNames()

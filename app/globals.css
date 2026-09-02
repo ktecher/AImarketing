@@ -230,12 +230,13 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .side { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; }
 .side .brand { display: block; text-decoration: none; padding: 0 8px; }
 
-.side-group a { display: block; text-decoration: none; }
+.side-group a { display: grid; grid-template-columns: 20px 1fr auto; column-gap: 10px;
+  align-items: center; text-decoration: none; }
+.side-group a .ico { font-size: 15px; line-height: 1; text-align: center; }
 
 .side-group a.on { border-left-color: var(--accent); }
 .side-group a b { display: block; }
 
-.side-group a span { display: block; }
 
 .side-foot a { font-size: 11.5px; color: var(--muted); text-decoration: none; }
 
@@ -252,10 +253,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap;
     align-items: center; gap: 10px; }
   .side-group { display: flex; align-items: center; gap: 4px; }
-  .side-group-title { display: none; }
   .side-group a { border-left: 0; padding: 4px 8px; }
   .side-group a.on { border-left: 0; }
-  .side-group a span { display: none; }
   .side-foot { margin: 0 0 0 auto; border: 0; flex-direction: row; align-items: center; padding: 0; }
 
 }
@@ -791,6 +790,10 @@ table.drift td { border-top: 1px solid var(--line); }
               /* .live is also the render-preview <img> class, which is
                  display:block;width:100% — it outranks .badge on the pill. */
               display: inline-block; width: auto; }
+/* A publish that did not go out. The palette has err tokens and the badge set
+   had no red one — warn would read as "still working on it", which is the one
+   thing a failed post is not. */
+.badge.bad { background: var(--err-bg); color: var(--err); }
 .tag { border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 11.5px; }
 .tag.mapped { border-color: var(--accent); color: var(--accent); background: var(--tint); }
 
@@ -811,11 +814,6 @@ table.drift td { border-top: 1px solid var(--line); }
   font-family: var(--font-h); font-size: 21px; font-weight: 600;
   color: var(--side-ink); letter-spacing: .01em;
 }
-.side-group-title { padding: 0 8px; text-transform: uppercase;
-  font-family: var(--font-b);
-  margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
-  letter-spacing: .09em; color: var(--side-muted);
-}
 .side-group a {
   position: relative; overflow: hidden;
   padding: 9px 10px; border-radius: var(--rs);
@@ -823,7 +821,6 @@ table.drift td { border-top: 1px solid var(--line); }
   color: var(--side-ink);
 }
 .side-group a b     { font-size: 14px; font-weight: 600; }
-.side-group a span  { font-size: 11.5px; color: var(--side-muted); line-height: 1.35; }
 .side-group a:hover { background: linear-gradient(90deg, var(--side-tint), transparent 92%); }
 
 /* The active tab. A flat tint with a 2px left bar read as cheap, and a glowing
@@ -1047,3 +1044,220 @@ table.catalogue tr.out { opacity: 1; color: var(--muted); }
 /* The select column. Narrow and quiet — it is a control, not a data column. */
 .catalogue th.tick, .catalogue td.tick { width: 32px; padding-right: 0; text-align: center; }
 .catalogue td.tick input, .catalogue th.tick input { cursor: pointer; }
+
+/* ── The advisor, as a conversation ───────────────────────────────────────
+   Not the chat widget's bubbles. That is a customer talking to a shop on a
+   phone; this is a colleague reading a draft on a desktop, and the advisor's
+   turn carries a whole review — asks, rewrites, checks — which does not fit a
+   bubble sized for one sentence. */
+.turn { margin: 14px 0; max-width: 78ch; }
+.turn.you {
+  margin-left: auto; background: var(--tint); border: 1px solid var(--line-strong);
+  border-radius: var(--r); padding: 12px 16px; max-width: 56ch;
+}
+.turn.you p { margin: 0; font-size: 14px; line-height: 1.5; }
+.advisor-turn {
+  background: var(--panel);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--shadow), var(--gloss); padding: 18px 22px;
+}
+.said { margin: 0; font-size: 15px; line-height: 1.65; white-space: pre-wrap; }
+
+.asks { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.asks > b { display: block; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--warn); margin-bottom: 6px; }
+.asks .list { margin: 0 0 6px; }
+
+.rewrites { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.rewrites > b { display: block; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-bottom: 8px; }
+.rewrite { margin-bottom: 12px; }
+.rewrite q { display: block; quotes: '"' '"'; font-size: 13px; color: var(--muted); }
+.rewrite p { margin: 4px 0 6px; font-size: 15px; line-height: 1.55; }
+.rewrite .why { font-size: 12.5px; color: var(--err); }
+.rewrite.blocked p { color: var(--muted); }
+
+/* The reply box sits under the newest turn rather than pinned to the viewport:
+   the review panels below it are the thing people scroll back to read. */
+.reply-row { margin: 18px 0 26px; align-items: center; }
+.reply-row input {
+  flex: 1 1 320px; padding: 11px 14px; border-radius: var(--rs);
+  border: 1px solid var(--line-strong); background: var(--field);
+  color: inherit; font: inherit;
+}
+.reply-row input:focus { outline: none; border-color: var(--accent); }
+
+/* ── Tabs: two screens that are one piece of work ─────────────────────────
+   Products and Designs are one job (load a sheet, make posters from it) and so
+   are the two halves of Kuwait (what is trending today, and looking a topic
+   up). Sitting in the sidebar as separate destinations, each one read as a
+   place you go instead of the other. */
+.tabs { display: flex; gap: 4px; margin: 0 0 24px; border-bottom: 1px solid var(--line); }
+.tabs a {
+  padding: 9px 16px; border-radius: var(--rs) var(--rs) 0 0;
+  font-size: 14px; font-weight: 600; color: var(--muted);
+  text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tabs a:hover { color: var(--accent); background: var(--tint); }
+.tabs a.on { color: var(--accent); border-bottom-color: var(--accent); background: var(--tint); }
+
+/* A section that can be asked for more of: its heading and its button share a
+   line, so the button belongs to the section rather than floating above it. */
+.section-head { display: flex; align-items: baseline; gap: 14px; }
+.section-head h2 { flex: 1; }
+
+/* ── The campaign brief ───────────────────────────────────────────────────
+   Seven short questions composing one field. The preview is not decoration:
+   a form whose seven inputs write into a column nobody can see is asking for
+   trust it has not earned. */
+.brief-preview {
+  margin: 0; padding: 12px 14px; border-radius: var(--rs);
+  background: var(--field); border: 1px solid var(--line);
+  font-family: var(--font-b); font-size: 13px; line-height: 1.7;
+  white-space: pre-wrap; color: var(--muted);
+}
+.last-said { margin: 0 0 14px; font-size: 13px; }
+.last-said summary { cursor: pointer; color: var(--muted); }
+.last-said summary:hover { color: var(--accent); }
+.last-said pre {
+  margin: 8px 0 0; padding: 10px 12px; border-radius: var(--rs);
+  background: var(--field); border: 1px solid var(--line);
+  font-family: var(--font-b); font-size: 12.5px; line-height: 1.65;
+  white-space: pre-wrap; color: var(--muted);
+}
+/* A count of zero is the answer worth seeing — the campaign is aimed at a word
+   the catalogue does not carry. */
+.fld > span b.none { color: var(--warn); }
+
+/* The current campaign: a dot, not a pill reading "current". The word doubled
+   the width of the chip it sat in, on the one chip that is always first. */
+.now {
+  display: inline-block; width: 7px; height: 7px; margin-right: 7px;
+  border-radius: 50%; background: var(--accent-raw);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-raw) 22%, transparent);
+}
+
+/* Deleting a campaign throws away the loop's history for it, and nothing can
+   rebuild it. The confirmation carries the numbers, so it is worth reading. */
+.confirm {
+  margin-top: 14px; padding: 14px 16px; border-radius: var(--r);
+  background: var(--err-bg); border: 1px solid var(--err);
+}
+.confirm b { display: block; margin-bottom: 4px; }
+.confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+
+/* The line between "describe it" and "check it". The brief is a review step,
+   and without a label the fields read as a second form to fill in. */
+.step {
+  margin: 20px 0 14px; padding-top: 16px; border-top: 1px solid var(--line);
+  font-size: 13px; color: var(--muted);
+}
+
+/* `.fld > span` is the field LABEL — uppercase and letter-spaced. A hint placed
+   inside a field inherited it and shouted a whole sentence in capitals. */
+.fld .hint { text-transform: none; letter-spacing: 0; font-size: 12px; margin: 4px 0 0; }
+
+/* Headlines beside the campaign idea. Read by a person, never fed to the model:
+   a news story must not become the campaign angle with nobody having read it. */
+.reading { margin-top: 12px; padding: 12px 14px; border-radius: var(--rs);
+  background: var(--field); border: 1px solid var(--line); }
+.reading > b { display: block; font-size: 12px; font-weight: 560; color: var(--muted); margin-bottom: 6px; }
+.reading .list { margin: 0; }
+.reading .list li { font-size: 13px; }
+.reading em { font-style: normal; color: var(--muted); font-size: 12px; }
+
+/* Products & designs opens rather than navigating: the two screens under it are
+   one job, and arriving on one of them before seeing both is the confusion the
+   tab strip alone did not fix — a tab strip is invisible until you are already
+   there. */
+.caret {
+  justify-self: end; width: 0; height: 0;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid var(--side-muted);
+  transition: transform .18s ease;
+}
+.nav-open .caret { transform: rotate(180deg); }
+.side-under { display: flex; flex-direction: column; margin: 2px 0 6px 30px; }
+.side-under a {
+  display: block; padding: 6px 10px; border-radius: var(--rs);
+  font-size: 13px; color: var(--side-muted); text-decoration: none;
+}
+.side-under a:hover { color: var(--side-ink); background: var(--side-tint); }
+.side-under a.on { color: var(--side-accent); font-weight: 600; background: var(--side-tint); }
+
+/* Which campaign this screen's work joins. The loop was invisible everywhere it
+   actually happened; the report then described a joining nobody watched. */
+.stamping { display: flex; align-items: center; gap: 2px; margin: -14px 0 22px;
+  font-size: 13px; color: var(--muted); }
+.stamping.none { color: var(--warn); }
+
+/* The next step, offered by the screen that knows the state. Two doors rather
+   than five remembered stages. */
+.next { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: var(--gap); margin: 0 0 var(--gap); }
+.next-do {
+  display: block; padding: 16px 18px; border-radius: var(--r);
+  background: var(--panel); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow), var(--gloss); text-decoration: none; color: inherit;
+}
+.next-do:hover { border-color: var(--accent); transform: translateY(-2px); color: inherit; }
+.next-do b { display: block; font-size: 15px; color: var(--accent); }
+.next-do span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+
+/* A folded panel. The marker stays, because a disclosure nobody can see is a
+   disclosure nobody opens. */
+summary.fold { cursor: pointer; font-weight: 600; list-style-position: outside; }
+summary.fold span { font-weight: 400; color: var(--muted); font-size: 13px; }
+summary.fold::marker { color: var(--muted); }
+
+/* ── Products & designs: one bar over the grid ────────────────────────────
+   The rendered designs are the point of that screen and they sat below the
+   fold, under a template chip row, a picker panel, a sheet panel, an export
+   panel, four stat tiles and a filter bar. Everything that acts on the grid is
+   in this bar instead, pinned, so a design and the controls for it are on
+   screen at the same time. The setup material is behind one fold below it. */
+.deck {
+  --deck-tint: color-mix(in srgb, var(--tone) 94%, transparent);
+  position: sticky; top: 0; z-index: 6;
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 0 14px; padding: 10px 14px;
+  border-radius: var(--r);
+  /* Two layers, and the bottom one is the point. This is the only element that
+     content scrolls UNDER, so it has to be genuinely opaque — and it was not:
+     mixing 94% of an ALREADY translucent --tone with transparent leaves
+     something you can still read a poster through, which is what a grid of
+     designs sliding beneath it looked like. --bg-flat is the page's own colour
+     with no alpha, so the tint sits on top of it and nothing shows through. */
+  background:
+    linear-gradient(var(--deck-tint), var(--deck-tint)),
+    var(--bg-flat);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow), var(--gloss);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.deck-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* Which template, as a select rather than a chip per template: the chips were a
+   full row of the first screen to say one word. */
+select.deck-tpl {
+  border-radius: var(--rs); border: 1px solid var(--line-strong);
+  background: var(--field); color: inherit;
+  font: inherit; font-size: 13px; padding: 7px 10px;
+  max-width: 100%;
+}
+
+/* What the four 34px stat tiles used to say, on one line. Pushed right so the
+   bar reads left to right as which template, which products, how it went. */
+.deck-count {
+  margin-left: auto; font-size: 12.5px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The filter bar is a row of the deck now, so its own standalone spacing would
+   double the gap between the two rows. */
+.deck .filters { margin: 0; }
+
+/* Buttons sitting inside a line of hint text. Without this they butt straight
+   against the sentence and against each other and read as one wide control. */
+.hint .chip { margin-left: 8px; }

@@ -19,6 +19,7 @@
  * recommendation. The judgement of what to do with a trend stays human.
  */
 import { writeFileSync } from 'node:fs'
+import { screen } from './not-for-marketing.mjs'
 
 const FEED = 'https://trends.google.com/trending/rss?geo=KW'
 const OUT = 'knowledge/kuwait/timely/trending-searches.md'
@@ -54,6 +55,15 @@ if (!items.length) {
   process.exit(1)
 }
 
+// Rule 5 applied to the feed itself. Most days this list is sport, weather and
+// world news, and a good share of the world news is exactly what marketing may
+// not build on. Dropped here rather than left for a person to skip past, and
+// counted in the file so the omission is visible rather than silent.
+const { kept, dropped, total } = screen(
+  items,
+  (i) => `${i.term} ${i.news.map((n) => n.title).join(' ')}`,
+)
+
 const today = new Date().toISOString().slice(0, 10)
 const lines = [
   '---',
@@ -65,11 +75,15 @@ const lines = [
   '',
   `What Kuwait searched for on ${today}, by approximate search volume. Refresh from the Kuwait tab's button, or with \`npm run kuwait:trends\`.`,
   '',
-  'A raw feed, not a recommendation: most days it is sport, weather and world news. The judgement of whether a trend is usable for retail — and whether it is appropriate at all — stays with you. The compliance guardrails apply to trends exactly as they apply to copy.',
+  'A raw feed, not a recommendation: most days it is sport, weather and world news. The judgement of whether a trend is usable for retail stays with you. The compliance guardrails apply to trends exactly as they apply to copy.',
+  '',
+  total
+    ? `${total} trend${total === 1 ? ' was' : 's were'} left out as political or religious (${dropped.political} political, ${dropped.religious} religious). Rule 5 forbids either as a marketing angle, so they are not offered as one.`
+    : 'Nothing was left out — no political or religious trends in this pull.',
   '',
   '| Search | Volume | In the news |',
   '|---|---|---|',
-  ...items.map((i) => {
+  ...kept.map((i) => {
     const news = i.news.map((n) => `${n.title} *(${n.source})*`).join(' · ')
     return `| **${i.term}** | ${i.traffic || '—'} | ${news || '—'} |`
   }),
@@ -77,4 +91,4 @@ const lines = [
 ]
 
 writeFileSync(OUT, lines.join('\n'))
-console.log(`pull-trends: ${items.length} trends written to ${OUT} (${today})`)
+console.log(`pull-trends: ${kept.length} trends written to ${OUT} (${today}), ${total} left out as political or religious`)

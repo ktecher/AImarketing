@@ -27,7 +27,7 @@ export type Channel = 'instagram' | 'snapchat' | 'tiktok'
  * anything with a precise number belongs in knowledge/kuwait/timely/ with a
  * source and a date. See knowledge/kuwait/evergreen/channels-and-platforms.md.
  */
-const CHANNELS: Record<Channel, { label: string; brief: string }> = {
+export const CHANNELS: Record<Channel, { label: string; brief: string }> = {
   instagram: {
     label: 'Instagram',
     brief:
@@ -128,12 +128,6 @@ Write plainly. No emoji strings, no invented awards, no fake urgency.
 ${guardrails()}
 `.trim()
 
-const CopySchema = z.object({
-  slogans: z.array(z.string()).min(1).max(3),
-  captions: z.array(z.string()).min(1).max(3),
-  hashtags: z.array(z.string()).min(3).max(10),
-})
-
 const ScriptSchema = z.object({
   hook: z.string(),
   body: z.string(),
@@ -165,8 +159,44 @@ export type Piece = {
   approved_at?: string
 }
 
+export type Kind = Piece['kind']
+
+const ALL_KINDS: Kind[] = ['slogan', 'caption', 'hashtags', 'script']
+
 /**
- * One product, one channel, a full set of drafts.
+ * The copy schema for exactly what was asked for, built per request.
+ *
+ * Fixed, "more slogans" obliged the model to also write three captions and
+ * eight hashtags nobody clicked for — half a minute of a twelve-billion
+ * parameter model producing work that goes straight past. A schema that names
+ * only the wanted fields is also the cheapest way to say what is wanted: the
+ * constrained decode cannot wander into the others.
+ */
+function copySchema(kinds: Set<Kind>) {
+  const shape: Record<string, z.ZodType> = {}
+  if (kinds.has('slogan')) shape.slogans = z.array(z.string()).min(1).max(3)
+  if (kinds.has('caption')) shape.captions = z.array(z.string()).min(1).max(3)
+  if (kinds.has('hashtags')) shape.hashtags = z.array(z.string()).min(3).max(10)
+  const schema = z.object(shape)
+  return {
+    schema: schema as unknown as z.ZodType<{ slogans?: string[]; captions?: string[]; hashtags?: string[] }>,
+    json: z.toJSONSchema(schema),
+  }
+}
+
+/**
+ * One product, one channel — every kind of draft, or just the one asked for.
+ *
+ * `only` is what makes "more slogans" a four-second call rather than the whole
+ * set again, and `note` is the steering a person types beside the button:
+ * shorter, funnier, lead with the battery. It reaches the prompt as an
+ * instruction and never as a fact — the no-number rule outranks it exactly as
+ * it outranks the campaign context, or "half price this week" walks a figure
+ * straight past the catalogue.
+ *
+ * `improve` hands the model the script that already exists so the rewrite is a
+ * rewrite. Without it "improve this" produces an unrelated second script, and
+ * the person is left diffing two things by eye.
  *
  * Failing checks do not throw. A blocked draft is more useful on screen than in
  * a stack trace — the person approving can see what the model reached for, and
@@ -177,53 +207,86 @@ export async function draft(
   channel: Channel,
   campaignId: string | null = null,
   campaignContext = '',
+  opts: { only?: Kind[]; note?: string; improve?: Script } = {},
 ): Promise<Piece[]> {
+  const kinds = new Set<Kind>(opts.only?.length ? opts.only : ALL_KINDS)
+  const note = (opts.note ?? '').trim()
   const base = rules(values, campaignContext)
   const ch = CHANNELS[channel]
   const now = new Date().toISOString()
   const sku = String(values.sku ?? '')
 
+  const steer = note
+    ? `\n\nWHAT THEY ASKED FOR THIS TIME — a person typed this, so follow it:\n${note}\n` +
+      'It steers the angle, the length and the wording. It does not change a price, a spec, ' +
+      'or any rule above.\n'
+    : ''
+
+  const wantsCopy = kinds.has('slogan') || kinds.has('caption') || kinds.has('hashtags')
+  const asks: string[] = []
+  if (kinds.has('slogan')) {
+    asks.push(
+      '- three slogans, at most six words each. Do NOT use the product name in a slogan — ' +
+      'it is already printed on the design, and it is a catalogue title, not a headline',
+    )
+  }
+  if (kinds.has('caption')) {
+    asks.push('- three captions in the register described above. Use the product name once at most')
+  }
+  if (kinds.has('hashtags')) asks.push('- eight hashtags, English or transliterated, no numbers')
+
+  const existing = opts.improve
+    ? '\n\nTHE SCRIPT THEY ALREADY HAVE. Rewrite it: keep what works, fix what does not, and ' +
+      'do not simply reword it.\n' +
+      `HOOK: ${opts.improve.hook}\n${opts.improve.body}\nSAY: ${opts.improve.say}\n`
+    : ''
+
   const [copyProse, scriptProse] = await Promise.all([
-    generate(
-      `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}\n\n` +
-        `Write, for this one product:\n` +
-        `- three slogans, at most six words each. Do NOT use the product name in a slogan — ` +
-        `it is already printed on the design, and it is a catalogue title, not a headline\n` +
-        `- three captions in the register described above. Use the product name once at most\n` +
-        `- eight hashtags, English or transliterated, no numbers\n\n` +
-        `Write them as a plain list. Do not explain your choices.`,
-      // The only genuinely creative call in the project. Facts stay at 0; this
-      // one is choosing phrasing, and at 0 it writes the same caption every time.
-      { temperature: 0.8 },
-    ),
-    generate(
-      `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}\n\n` +
-        `Write a short vertical video script for a person holding this product on camera:\n` +
-        `- the hook: the first line spoken, under two seconds\n` +
-        `- the body: what happens in the middle, in two or three sentences\n` +
-        `- what to say: the exact line that carries the offer\n` +
-        `- what NOT to say: things a presenter would reach for that break the rules above, ` +
-        `specific to this product rather than generic. Only things that are NOT already in ` +
-        `the script you just wrote — a warning against a line you yourself wrote reads as a ` +
-        `contradiction to whoever is on camera\n\n` +
-        `The footage is filmed by a person. Do not describe effects or transitions.`,
-      { temperature: 0.7 },
-    ),
+    wantsCopy
+      ? generate(
+          `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}${steer}\n\n` +
+            `Write, for this one product:\n${asks.join('\n')}\n\n` +
+            `Write them as a plain list. Do not explain your choices.`,
+          // The only genuinely creative call in the project. Facts stay at 0; this
+          // one is choosing phrasing, and at 0 it writes the same caption every time.
+          { temperature: 0.8 },
+        )
+      : '',
+    kinds.has('script')
+      ? generate(
+          `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}${steer}${existing}\n\n` +
+            `Write a short vertical video script for a person holding this product on camera:\n` +
+            `- the hook: the first line spoken, under two seconds\n` +
+            `- the body: what happens in the middle, in two or three sentences\n` +
+            `- what to say: the exact line that carries the offer\n` +
+            `- what NOT to say: things a presenter would reach for that break the rules above, ` +
+            `specific to this product rather than generic. Only things that are NOT already in ` +
+            `the script you just wrote — a warning against a line you yourself wrote reads as a ` +
+            `contradiction to whoever is on camera\n\n` +
+            `The footage is filmed by a person. Do not describe effects or transitions.`,
+          { temperature: 0.7 },
+        )
+      : '',
   ])
 
+  const copySpec = copySchema(kinds)
   const [copy, script] = await Promise.all([
-    generateJson(
-      `Sort this copy into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written. Drop anything that is a heading, a note, or an explanation.\n\n${copyProse}`,
-      CopySchema,
-      z.toJSONSchema(CopySchema),
-      { maxTokens: 700 },
-    ),
-    generateJson(
-      `Sort this video script into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written.\n\n${scriptProse}`,
-      ScriptSchema,
-      z.toJSONSchema(ScriptSchema),
-      { maxTokens: 700 },
-    ),
+    wantsCopy
+      ? generateJson(
+          `Sort this copy into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written. Drop anything that is a heading, a note, or an explanation.\n\n${copyProse}`,
+          copySpec.schema,
+          copySpec.json,
+          { maxTokens: 700 },
+        )
+      : Promise.resolve({} as { slogans?: string[]; captions?: string[]; hashtags?: string[] }),
+    kinds.has('script')
+      ? generateJson(
+          `Sort this video script into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written.\n\n${scriptProse}`,
+          ScriptSchema,
+          z.toJSONSchema(ScriptSchema),
+          { maxTokens: 700 },
+        )
+      : Promise.resolve(null),
   ])
 
   const meta = {
@@ -234,23 +297,27 @@ export async function draft(
   }
 
   const pieces: Piece[] = []
-  copy.slogans.forEach((text, i) =>
+  ;(copy.slogans ?? []).forEach((text, i) =>
     pieces.push({ ...meta, id: `${sku}:slogan:${i}`, kind: 'slogan', text, checks: check(text, values) }))
-  copy.captions.forEach((text, i) =>
+  ;(copy.captions ?? []).forEach((text, i) =>
     pieces.push({ ...meta, id: `${sku}:caption:${i}`, kind: 'caption', text, checks: check(text, values) }))
 
   // Hashtags are one piece, not eight. They are approved and copied together.
-  const tags = copy.hashtags.map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')
-  pieces.push({ ...meta, id: `${sku}:hashtags:0`, kind: 'hashtags', text: tags, checks: check(tags, values) })
+  if (copy.hashtags?.length) {
+    const tags = copy.hashtags.map((t) => (t.startsWith('#') ? t : `#${t}`)).join(' ')
+    pieces.push({ ...meta, id: `${sku}:hashtags:0`, kind: 'hashtags', text: tags, checks: check(tags, values) })
+  }
 
-  const scriptText = [script.hook, script.body, script.say].join('\n')
-  pieces.push({
-    ...meta, id: `${sku}:script:0`, kind: 'script',
-    text: scriptText, script,
-    // The avoid list is advice to a presenter, not copy to publish. Checking it
-    // would flag the very words it exists to warn about.
-    checks: check(scriptText, values),
-  })
+  if (script) {
+    const scriptText = [script.hook, script.body, script.say].join('\n')
+    pieces.push({
+      ...meta, id: `${sku}:script:0`, kind: 'script',
+      text: scriptText, script,
+      // The avoid list is advice to a presenter, not copy to publish. Checking it
+      // would flag the very words it exists to warn about.
+      checks: check(scriptText, values),
+    })
+  }
 
   return pieces
 }
@@ -313,6 +380,32 @@ export function allPieces(): Piece[] {
     } catch { /* an unreadable file is not a reason to lose the rest */ }
   }
   return out
+}
+
+/**
+ * Drop a deleted campaign's stamp from every draft that carries it.
+ *
+ * A campaign row can go; the drafts written under it stay, because they are
+ * somebody's approved words. What must not stay is the id — a `campaign_id`
+ * pointing at a row that no longer exists makes `report()` return zero for work
+ * that really happened, which is worse than an empty answer because it looks
+ * like one.
+ */
+export function forgetCampaign(campaignId: string): number {
+  const d = dir()
+  if (!existsSync(d)) return 0
+  let cleared = 0
+  for (const f of readdirSync(d).filter((f) => f.endsWith('.json'))) {
+    try {
+      const pieces = JSON.parse(readFileSync(join(d, f), 'utf8')) as Piece[]
+      let touched = false
+      for (const p of pieces) {
+        if (p.campaign_id === campaignId) { p.campaign_id = null; touched = true; cleared++ }
+      }
+      if (touched) writeFileSync(join(d, f), JSON.stringify(pieces, null, 2))
+    } catch { /* an unreadable file is not a reason to abandon the rest */ }
+  }
+  return cleared
 }
 
 /** Which products already have copy, for the picker. */

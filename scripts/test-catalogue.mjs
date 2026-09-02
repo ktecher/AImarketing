@@ -134,10 +134,21 @@ ok('a SKU nothing has heard of is dropped, not rendered blank', resolved.length 
 const ordered = await productsFor(['__no_such_sku__', SKU])
 ok('the caller\'s order is kept', ordered[0]?.sku === SKU)
 
-// The old behaviour has to survive: no SKUs still means the imported sheet.
+// No SKUs means the imported sheet — and when there is no sheet, the catalogue.
+//
+// It used to mean the sheet and nothing else, which read as "no products" on a
+// workspace whose catalogue never came from one: the content studio said "No
+// products loaded" over sixty-two rows, and the advisor and the name editor
+// were equally blind. An EMPTY list still means nothing, because "resolve these
+// zero SKUs" must not turn into "render the whole shop".
 const whole = await productsFor()
 const sheetRows = (await import('../lib/template/columns.ts')).importedProducts()
-ok('no SKUs still means the whole campaign', whole.length === sheetRows.length)
+ok('no SKUs means the sheet when there is one',
+   sheetRows.length === 0 || whole.length === sheetRows.length)
+ok('and the catalogue when there is not',
+   sheetRows.length > 0 || whole.some((p) => String(p.sku) === SKU),
+   `sheet ${sheetRows.length}, resolved ${whole.length}`)
+ok('an empty list still means nothing', (await catalogueProducts([])).length === 0)
 
 await clean()
 console.log(`\n${failed ? `${failed} FAILED` : 'catalogue holds'}`)

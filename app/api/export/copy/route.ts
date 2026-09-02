@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { importedProducts } from '@/lib/template/columns'
+import { campaignProducts } from '@/lib/template/columns'
 import { buildCopyWorkbook } from '@/lib/excel/copy'
 import { allPieces } from '@/lib/content/studio'
 
@@ -16,7 +16,7 @@ export async function GET() {
 }
 
 export async function POST() {
-  const products = Object.fromEntries(importedProducts().map((p) => [String(p.sku), p]))
+  const products = Object.fromEntries((await campaignProducts()).map((p) => [String(p.sku), p]))
   const { buffer, count, products: n } = await buildCopyWorkbook(products, new Date())
 
   if (!count) {
