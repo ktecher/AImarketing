@@ -39,6 +39,44 @@ export const OFFER_MECHANICS = [
   'No offer — new arrivals',
 ] as const
 
+/**
+ * The nine things the campaign meeting tries to find out, and the order it asks
+ * in — see `lib/meeting.ts` and D92.
+ *
+ * They live HERE, in the file with no dependencies, for the same reason
+ * `OFFER_MECHANICS` does: the meeting's screen is a client component, and
+ * `lib/meeting.ts` reaches `lib/campaigns.ts` and therefore `pg`. Importing one
+ * array from it put a Postgres driver in the browser bundle and broke the build
+ * with `Can't resolve 'dns'` — while typecheck and the whole test suite stayed
+ * green, because neither of them bundles anything. This file's header comment
+ * warned about exactly that trap one function further down.
+ *
+ * `pushing` and `special` lead because everything downstream changes with them,
+ * and because `special` decides whether the campaign is about a phone or about
+ * THIS phone. `constraints` is last and is never asked on its own — it is a
+ * catch-all, and asking what rules an option out before anything is on the
+ * table gets a blank look.
+ */
+export type Slot =
+  | 'pushing' | 'special' | 'objective' | 'audience' | 'budget'
+  | 'channels' | 'when' | 'offer' | 'constraints'
+
+export const SLOTS: readonly Slot[] = [
+  'pushing', 'special', 'objective', 'audience', 'budget', 'channels', 'when', 'offer', 'constraints',
+]
+
+/**
+ * A closed list, because in retail "what is the objective" has a small real
+ * answer set, and an open string reliably produces "increase brand awareness and
+ * drive sales" — which is two campaigns and no objective.
+ */
+export const OBJECTIVES = [
+  'Sell it',         // move units now
+  'Launch it',       // nobody knows it exists yet
+  'Clear it',        // stock that has to go
+  'Bring people in', // footfall to a branch
+] as const
+
 export type Brief = {
   /** What is being promoted. Products, a category, a range. */
   pushing: string
@@ -55,6 +93,19 @@ export type Brief = {
   runs: string
   /** Whatever else. Seeded with the rough idea, which is usually the best line. */
   notes: string
+  /**
+   * The campaign meeting's closed list (`OBJECTIVES`). Optional: every caller
+   * before the meeting existed has no objective and must keep composing exactly
+   * as before.
+   */
+  objective?: string
+  /**
+   * The budget split, already formatted as a string by the caller — this file
+   * does no arithmetic and imports no formatter, see the header comment.
+   */
+  spend?: string
+  /** What to look at afterwards, from the meeting's plan. */
+  measure?: string
 }
 
 /**
@@ -69,16 +120,28 @@ export type Brief = {
  *
  * Empty answers are omitted rather than written as blank labels. A line reading
  * "For:" with nothing after it teaches the reader that the labels mean nothing.
+ *
+ * `objective`, `spend` and `measure` are the campaign meeting's addition (see
+ * docs/superpowers/specs/2026-09-02-campaign-meeting-design.md) — all three
+ * optional, so every caller that predates the meeting keeps composing exactly
+ * as before. `Objective` sits near the top because it governs the rest of the
+ * brief; `Spend` and `Measure` sit at the end, before `Notes`, because they are
+ * what the meeting adds on top of a brief the rest of this function already
+ * describes. `spend` arrives pre-formatted by the caller — this function does
+ * no arithmetic, per the header comment.
  */
 export function composeContext(b: Brief): string {
   const offer = [b.offer, b.offerDetail.trim()].filter(Boolean).join(' — ')
   return [
+    ['Objective', b.objective?.trim() ?? ''],
     ['Pushing', b.pushing.trim()],
     ['For', b.audience.trim()],
     ['Offer', offer],
     ['Say', b.say.trim()],
     ['Channels', b.channels.join(', ')],
     ['Runs', b.runs.trim()],
+    ['Spend', b.spend?.trim() ?? ''],
+    ['Measure', b.measure?.trim() ?? ''],
     ['Notes', b.notes.trim()],
   ]
     .filter(([, v]) => v)

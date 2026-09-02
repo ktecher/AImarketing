@@ -370,8 +370,10 @@ async function matchingRows(idea: string): Promise<string> {
  * compute them" — so Ramadan and the two Eids are never asserted by this code,
  * and the note below says out loud that a person has to confirm them. A
  * confidently wrong Ramadan date is exactly the failure the file warns about.
+ *
+ * Exported: the campaign meeting (docs/superpowers/specs/2026-09-02-campaign-meeting-design.md) shares this rather than reimplementing it.
  */
-function whereInTheYear(now = new Date()): string {
+export function whereInTheYear(now = new Date()): string {
   const month = now.getUTCMonth() + 1
   const day = now.getUTCDate()
   if (month === 2) {
@@ -389,8 +391,10 @@ function whereInTheYear(now = new Date()): string {
  * True every week of the year, so it is always appended rather than derived.
  * Lifted from retail-calendar.md; it changes what "the weekend" means in a
  * brief, and a model trained mostly on Saturday–Sunday markets gets it wrong.
+ *
+ * Exported: also appended by the campaign meeting, same reason as above.
  */
-const WEEKEND = 'The Kuwaiti weekend is Friday and Saturday; Thursday evening behaves like a Friday evening elsewhere.'
+export const WEEKEND = 'The Kuwaiti weekend is Friday and Saturday; Thursday evening behaves like a Friday evening elsewhere.'
 
 /**
  * The compliance rules from their source rather than paraphrased.
@@ -399,8 +403,10 @@ const WEEKEND = 'The Kuwaiti weekend is Friday and Saturday; Thursday evening be
  * worse than one in a caption: the brief steers every caption written under it,
  * so "best prices in Kuwait" typed once becomes sixty blocked drafts later.
  * Cheaper to prevent at brief time than to detect sixty times.
+ *
+ * Exported: the campaign meeting reads the same file through this, not a copy.
  */
-function guardrails(): string {
+export function guardrails(): string {
   try {
     return readFileSync(join(process.cwd(), 'knowledge/kuwait/compliance-guardrails.md'), 'utf8')
   } catch {

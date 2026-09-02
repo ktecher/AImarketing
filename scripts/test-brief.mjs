@@ -60,5 +60,26 @@ ok('was/now is there — the strongest performer in electronics',
 ok('instalments, which are everywhere in Gulf retail',
    OFFER_MECHANICS.includes('Instalments'))
 
+console.log('\n--- the meeting\'s three fields are optional and backward-compatible ---')
+// Every caller before the meeting existed passes a Brief without these three
+// fields; the composed context must be byte-identical to before this change.
+ok('no meeting fields composes exactly as before',
+   composeContext(FULL) === full)
+
+console.log('\n--- each new field appears as its labelled line when set ---')
+const withMeeting = composeContext({
+  ...FULL, objective: 'Sell it', spend: '250.000 KD boosting', measure: 'click-throughs on the Snapchat ad',
+})
+ok('objective appears, near the top', withMeeting.startsWith('Objective: Sell it'))
+ok('spend appears',                  withMeeting.includes('Spend: 250.000 KD boosting'))
+ok('measure appears',                withMeeting.includes('Measure: click-throughs on the Snapchat ad'))
+ok('spend and measure land before notes',
+   withMeeting.indexOf('Spend:') < withMeeting.indexOf('Notes:') &&
+   withMeeting.indexOf('Measure:') < withMeeting.indexOf('Notes:'))
+
+console.log('\n--- an empty meeting field omits the line, no blank label ---')
+const blankMeeting = composeContext({ ...FULL, objective: '', spend: '', measure: '' })
+ok('no meeting labels appear at all', !/^(Objective|Spend|Measure):/m.test(blankMeeting), blankMeeting)
+
 console.log(`\n${failed ? `${failed} FAILED` : 'the brief composes'}`)
 process.exit(failed ? 1 : 0)

@@ -2394,3 +2394,92 @@ rows for what is now two.
   throwing away the working set, and it was the same button as `Remove N` once
   everything was marked. Select all, then `Remove N` — one destructive button,
   and it always says how many it will take.
+
+---
+
+## D92 — The campaign meeting, and how it plans a budget without writing a digit
+
+Making a campaign was a form. `suggest()` improved on a blank one — it is
+grounded in the real catalogue, where today sits in the retail year, the closed
+list of offer mechanics and the last two campaigns' voice — but it is one shot
+in, one brief out. It cannot ask what makes this phone worth buying, it does not
+know what the shop will spend, and it has no opinion about how that money should
+be divided, because nobody ever told it. A form cannot ask a follow-up question.
+
+`lib/meeting.ts` is the meeting instead. The person opens with the idea; every
+planner turn reads back what it understood, says what it would do with what it
+knows so far, and asks the ONE question that would most change that. The person
+presses **Write the plan** when they are ready — not a slot counter. The design
+is `docs/superpowers/specs/2026-09-02-campaign-meeting-design.md`.
+
+**The budget split is the decision worth recording.** Rule 2 says the model never
+emits a number, and a planner that cannot say where the money goes is not a
+planner. The resolution: the model returns line items with a weight WORD —
+`dominant · large · moderate · small · minimal` — and `split()` in `lib/spend.ts`
+does every digit. Fils as integers, the rounding remainder onto the LARGEST line
+so the parts sum exactly to the whole, printed through `formatKwd`. The remainder
+deliberately does not land on the last line, which is usually Contingency: a
+contingency that quietly absorbs rounding error is the one line nobody audits.
+
+A percentage is a digit. That is why the weights are words and not shares — an
+enum of `'40%' | '30%'` is the model emitting numbers with extra steps. Both
+lists are Zod enums, so a constrained decode cannot return a sixth line item for
+the UI to silently drop.
+
+**Four columns, still.** The meeting is a file store beside `lib/chat/store.ts`
+and `lib/content/studio.ts`. The plan lands in `context` through the existing
+`composeContext()`, which gained three optional lines. There is no
+`campaign_plans` table and no fifth column, and there is deliberately no parser
+reading the context back — that is the step that turns a composer into a schema.
+
+**Offline channels are asked for, never asserted.** Nothing in
+`knowledge/kuwait/` covers billboards, malls, events, cinema or radio, and a 12B
+model asked about Kuwaiti out-of-home invents reach and costs. The planner may
+say what KIND of thing a channel suits and may never name a mall, a cost or an
+audience size. `Print and OOH` and `Event` remain spend lines, allocated on the
+person's say-so. Reversal condition: a sourced `evergreen/offline-channels.md`
+with one source URL per claim, per `SOURCES.md`.
+
+**Trends carry their dates.** `timely/README.md` says `last_verified` is
+displayed rather than held as a hidden assumption, so the planner states it
+inline and the plan carries `kuwait_context_as_of`. The file's own warning
+travels with it: most days that feed is sport and weather, and whether a trend is
+usable is the person's judgement. The planner may offer one as an angle and may
+not assert one is relevant.
+
+### Four defects that only a live meeting could show
+
+The unit tests were green and typecheck was clean through every one of these.
+
+**The preamble leaked into the answers.** Extraction was run against the shared
+prompt, so a planner told it was Back to School and shown the compliance
+guardrails answered `special: "Back to School"` and `constraints: "No
+superlatives, no competitor mentions"` on a turn where the person had said
+neither. Both then stuck, because the prompt asks it to carry established values
+forward — and a falsely-filled `special` meant it never asked what is actually
+different about the phone, which is the one question the whole feature exists to
+ask. Extraction now sees the transcript and nothing else.
+
+**Fields nothing described got filled with whatever fit.** `pushing` came back
+as "push it hard this month" and the product name went in `special`. The
+extractor had the words and no idea which box they went in. Every slot is now
+described to it from `QUESTION_FOR`, which is the one place that defines what
+each one means.
+
+**A `.max()` under constrained decoding truncates, it does not reject.** Ollama
+masks the token that would exceed the length, so an over-long field arrives cut
+off MID-WORD and then passes Zod cleanly — by the time Zod sees it, it is within
+the limit. A plan shipped with `shape` reading "...the messaging highlights the"
+and nothing noticed. The caps are a backstop; the prompt is what keeps a field
+short.
+
+**The planner asked one question while the screen offered answers to another.**
+Left to phrase its own, it asked "How many units are we aiming to sell this
+month?" above chips reading Sell it / Launch it / Clear it. The question is now
+prescribed and the available answers are shown to the planner, so it cannot ask
+something they cannot answer.
+
+`invented` also fired on "S26" — the person's own words, repeated back. A figure
+the person typed is exempt now, the way `converse.ts` already exempts a price
+quoted back out of a draft. A warning that fires every turn is one nobody reads
+by the third.

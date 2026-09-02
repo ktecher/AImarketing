@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { composeContext, OFFER_MECHANICS, type Brief } from '@/lib/brief'
+import CampaignMeeting from './meeting'
 
 /**
  * Reach figures from knowledge/kuwait/evergreen/channels-and-platforms.md.
@@ -39,6 +40,17 @@ export default function Campaigns() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [report, setReport] = useState<Report | null>(null)
   const [adding, setAdding] = useState(false)
+  /**
+   * Which way a new campaign gets made.
+   *
+   * The meeting is the front door because a blank brief is the worst possible
+   * first screen — the fields are stamped on every design and caption from then
+   * on, and nothing on a form says what a good answer looks like. The form
+   * stays one click away for somebody who already knows exactly what they want
+   * and does not need to be asked; taking it away would make the fast path
+   * slower to spite the slow one.
+   */
+  const [mode, setMode] = useState<'meeting' | 'form'>('meeting')
   const [name, setName] = useState('')
   // Two contexts, deliberately. One state served both boxes, so opening "new
   // campaign" while a campaign was open pre-filled the new one with the old
@@ -257,8 +269,30 @@ export default function Campaigns() {
         </button>
       </div>
 
-      {(adding || (up && !campaigns.length)) && (
+      {(adding || (up && !campaigns.length)) && mode === 'meeting' && (
         <div className="panel">
+          <CampaignMeeting
+            onCreated={(created) => {
+              setAdding(false)
+              setOpenId(created)
+              void loadList()
+            }}
+          />
+          <p className="hint" style={{ marginTop: 14 }}>
+            <button className="linkish" onClick={() => setMode('form')}>
+              Or fill the brief in yourself
+            </button>
+          </p>
+        </div>
+      )}
+
+      {(adding || (up && !campaigns.length)) && mode === 'form' && (
+        <div className="panel">
+          <p className="hint">
+            <button className="linkish" onClick={() => setMode('meeting')}>
+              ← Talk it through instead
+            </button>
+          </p>
           {!campaigns.length && !adding && (
             <p className="hint">
               Nothing has been stamped yet. Every design exported and every caption written from
