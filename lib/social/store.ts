@@ -302,11 +302,19 @@ export async function claim(id: string): Promise<boolean> {
  * host with nothing able to reach them again — the same paid-for litter the
  * publish route already cleans up when an upload fails halfway.
  *
+ * **`failed` is on this list, and was not.** A publish that threw — an expired
+ * token, sixty days after connecting, is the ordinary way — left a row nothing
+ * could act on: `claim` and this function both matched only scheduled and
+ * missed, and the screen offered its buttons on the same two. So the row sat
+ * there forever and its uploaded images sat on Cloudinary forever with nothing
+ * able to name them again. A failed post never went out, which makes it exactly
+ * the kind of thing this function exists to forget.
+ *
  * Null when there was nothing to forget, which is different from an empty list.
  */
 export async function unschedule(id: string): Promise<string[] | null> {
   const rows = await query<{ image_public_ids: string[] }>(
-    `delete from social_posts where id = $1 and status in ('scheduled','missed')
+    `delete from social_posts where id = $1 and status in ('scheduled','missed','failed')
       returning image_public_ids`,
     [id],
   )

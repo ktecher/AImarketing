@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
-import { contextFrom, load, plan, remove, reply, save, start, type Meeting } from '@/lib/meeting'
+import { contextFrom, load, mergeSave, plan, remove, reply, start, type Meeting } from '@/lib/meeting'
 import { create as createCampaign } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
@@ -65,7 +65,11 @@ export async function POST(req: Request) {
       // Kept on the meeting, not just returned. Two model calls and a minute of
       // somebody's afternoon went into this, and a closed tab must not be what
       // throws it away.
-      save({ ...meeting, plan: written })
+      //
+      // Merged onto a fresh read rather than written whole: this request has
+      // been running for a minute, and a turn sent during it would otherwise be
+      // reverted by the copy loaded before that turn existed.
+      mergeSave(meeting, { plan: written })
       return NextResponse.json({ plan: written })
     } catch (e) {
       return NextResponse.json({ error: failed(e) }, { status: 500 })
@@ -92,7 +96,7 @@ export async function POST(req: Request) {
     }
     try {
       const campaign = await createCampaign(meeting.plan.name, contextFrom(meeting, meeting.plan))
-      save({ ...meeting, campaign_id: campaign.id })
+      mergeSave(meeting, { campaign_id: campaign.id })
       return NextResponse.json({ campaign })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not create the campaign.'

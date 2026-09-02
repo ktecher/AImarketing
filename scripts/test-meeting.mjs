@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all, remove, figuresIn } =
+const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all, remove, figuresIn, mergeSave } =
   await import('../lib/meeting.ts')
 
 let failed = 0
@@ -100,6 +100,19 @@ ok('a bare 4 on its own is still caught',
 ok('a figure the person typed is theirs',
    figuresIn('so your 3000 KD goes furthest on Snapchat', CATALOGUE, 'budget is 3000 KD').length === 0)
 
+// The exemption must be an EXACT token, never a substring of the transcript.
+// The budget slot exists to make somebody type a long number, so a containment
+// test hands the model a free pass on almost every short figure for the rest of
+// the meeting — 3, 30, 300 and 000 are all inside "3000". This is the guard the
+// "figures nobody gave it" banner is built on.
+ok('an invented 300 is NOT excused by their 3000',
+   figuresIn('Put 300 KD into photography and 50 into print.', CATALOGUE, 'budget is 3000 KD').join() === '300,50',
+   JSON.stringify(figuresIn('Put 300 KD into photography and 50 into print.', CATALOGUE, 'budget is 3000 KD')))
+ok('nor is an invented 30',
+   figuresIn('Spend 30 on influencers.', CATALOGUE, 'budget is 3000 KD').includes('30'))
+ok('but their exact figure is still theirs',
+   figuresIn('your 3000 KD', CATALOGUE, 'we have 3000 KD to spend').length === 0)
+
 console.log('\n--- the transcript survives the tab being closed ---')
 const HOME = process.cwd()
 const box = mkdtempSync(join(tmpdir(), 'meeting-'))
@@ -142,6 +155,30 @@ try {
   try { remove('test-meeting-2') } catch { refused = true }
   ok('a meeting that made a campaign refuses to be deleted', refused)
   ok('and is still there', load('test-meeting-2') !== null)
+
+  console.log('\n--- a slow write does not revert a fast one ---')
+  // Writing the plan is two model calls and about a minute. A turn sent during
+  // it used to be reverted by the plan's own save, or the other way round,
+  // because both wrote a whole object loaded before the other existed. The
+  // screen kept showing both from React state, so nothing looked wrong until
+  // Create re-read the file and said "Write the plan first" about a plan that
+  // was on screen.
+  const slow = start('test-meeting-3')
+  slow.turns.push({ role: 'you', text: 'first', at: new Date().toISOString() })
+  save(slow)
+
+  // Someone else's write lands while `slow` is still in flight.
+  const meanwhile = load('test-meeting-3')
+  meanwhile.turns.push({ role: 'planner', text: 'second', at: new Date().toISOString() })
+  meanwhile.known.pushing = 'earbuds'
+  save(meanwhile)
+
+  // The in-flight request now saves ITS field, from its own stale copy.
+  const merged = mergeSave(slow, { plan: { name: 'A plan' } })
+  ok('the plan landed', merged.plan?.name === 'A plan')
+  ok('and the turn written meanwhile survived', merged.turns.length === 2, String(merged.turns.length))
+  ok('as did the slot it filled', merged.known.pushing === 'earbuds', String(merged.known.pushing))
+  ok('and it is what is on disk', load('test-meeting-3').turns.length === 2)
 } finally {
   process.chdir(HOME)
   rmSync(box, { recursive: true, force: true })

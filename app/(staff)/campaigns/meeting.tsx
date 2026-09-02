@@ -223,7 +223,7 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
             {ask.suggestions.length > 0 && (
               <div className="chips">
                 {ask.suggestions.map((s) => (
-                  <button key={s} className="chip" disabled={busy} onClick={() => void send(s)}>
+                  <button key={s} className="chip" disabled={busy || planBusy} onClick={() => void send(s)}>
                     {s}
                   </button>
                 ))}
@@ -276,12 +276,18 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
-                  if (said.trim()) void send(said)
+                  // Not while the plan is being written. Writing the plan is two
+                  // model calls and takes about a minute, and a turn sent during
+                  // it used to race the plan's own save — whichever finished
+                  // last reverted the other, while the screen went on showing
+                  // both from React state. The server merges now; this stops the
+                  // race being started at all.
+                  if (said.trim() && !planBusy) void send(said)
                 }
               }}
             />
           </label>
-          <button className="btn" disabled={busy || !said.trim()} onClick={() => void send(said)}>
+          <button className="btn" disabled={busy || planBusy || !said.trim()} onClick={() => void send(said)}>
             {busy ? 'Thinking…' : 'Send'}
           </button>
         </div>

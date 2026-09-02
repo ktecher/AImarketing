@@ -317,6 +317,14 @@ export function figuresIn(text: string, identity: Record<string, unknown>, said:
   const words = text.split(/\s+/)
   const out: string[] = []
 
+  // The person's own figures, tokenised exactly as the model's are below, so
+  // the comparison is token-to-token rather than a substring of the transcript.
+  const mine = new Set(
+    said.split(/\s+/)
+      .map((raw) => raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%]+$/gu, ''))
+      .filter((w) => w && /\d/.test(w)),
+  )
+
   words.forEach((raw, i) => {
     const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%]+$/gu, '')
     if (!w || !/\d/.test(w)) return
@@ -340,7 +348,17 @@ export function figuresIn(text: string, identity: Record<string, unknown>, said:
     // thing about prices quoted out of a draft: warning somebody that nobody
     // verified their own words is the check crying wolf, and a warning that
     // fires every turn is one nobody reads by the third.
-    if (said.includes(w)) return
+    //
+    // The token has to match one of THEIRS EXACTLY. This was `said.includes(w)`,
+    // and a substring test is catastrophic here: the budget slot exists to make
+    // somebody type a long number, so once they answer "3000 KD" every one of
+    // 3, 30, 300, 000 and 00 is a substring of what they said, and the model can
+    // invent almost any short figure for the rest of the meeting without the
+    // banner firing. Verified: person says "budget is 3000 KD", model writes
+    // "Put 300 KD into photography and 50 into print", and only the 50 was
+    // reported. The guard the UI's warning is built on had a hole shaped like
+    // its own most important slot.
+    if (mine.has(w)) return
 
     out.push(w)
   })
@@ -502,6 +520,28 @@ export type Reply = {
  * already know. The plan is written when they ask for it; the advice arrives
  * every turn, in the prose.
  */
+/**
+ * Write these fields onto whatever is on disk NOW, rather than over it.
+ *
+ * Every writer here loads the meeting at the start of a request that can take a
+ * minute — two model calls on a local 12B — and saves the whole object at the
+ * end. Two requests overlapping means the slower one silently reverts the
+ * faster one: a turn sent while the plan was being written erased the plan, or
+ * the plan erased the turn, depending on which finished last. The screen kept
+ * showing whichever it had in React state, so nothing looked wrong until Create
+ * re-read the file and answered "Write the plan first" about a plan on screen.
+ *
+ * Merging one field onto a fresh read is the whole fix; these writes never
+ * contend for the same field.
+ */
+export function mergeSave(base: Meeting, patch: Partial<Meeting>): Meeting {
+  // `base` on the first turn, when nothing is on disk yet; the fresh read every
+  // time after.
+  const merged = { ...(load(base.id) ?? base), ...patch }
+  save(merged)
+  return merged
+}
+
 export async function reply(m: Meeting, said: string): Promise<Reply> {
   const text = said.trim()
   if (!text) throw new Error('Say something first.')
@@ -618,8 +658,9 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
     )
   } catch (e) {
     const msg = e instanceof Error ? e.message : ''
-    const meeting: Meeting = { ...withYou, known }
-    save(meeting)
+    // Merged, not written whole: a plan finishing while this turn was in flight
+    // must not be reverted by it.
+    const meeting = mergeSave(withYou, { turns: withYou.turns, known })
     return {
       meeting,
       say: '',
@@ -633,12 +674,10 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
     }
   }
 
-  const meeting: Meeting = {
-    ...withYou,
+  const meeting = mergeSave(withYou, {
     known,
     turns: [...withYou.turns, { role: 'planner', text: prose, at: new Date().toISOString() }],
-  }
-  save(meeting)
+  })
 
   return {
     meeting,
@@ -854,7 +893,21 @@ export async function plan(m: Meeting): Promise<Plan> {
 
   const identity = await catalogueIdentity()
   const mine = m.turns.filter((t) => t.role === 'you').map((t) => t.text).join('\n')
-  const prose = `${out.say} ${out.audience} ${out.shape} ${out.measure.join(' ')} ${out.channels.map((c) => c.role).join(' ')}`
+  // EVERY piece of free text the model wrote, and the name most of all.
+  //
+  // `name` and the spend reasons were missing from this string, so nothing
+  // checked them — and `name` is the worst possible field to leave unchecked:
+  // it goes to `create()` and becomes `campaigns.name`, stamped on every design,
+  // caption and conversation made under the campaign from then on. A plan named
+  // "Back to school — 50% off laptops" carried an invented figure into the one
+  // place rule 2 reaches furthest, with no warning shown. The spend reasons are
+  // rendered verbatim in the plan's own table, so they need it too.
+  const prose = [
+    out.name, out.say, out.audience, out.shape,
+    ...out.measure,
+    ...out.channels.map((c) => c.role),
+    ...out.spend.map((l) => l.why),
+  ].join(' ')
 
   return {
     name: out.name,

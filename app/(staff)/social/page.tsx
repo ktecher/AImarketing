@@ -947,11 +947,26 @@ export default function Social() {
                       : post.status === 'scheduled' ? <span className="badge part">scheduled</span>
                       : post.status === 'publishing' ? <span className="badge part">publishing</span>
                       : <span className="badge live">posted</span>}
-                    {(post.status === 'scheduled' || post.status === 'missed') && (
+                    {/* `failed` can be dropped but not sent: a failed publish is
+                        an attempt that threw, and its images are on a paid host
+                        with only this row naming them. Without a Drop here they
+                        stayed there forever. Retrying is deliberately not
+                        offered — the caption and the images are still on the
+                        composer, and a retry button that silently reuses an
+                        expired token is the failure again with a nicer name. */}
+                    {(post.status === 'scheduled' || post.status === 'missed' || post.status === 'failed') && (
                       <>
-                        <button className="chip" disabled={Boolean(batchBusy)}
-                                onClick={() => void sendNow(post.id)}>Post it now</button>
-                        <button className="chip danger" onClick={() => void drop(post.id)}>Drop</button>
+                        {/* Not on a failed post. `claim()` matches only scheduled
+                            and missed, so this button would call a no-op and
+                            report nothing wrong — a button that does nothing is
+                            worse than no button. */}
+                        {post.status !== 'failed' && (
+                          <button className="chip" disabled={Boolean(batchBusy)}
+                                  onClick={() => void sendNow(post.id)}>Post it now</button>
+                        )}
+                        <button className="chip danger" onClick={() => void drop(post.id)}>
+                          {post.status === 'failed' ? 'Drop and free its images' : 'Drop'}
+                        </button>
                       </>
                     )}
                   </b>

@@ -169,6 +169,16 @@ try {
   // offering to would be a button that lies. Null, not [] — nothing was dropped.
   ok('a posted one cannot be dropped', (await store.unschedule(sent.id)) === null)
   ok('and is still in the history',    (await store.posts({ sku: `${MARK}-due` })).length === 1)
+
+  // A publish that threw — an expired token is the ordinary way, sixty days
+  // after connecting — used to leave a row nothing could act on: `claim` and
+  // `unschedule` both matched only scheduled and missed, and the screen offered
+  // its buttons on the same two. The row stayed forever and its uploaded images
+  // stayed on a paid host forever, with only that row able to name them.
+  const freed = await store.unschedule(broke.id)
+  ok('a failed post can be dropped',   Array.isArray(freed), JSON.stringify(freed))
+  ok('and hands back its images',      freed?.length === 1, JSON.stringify(freed))
+  ok('and is gone from the history',   (await store.posts({ sku: `${MARK}-broken` })).length === 0)
 } finally {
   await clean()
 }
