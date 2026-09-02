@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all } =
+const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all, remove, figuresIn } =
   await import('../lib/meeting.ts')
 
 let failed = 0
@@ -70,6 +70,36 @@ ok('offers are the closed list', offers.includes('Was/now') && offers.includes('
 ok('what is special gets no suggestions', (await suggestionsFor('special', 'laptops')).length === 0)
 ok('the budget gets no suggestions',      (await suggestionsFor('budget', 'laptops')).length === 0)
 
+console.log('\n--- what counts as a figure the model made up ---')
+// Rule 2's guard. Every false positive here trains the reader to scroll past the
+// warning, and the real one arrives looking identical.
+const CATALOGUE = { name_en: 'Apple AirPods 4 Apple MacBook Pro M4 Samsung Galaxy S26 Ultra Lenovo IdeaPad Slim 3' }
+
+ok('a loose price is caught',
+   figuresIn('it should sell for 129 KD', CATALOGUE, '').includes('129'))
+ok('a percentage is caught',
+   figuresIn('take 40% off the range', CATALOGUE, '').includes('40%'))
+
+// "Apple AirPods 4" is what the product is CALLED. The bare 4 can never be
+// vouched for on its own, so it is checked with the word before it.
+ok('a model number in a real product name is not invented',
+   figuresIn('lead with the Apple AirPods 4 on Snapchat', CATALOGUE, '').length === 0,
+   JSON.stringify(figuresIn('lead with the Apple AirPods 4 on Snapchat', CATALOGUE, '')))
+ok('and it still catches a loose number in the same sentence',
+   figuresIn('the Apple AirPods 4 at 45 KD', CATALOGUE, '').join() === '45',
+   JSON.stringify(figuresIn('the Apple AirPods 4 at 45 KD', CATALOGUE, '')))
+
+// A token carrying a letter, straight out of the identity text.
+ok('M4 is not invented', figuresIn('the MacBook Pro M4 is the hero', CATALOGUE, '').length === 0)
+
+// The same digit, with nothing behind it, is not a product name.
+ok('a bare 4 on its own is still caught',
+   figuresIn('run it for 4 weeks', CATALOGUE, '').includes('4'))
+
+// The person's own words, repeated back.
+ok('a figure the person typed is theirs',
+   figuresIn('so your 3000 KD goes furthest on Snapchat', CATALOGUE, 'budget is 3000 KD').length === 0)
+
 console.log('\n--- the transcript survives the tab being closed ---')
 const HOME = process.cwd()
 const box = mkdtempSync(join(tmpdir(), 'meeting-'))
@@ -92,6 +122,26 @@ try {
   ok('a traversal id refuses to write', threw)
 
   ok('a meeting that was never started is null', load('never-existed') === null)
+
+  console.log('\n--- throwing a meeting away ---')
+  ok('a traversal id deletes nothing', remove('../../../etc/passwd') === false)
+  // A double-click must report honestly rather than claiming to have removed
+  // something twice.
+  ok('deleting nothing says so', remove('never-existed') === false)
+  ok('it deletes', remove('test-meeting-1') === true)
+  ok('and is gone', load('test-meeting-1') === null)
+  ok('and is off the list', all().length === 0)
+
+  // The one case where the transcript is the record of how something real got
+  // built. Postgres does not know this file exists, so nothing else would stop
+  // the campaign's own brief being thrown away.
+  const made = start('test-meeting-2')
+  made.campaign_id = 'back-to-school-laptops'
+  save(made)
+  let refused = false
+  try { remove('test-meeting-2') } catch { refused = true }
+  ok('a meeting that made a campaign refuses to be deleted', refused)
+  ok('and is still there', load('test-meeting-2') !== null)
 } finally {
   process.chdir(HOME)
   rmSync(box, { recursive: true, force: true })

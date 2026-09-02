@@ -30,7 +30,7 @@
  * not bent here, it is routed around: see the comment on `plan()`.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { generate, generateJson, MODELS } from '@/lib/ai/generate'
@@ -165,6 +165,29 @@ export function start(id: string): Meeting {
   }
 }
 
+/**
+ * Throw a meeting away.
+ *
+ * Irreversible and deliberately so — the point of the button above it is that a
+ * conversation which went nowhere should leave nothing behind. What it must NOT
+ * do is take a campaign with it: `create` writes a row to Postgres and stamps it
+ * on everything made afterwards, and that row does not know this file exists.
+ * The screen only offers deletion while `campaign_id` is null, and this refuses
+ * it otherwise rather than trusting the screen to remember.
+ *
+ * Returns false when there was nothing to delete, so a double-click reports
+ * honestly instead of claiming to have removed something twice.
+ */
+export function remove(id: string): boolean {
+  if (!safe(id) || !existsSync(pathFor(id))) return false
+  const m = load(id)
+  if (m?.campaign_id) {
+    throw new Error('This meeting made a campaign. Delete the campaign instead — the meeting is how it got made.')
+  }
+  unlinkSync(pathFor(id))
+  return true
+}
+
 /** Newest first. The screen lists these so a meeting can be walked away from. */
 export function all(): Meeting[] {
   if (!existsSync(dir())) return []
@@ -289,23 +312,40 @@ async function catalogueIdentity(): Promise<Record<string, unknown>> {
  * joined identity text of sixty products contains most small integers by
  * accident, so exempting those would exempt everything.
  */
-function figuresIn(text: string, identity: Record<string, unknown>, said: string): string[] {
-  return [...new Set(
-    [...text.matchAll(/\S*\d[\d.,%]*\S*/g)]
-      .map((m) => m[0])
-      .filter((w) => !(/\p{L}/u.test(w) && isProductIdentity(w, identity)))
-      // A figure the PERSON typed, repeated back. "Galaxy S26 Ultra" arrived
-      // flagged as an invented figure on the first live meeting, because the
-      // catalogue has never heard of an S26 and `isProductIdentity` can only
-      // vouch for what is on the shelf. But the person named it in the sentence
-      // above, so warning them that nobody verified their own words is the check
-      // crying wolf on the one thing it got right — and a warning that fires on
-      // every turn is a warning nobody reads by the third.
-      //
-      // `converse.ts` learned exactly this about prices quoted back out of a
-      // draft. Same lesson, one layer out.
-      .filter((w) => !said.includes(w)),
-  )]
+export function figuresIn(text: string, identity: Record<string, unknown>, said: string): string[] {
+  const catalogue = String(identity.name_en ?? '')
+  const words = text.split(/\s+/)
+  const out: string[] = []
+
+  words.forEach((raw, i) => {
+    const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%]+$/gu, '')
+    if (!w || !/\d/.test(w)) return
+
+    // A token carrying a LETTER that the catalogue's own identity text holds —
+    // "M4", "S26". That is what the product is called, not a figure.
+    if (/\p{L}/u.test(w) && isProductIdentity(w, identity)) return
+
+    // A BARE digit that is the model number of a real product. "Apple AirPods 4"
+    // arrives as two tokens, and the 4 alone can never be vouched for by
+    // `isProductIdentity` — the joined identity text of sixty products contains
+    // most small integers by accident, so exempting bare numbers wholesale would
+    // exempt everything. Checking it WITH the word before it is the difference:
+    // "AirPods 4" is in the catalogue, a loose "4" is not. The planner naming a
+    // real product was being reported as an invented figure, which is the same
+    // warning-that-cries-wolf failure as quoting the person's own words back.
+    const before = words[i - 1]?.replace(/[^\p{L}\p{N}]/gu, '')
+    if (before && catalogue.toLowerCase().includes(`${before} ${w}`.toLowerCase())) return
+
+    // A figure the PERSON typed, repeated back. `converse.ts` learned the same
+    // thing about prices quoted out of a draft: warning somebody that nobody
+    // verified their own words is the check crying wolf, and a warning that
+    // fires every turn is one nobody reads by the third.
+    if (said.includes(w)) return
+
+    out.push(w)
+  })
+
+  return [...new Set(out)]
 }
 
 /** Everything established so far, as labelled lines the model can read. */

@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
-import { contextFrom, load, plan, reply, save, start, type Meeting } from '@/lib/meeting'
+import { contextFrom, load, plan, remove, reply, save, start, type Meeting } from '@/lib/meeting'
 import { create as createCampaign } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
@@ -114,5 +114,27 @@ export async function POST(req: Request) {
     return NextResponse.json(await reply(meeting, said))
   } catch (e) {
     return NextResponse.json({ error: failed(e) }, { status: 500 })
+  }
+}
+
+/**
+ * Throw the meeting away and leave nothing behind.
+ *
+ * A meeting that went nowhere is not history worth keeping, and the alternative
+ * — a list of abandoned conversations nobody will ever reopen — is a screen
+ * somebody has to maintain. `remove()` refuses when the meeting made a campaign;
+ * that is the one case where the transcript is the record of how something real
+ * got built.
+ */
+export async function DELETE(req: Request) {
+  const id = new URL(req.url).searchParams.get('id')
+  if (!id || !safe(id)) return NextResponse.json({ error: 'Which meeting?' }, { status: 400 })
+  try {
+    return NextResponse.json({ gone: remove(id) })
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Could not delete it.' },
+      { status: 409 },
+    )
   }
 }

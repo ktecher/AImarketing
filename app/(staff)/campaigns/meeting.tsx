@@ -37,7 +37,14 @@ type Props = {
 }
 
 export default function CampaignMeeting({ onCreated }: Props = {}) {
-  const [id] = useState(newId)
+  // Settable, because "start over" is a new meeting in the same component
+  // rather than a remount — the parent has no reason to know a conversation was
+  // abandoned.
+  const [id, setId] = useState(newId)
+  // Two states rather than a window.confirm: the confirmation has to say how
+  // much is being thrown away, and a native dialog cannot. Same pattern the
+  // campaign delete already uses.
+  const [scrapping, setScrapping] = useState(false)
   const [meeting, setMeeting] = useState<Meeting | null>(null)
   const [said, setSaid] = useState('')
   const [busy, setBusy] = useState(false)
@@ -135,6 +142,30 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
     }
     setCreating(false)
   }, [id, creating, campaignId, onCreated])
+
+  /**
+   * Abandon this meeting and begin a new one.
+   *
+   * The transcript is deleted only when it never became a campaign. Once it has,
+   * the file is the record of how that campaign got its brief, so a new meeting
+   * starts alongside it rather than on top of it — the server refuses the
+   * deletion in that case anyway, and this keeps the screen from asking for
+   * something it will not get.
+   */
+  const startOver = useCallback(async () => {
+    if (!campaignId) {
+      // A failure here must not strand the person in a conversation they have
+      // said they are done with. The file is theirs to lose; the fresh meeting
+      // is the thing they asked for.
+      await fetch(`/api/campaigns/meeting?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .catch(() => {})
+    }
+    setId(newId())
+    setMeeting(null); setSaid(''); setAsk(null); setEnough(false)
+    setInvented([]); setCaution([]); setError(''); setOffline('')
+    setPlan(null); setPlanError(''); setCreateError(''); setCampaignId(null)
+    setScrapping(false)
+  }, [id, campaignId])
 
   const turns = meeting?.turns ?? []
   const known = meeting?.known ?? {}
@@ -254,6 +285,32 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
             {busy ? 'Thinking…' : 'Send'}
           </button>
         </div>
+
+        {/* Quiet, and only once there is something to abandon. It sits under
+            Send rather than beside it: one is what you do every turn, the other
+            is what you do once, and putting them together makes the wrong one
+            easy to hit. */}
+        {turns.length > 0 && !busy && (
+          <p className="hint" style={{ marginTop: 10 }}>
+            {!scrapping ? (
+              <button className="linkish" onClick={() => setScrapping(true)}>
+                {campaignId ? 'Start another meeting' : 'Start over'}
+              </button>
+            ) : (
+              <>
+                {campaignId
+                  ? 'Begin a new meeting? This one stays — it is how the campaign got its brief.'
+                  : `Throw away ${turns.length === 1 ? 'this turn' : `these ${turns.length} turns`} and start again? It cannot be undone.`}
+                {' '}
+                <button className="linkish" onClick={() => void startOver()}>
+                  {campaignId ? 'Yes, new meeting' : 'Yes, start over'}
+                </button>
+                {' · '}
+                <button className="linkish" onClick={() => setScrapping(false)}>Keep it</button>
+              </>
+            )}
+          </p>
+        )}
 
         <div ref={foot} />
       </div>
