@@ -7,7 +7,10 @@ import { readPicked, writePicked } from '../picked'
 type Platform = 'facebook' | 'instagram'
 type Account = { id: string; platform: Platform; name: string; connected_at: string }
 type Piece = { id: string; kind: string; status: string; text: string; filled: string }
-type Product = { sku: string; name: string; onSale?: boolean; approved?: number; drafts?: number }
+type Product = { sku: string; name: string; onSale?: boolean; approved?: number; drafts?: number; captions?: number }
+/** A check from `check()` in lib/content/guard, kept as a local shape rather
+ * than importing that module into this client bundle for one type. */
+type Check = { name: string; pass: boolean; span?: string; hint?: string }
 type Tpl = { id: string; name: string }
 /** One account's outcome. Per account, because one failing does not stop the others. */
 type Result = { accountId: string; ok: boolean; platformPostId?: string; permalinkUrl?: string; error?: string }
@@ -64,6 +67,15 @@ export default function Social() {
   const [pieces, setPieces] = useState<Piece[]>([])
   const [captionId, setCaptionId] = useState('')
   const [caption, setCaption] = useState('')
+
+  // Bug: an edit made in the box below used to reach only the published post —
+  // nothing wrote it back, so reopening the product showed the un-fixed line
+  // again. The fix is D-shaped on purpose: an edit is never allowed to
+  // overwrite the approved caption (that would defeat the point of approving
+  // one), so it is offered as a save of a NEW draft instead, for review.
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [saveChecks, setSaveChecks] = useState<Check[] | null>(null)
+  const [draftSaved, setDraftSaved] = useState(false)
 
   // Posting several products in one go. Kept beside the single-product compose
   // area rather than replacing it: one product is still the common case and a
@@ -208,6 +220,8 @@ export default function Social() {
     setCaptionId('')
     setCaption('')
     setResults(null)
+    setSaveChecks(null)
+    setDraftSaved(false)
     void fetch(`/api/studio?sku=${encodeURIComponent(sku)}`)
       .then((r) => r.json())
       .then((d) => {
@@ -274,6 +288,13 @@ export default function Social() {
   const captions = pieces.filter((p) => p.status === 'approved' && p.kind === 'caption')
   const tags = pieces.find((p) => p.status === 'approved' && p.kind === 'hashtags')
 
+  // Whether the box still says what the approved piece says. Compared against
+  // the FILLED text, because that is what is on screen — comparing against the
+  // stored placeholder form would call an untouched caption "edited" the
+  // moment its price differed from the placeholder text.
+  const captionSource = captions.find((c) => c.id === captionId)
+  const captionEdited = Boolean(captionSource) && caption !== captionSource!.filled
+
   const ticked = (accounts ?? []).filter((a) => chosen.has(a.id))
   // Instagram rejects a post with no image outright, so this cannot be
   // discovered at publish time — the person would have pressed a button that
@@ -288,6 +309,37 @@ export default function Social() {
       : needsImage
         ? 'needs an image'
         : ''
+
+  /**
+   * Saves the box's current text as a new draft piece, for later review.
+   *
+   * Never touches the approved piece it came from — approval is a human
+   * judgement and silently rewriting it would defeat the review. `check()`
+   * runs server-side first; a blocker (an invented price, say) comes back as
+   * `saveChecks` and nothing is written.
+   */
+  async function saveDraftEdit() {
+    if (!captionSource) return
+    setSavingDraft(true)
+    setSaveChecks(null)
+    try {
+      const res = await fetch('/api/studio', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku, action: 'save-draft', from: captionSource.id, text: caption }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (d.saved) {
+        setPieces(d.pieces ?? [])
+        setDraftSaved(true)
+      } else {
+        setSaveChecks(d.checks ?? [{ name: 'save failed', pass: false, hint: d.error ?? 'Could not save.' }])
+      }
+    } catch (e) {
+      setSaveChecks([{ name: 'save failed', pass: false, hint: e instanceof Error ? e.message : 'Could not save.' }])
+    }
+    setSavingDraft(false)
+  }
 
   async function publish() {
     setPublishing(true)
@@ -628,7 +680,11 @@ export default function Social() {
                 {!listed.length && <option value="">loading…</option>}
                 {listed.map((p) => (
                   <option key={p.sku} value={p.sku}>
-                    {p.name}{p.approved ? ` · ${p.approved} approved` : ''}
+                    {/* `captions` counts only kind === 'caption', which is all this
+                        screen can post. `p.approved` counts every kind — a product
+                        with an approved hashtag set and no caption once read
+                        "2 approved" here and then said it had none. */}
+                    {p.name}{p.captions ? ` · ${p.captions} approved caption${p.captions === 1 ? '' : 's'}` : ''}
                   </option>
                 ))}
               </select>
@@ -785,6 +841,8 @@ export default function Social() {
                       const p = captions.find((c) => c.id === e.target.value)
                       setCaptionId(e.target.value)
                       if (p) setCaption(p.filled)
+                      setSaveChecks(null)
+                      setDraftSaved(false)
                     }}>
                       {captions.map((p) => (
                         <option key={p.id} value={p.id}>{oneLine(p.filled)}</option>
@@ -798,7 +856,11 @@ export default function Social() {
                       number comes from the catalogue row here, once. */}
                   <label className="fld" style={{ marginBottom: 8 }}>
                     <span>What gets posted <em>edit freely</em></span>
-                    <textarea rows={8} value={caption} onChange={(e) => setCaption(e.target.value)} />
+                    <textarea rows={8} value={caption} onChange={(e) => {
+                      setCaption(e.target.value)
+                      setSaveChecks(null)
+                      setDraftSaved(false)
+                    }} />
                   </label>
 
                   <p className="hint" style={{ marginTop: 0 }}>
@@ -810,6 +872,40 @@ export default function Social() {
                       </button>
                     )}
                   </p>
+
+                  {/* Publishing always sends whatever is in the box above — this
+                      is only about what happens to the EDIT afterwards. Approved
+                      copy is human-reviewed, so an edit is never written back
+                      into it; it can only be saved as a new draft for someone to
+                      review and approve like any other. */}
+                  {captionEdited && (
+                    <p className="hint" style={{ marginTop: 0 }}>
+                      Edited away from the approved caption. Publishing still sends what is in the
+                      box — saving keeps the edit as a new draft for review and never changes the
+                      approved caption above.{' '}
+                      <button className="chip" disabled={savingDraft} onClick={() => void saveDraftEdit()}>
+                        {savingDraft ? 'Saving…' : 'Save as draft'}
+                      </button>
+                    </p>
+                  )}
+
+                  {draftSaved && (
+                    <div className="notice">
+                      Saved as a new draft.{' '}
+                      <a href={`/studio?sku=${encodeURIComponent(sku)}`}>Review it on Studio</a>.
+                    </div>
+                  )}
+
+                  {saveChecks && saveChecks.some((c) => !c.pass) && (
+                    <div className="issue error">
+                      <b>Not saved</b>
+                      {saveChecks.filter((c) => !c.pass).map((c) => (
+                        <span key={c.name} style={{ display: 'block', marginTop: 3 }}>
+                          {c.name}{c.span ? ` — "${c.span}"` : ''}{c.hint ? `. ${c.hint}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>

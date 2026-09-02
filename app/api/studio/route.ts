@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
 import { campaignProducts } from '@/lib/template/columns'
-import { check, fill } from '@/lib/content/guard'
+import { blockers, check, DERIVED, fill } from '@/lib/content/guard'
 import { approve, coverage, draft, load, save, type Channel, type Kind, type Piece } from '@/lib/content/studio'
 import { currentCampaign, get } from '@/lib/campaigns'
 
@@ -129,16 +129,68 @@ export async function POST(req: Request) {
   }
 }
 
-/** Edit the wording of a draft, or approve one. */
-export async function PUT(req: Request) {
-  const { sku, id, text, action } = (await readJson(req)) as {
-    sku?: string; id?: string; text?: string; action?: 'edit' | 'approve' | 'unapprove' | 'delete'
+/**
+ * Turns a piece's FILLED text back into placeholders, for the one prices
+ * DERIVED holds: {price_now}, {price_was}, {discount_pct}.
+ *
+ * The Publish screen shows the box with real numbers substituted — a post is
+ * fixed the moment it is public, per docs. A saved draft is not: it goes back
+ * into the studio, where every other piece keeps its placeholders so it stays
+ * true after a price change. Left as a literal number it would also fail
+ * `check()`'s "no invented numbers" rule on every single save, because a
+ * correctly formatted price is indistinguishable from one the model made up.
+ */
+function unfill(text: string, values: Record<string, unknown>): string {
+  for (const name of DERIVED) {
+    const literal = fill(`{${name}}`, values)
+    if (literal !== `{${name}}`) text = text.split(literal).join(`{${name}}`)
   }
-  if (!sku || !id) return NextResponse.json({ error: 'Missing draft.' }, { status: 400 })
+  return text
+}
+
+/** Edit the wording of a draft, approve one, or save an edit as a new draft. */
+export async function PUT(req: Request) {
+  const { sku, id, text, action, from } = (await readJson(req)) as {
+    sku?: string; id?: string; text?: string
+    action?: 'edit' | 'approve' | 'unapprove' | 'delete' | 'save-draft'
+    from?: string
+  }
+  if (!sku) return NextResponse.json({ error: 'Missing draft.' }, { status: 400 })
   const values = await row(sku)
   if (!values) return NextResponse.json({ error: `No product ${sku} in the loaded sheet.` }, { status: 404 })
 
   try {
+    // Publish's textarea holds an approved caption a person may have edited.
+    // Approved copy is human-reviewed, so an edit NEVER overwrites it — it is
+    // appended as a fresh draft, for someone to review and approve like any
+    // other. The approved piece named by `from` is only where provenance and
+    // channel come from; it is never touched.
+    if (action === 'save-draft') {
+      if (!from || typeof text !== 'string') return NextResponse.json({ error: 'Missing draft.' }, { status: 400 })
+      const pieces = load(sku)
+      const source = pieces.find((p) => p.id === from)
+      if (!source) return NextResponse.json({ error: 'That draft is gone.' }, { status: 404 })
+
+      const placeholderText = unfill(text, values)
+      const checks = check(placeholderText, values)
+      // A blocker here is exactly what approval already guards against —
+      // an edit that introduced an invented price, say — so it is reported
+      // and not saved, rather than saved silently and caught later.
+      if (blockers(checks).length) return NextResponse.json({ saved: false, checks })
+
+      const piece: Piece = {
+        sku, lang: source.lang, kind: 'caption', channel: source.channel,
+        text: placeholderText, checks, status: 'draft', source: 'human',
+        model: source.model, prompt_version: source.prompt_version,
+        campaign_id: source.campaign_id, created_at: new Date().toISOString(),
+        id: `${sku}:caption:${Date.now()}`,
+      }
+      const next = [...pieces, piece]
+      save(sku, next)
+      return NextResponse.json({ saved: true, pieces: dress(next, values) })
+    }
+
+    if (!id) return NextResponse.json({ error: 'Missing draft.' }, { status: 400 })
     if (action === 'approve') return NextResponse.json({ pieces: dress(approve(sku, id, values), values) })
 
     const pieces = load(sku)

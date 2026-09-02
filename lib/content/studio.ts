@@ -408,19 +408,38 @@ export function forgetCampaign(campaignId: string): number {
   return cleared
 }
 
-/** Which products already have copy, for the picker. */
-export function coverage(): Record<string, { drafts: number; approved: number }> {
+/**
+ * Which products already have copy, for the picker.
+ *
+ * `approved` counts every approved piece regardless of `kind` — slogan,
+ * caption, hashtags, script — because the Studio screen's own counters cover
+ * all four, and that is the correct question there. But the Publish screen
+ * only ever consumes captions: it renders one dropdown of products and one
+ * gate ("No approved caption for this product") that checks `kind ===
+ * 'caption'` specifically. A product with an approved hashtag set and an
+ * approved script but no approved caption showed "2 approved" in that
+ * dropdown and then refused to publish the very product the label just
+ * endorsed — the count and the gate were answering different questions with
+ * the same number.
+ *
+ * `captions` is that third, narrower count, added rather than substituted for
+ * `approved` — redefining `approved` to mean captions-only would silently
+ * break the Studio screen's all-kinds total, which is the first bug wearing
+ * a different hat. Two consumers, two questions, two fields.
+ */
+export function coverage(): Record<string, { drafts: number; approved: number; captions: number }> {
   const d = dir()
   if (!existsSync(d)) return {}
-  const out: Record<string, { drafts: number; approved: number }> = {}
+  const out: Record<string, { drafts: number; approved: number; captions: number }> = {}
   for (const f of readdirSync(d).filter((f) => f.endsWith('.json'))) {
     try {
       const pieces = JSON.parse(readFileSync(join(d, f), 'utf8')) as Piece[]
       if (!pieces.length) continue
       const approved = pieces.filter((p) => p.status === 'approved').length
+      const captions = pieces.filter((p) => p.status === 'approved' && p.kind === 'caption').length
       // Drafts are what is NOT approved. Returning the total here printed
       // "8 drafts · 4 approved" for a product holding 4 of each.
-      out[pieces[0].sku] = { drafts: pieces.length - approved, approved }
+      out[pieces[0].sku] = { drafts: pieces.length - approved, approved, captions }
     } catch { /* an unreadable file is not a reason to hide the rest */ }
   }
   return out

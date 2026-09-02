@@ -13,6 +13,25 @@ if (existsSync(STASH)) rmSync(STASH, { recursive: true, force: true })
 if (existsSync(DIR)) renameSync(DIR, STASH)
 mkdirSync(DIR, { recursive: true })
 
+// Restored on EVERY path out, not just the one where nothing goes wrong.
+//
+// The real store has been renamed away. For a long time the restore was the
+// last statement in the file, so any throw above it — a broken fixture, an
+// exceljs change, an assertion that reads a property of undefined — left the
+// person's actual drafts sitting in `content.testbackup` while
+// `data/state/content` held this file's two fake products. Their work would
+// simply be missing from the screen.
+//
+// This test also runs EARLY in the `npm test` chain, so the same throw left
+// every later test in the run reading a store that was not theirs either.
+// A test that moves real data has to put it back whatever happens to it.
+process.on('exit', () => {
+  try {
+    rmSync(DIR, { recursive: true, force: true })
+    if (existsSync(STASH)) renameSync(STASH, DIR)
+  } catch { /* nothing left to try; the stash is still on disk under its own name */ }
+})
+
 const piece = (over) => ({
   id: 'x', sku: 'ABC-1', kind: 'caption', lang: 'en', channel: 'instagram',
   text: '', checks: [], status: 'draft', source: 'model',
@@ -66,6 +85,5 @@ ok('the export is dated',             joined.includes('2026-08-20 11:30'))
 ok('the frozen-price warning is there', /frozen/i.test(joined) && /export again/i.test(joined))
 ok('the counts are stated',           joined.includes('3 approved pieces across 1 product.'))
 
-rmSync(DIR, { recursive: true, force: true })
-if (existsSync(STASH)) renameSync(STASH, DIR)
+// The `process.on('exit')` handler above does the restoring; this just says so.
 console.log('\nreal content store restored')

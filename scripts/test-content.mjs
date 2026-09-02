@@ -136,3 +136,72 @@ ok('a digit merely INSIDE a number is caught', !numOf('We have 4 in stock', SPEC
    'the name holds 15, 5, 16, 512 and 14 — none of them is 4')
 ok('a digit inside 14-inch is caught',         !numOf('Just 1 left', SPECS).pass)
 ok('an invented count is caught',              !numOf('We have 23 laptops', SPECS).pass)
+
+// --- coverage() ---
+//
+// The Publish screen only ever accepts a `kind === 'caption'` piece, but the
+// Studio screen's counters cover all four kinds — a product with an approved
+// hashtag set and an approved script and no approved caption showed "2
+// approved" in the Publish dropdown and then refused to publish, because the
+// label and the gate were answering different questions with the same
+// number. `captions` is the narrower, third count that fixes the label
+// without touching what `drafts`/`approved` mean to the screen that already
+// gets them right.
+{
+  const { mkdirSync, writeFileSync, rmSync, existsSync, renameSync } = await import('node:fs')
+
+  // Swap the real store aside so this never reads or writes somebody's real work.
+  const DIR = 'data/state/content'
+  const STASH = 'data/state/content.testbackup'
+  if (existsSync(STASH)) rmSync(STASH, { recursive: true, force: true })
+  if (existsSync(DIR)) renameSync(DIR, STASH)
+  mkdirSync(DIR, { recursive: true })
+
+  // Everything below runs inside try/finally, and that is not ceremony. The
+  // real store has been RENAMED aside: if anything in here throws — a bad
+  // fixture, an import failure, a change to coverage() itself — an early exit
+  // leaves the person's actual drafts sitting in `content.testbackup` while
+  // `data/state/content` holds two fake products. The screen would show their
+  // work as gone. A test that can eat the data it is testing has to put it
+  // back on every path out, not just the happy one.
+  try {
+
+  const piece = (over) => ({
+    id: 'x', sku: 'ABC-1', kind: 'caption', lang: 'en', channel: 'instagram',
+    text: '', checks: [], status: 'draft', source: 'model',
+    model: 'gemma4:12b', prompt_version: 'content/v3', campaign_id: null,
+    created_at: '2026-08-20T09:00:00.000Z', ...over,
+  })
+
+  // ABC-1: one approved caption, one draft caption. The straightforward case.
+  writeFileSync(`${DIR}/ABC-1.json`, JSON.stringify([
+    piece({ id: 'a', kind: 'caption', status: 'approved', approved_at: '2026-08-20T10:00:00.000Z' }),
+    piece({ id: 'b', kind: 'caption' }),
+  ]))
+
+  // XYZ-2: the bug. An approved hashtag set and an approved script — nothing
+  // Publish can use — and no approved caption at all.
+  writeFileSync(`${DIR}/XYZ-2.json`, JSON.stringify([
+    piece({ id: 'c', sku: 'XYZ-2', kind: 'hashtags', status: 'approved', approved_at: '2026-08-20T10:00:00.000Z' }),
+    piece({ id: 'd', sku: 'XYZ-2', kind: 'script', status: 'approved', approved_at: '2026-08-20T10:00:00.000Z' }),
+    piece({ id: 'e', sku: 'XYZ-2', kind: 'caption' }), // draft only — must not count
+  ]))
+
+  const { coverage } = await import('../lib/content/studio.ts')
+  const cov = coverage()
+
+  ok('an approved caption counts',            cov['ABC-1'].captions === 1)
+  ok('a draft caption does not count',        cov['ABC-1'].drafts === 1 && cov['ABC-1'].approved === 1)
+
+  ok('the bug: approved hashtag+script, no caption',
+     cov['XYZ-2'].approved === 2 && cov['XYZ-2'].captions === 0)
+  ok('the draft caption stays a draft',       cov['XYZ-2'].drafts === 1)
+
+  rmSync(DIR, { recursive: true, force: true })
+  ok('an absent store returns {} without throwing', JSON.stringify(coverage()) === '{}')
+
+  } finally {
+    rmSync(DIR, { recursive: true, force: true })
+    if (existsSync(STASH)) renameSync(STASH, DIR)
+  }
+}
