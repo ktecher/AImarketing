@@ -45,7 +45,7 @@ const sendsFine = (c) => {
 
 const { reachable, query } = await import('../lib/db.ts')
 const store = await import('../lib/social/store.ts')
-const { sweep, sendNow, GRACE_MS } = await import('../lib/social/scheduler.ts')
+const { sweep, sendNow, GRACE_MS, STUCK_MS } = await import('../lib/social/scheduler.ts')
 
 if (!(await reachable())) {
   console.log('\nskipped: Postgres is not running (npm run db:up)')
@@ -142,9 +142,13 @@ try {
 
   console.log('\n--- a missed post can still be sent by hand ---')
   calls = []
-  ok('sendNow publishes it',       (await sendNow(missedRow.id)) === true)
+  ok('sendNow publishes it',       (await sendNow(missedRow.id)).outcome === 'sent')
   ok('and the row is posted now',  (await store.posts({ sku: `${MARK}-stale` }))[0].status === 'posted')
-  ok('twice is refused',           (await sendNow(missedRow.id)) === false)
+  // Was `=== false`, which asserted the ambiguity rather than catching it: the
+  // same false meant "already gone" and "the platform refused it", and the route
+  // told the person the first thing in both cases.
+  ok('twice says it is gone, not that it failed',
+     (await sendNow(missedRow.id)).outcome === 'gone')
 
   console.log('\n--- a failure while nobody is watching is recorded, not lost ---')
   calls = []
@@ -175,6 +179,44 @@ try {
   // `unschedule` both matched only scheduled and missed, and the screen offered
   // its buttons on the same two. The row stayed forever and its uploaded images
   // stayed on a paid host forever, with only that row able to name them.
+  console.log('\n--- a refusal is not "already sent" ---')
+  // The row `broke` above was refused by the platform a moment ago. Pressing
+  // "Post it now" on a post whose token has expired used to report that it had
+  // already gone out — the person believed it, refreshed, saw it gone from the
+  // queue (upcoming() lists only scheduled and missed), and had every reason to.
+  respond = () => ({ ok: false, status: 401, body: { error: { message: 'Error validating access token: the session has expired' } } })
+  await scheduleAt(-1, 'refuse')
+  const refusable = (await store.posts({ sku: `${MARK}-refuse` }))[0]
+  const refusal = await sendNow(refusable.id)
+  ok('the outcome is refused, not gone', refusal.outcome === 'refused', JSON.stringify(refusal))
+  ok('and it carries what the platform said',
+     /session has expired/i.test(refusal.reason ?? ''), refusal.reason ?? '')
+
+  console.log('\n--- a row abandoned mid-publish is recoverable ---')
+  // startPost and claim both write `publishing` before the request leaves. A
+  // crash between that write and the result left a row NOTHING could reach:
+  // claim and upcoming match scheduled/missed, unschedule matched those plus
+  // failed. The row stayed forever and its uploaded images stayed on a paid
+  // host with only that row able to name them.
+  const stuckRow = await store.startPost({
+    accountId: ID, caption: 'stuck', skus: [`${MARK}-stuck`],
+    imageUrls: ['https://example.invalid/a.jpg'], imagePublicIds: ['x'],
+  })
+  ok('it starts as publishing', stuckRow.status === 'publishing', stuckRow.status)
+  ok('nothing can claim it',    (await store.claim(stuckRow.id)) === false)
+  ok('nothing lists it',        !(await store.upcoming()).some((p) => p.id === stuckRow.id))
+
+  // Not yet old enough — a publish in flight must never be retired underneath
+  // itself, which is how the same post goes out twice.
+  ok('a fresh one is left alone', (await store.abandon(STUCK_MS)) === 0)
+
+  ok('an old one is retired',   (await store.abandon(0)) === 1)
+  const retired = (await store.posts({ sku: `${MARK}-stuck` }))[0]
+  ok('to failed, never retried', retired.status === 'failed', retired.status)
+  ok('and says nobody knows if it went out', /nobody knows whether it went out/i.test(retired.error ?? ''))
+  // Which is the point: from failed it can be dropped, and that frees the images.
+  ok('and its images can now be freed', (await store.unschedule(retired.id))?.length === 1)
+
   const freed = await store.unschedule(broke.id)
   ok('a failed post can be dropped',   Array.isArray(freed), JSON.stringify(freed))
   ok('and hands back its images',      freed?.length === 1, JSON.stringify(freed))

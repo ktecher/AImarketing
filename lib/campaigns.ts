@@ -374,8 +374,28 @@ async function matchingRows(idea: string): Promise<string> {
  * Exported: the campaign meeting (docs/superpowers/specs/2026-09-02-campaign-meeting-design.md) shares this rather than reimplementing it.
  */
 export function whereInTheYear(now = new Date()): string {
-  const month = now.getUTCMonth() + 1
-  const day = now.getUTCDate()
+  // Kuwait's calendar, read in Kuwait's timezone.
+  //
+  // This read UTC while `suggest()` printed the date beside it with local-time
+  // `toLocaleDateString`, so for the three hours after midnight — Kuwait is
+  // UTC+3 — the prompt could say "TODAY IS 25 February" on one line and
+  // describe the season as Hala Febrayer on the next, on the day that is
+  // National Day. Two contradictory sentences about the same date, handed to a
+  // model as fact.
+  //
+  // Pinned to Asia/Kuwait rather than the machine's zone: the answer is about
+  // the Kuwaiti retail year, and it must not change because a laptop travelled.
+  // `formatToParts`, not `format().split('/')`: en-GB writes the day first, so
+  // splitting on the separator and destructuring [month, day] silently reverses
+  // them. It cost one run to notice — 25 February parsed as month 25, matched
+  // nothing, and returned an empty season instead of National Day. Asking for
+  // each part by name cannot be ordered wrongly.
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kuwait', month: 'numeric', day: 'numeric',
+  }).formatToParts(now)
+  const part = (t: string) => Number(parts.find((p) => p.type === t)?.value)
+  const month = part('month')
+  const day = part('day')
   if (month === 2) {
     return day >= 25
       ? 'National Day and Liberation Day, 25–26 February, run as one two-day period. Patriotic themes, heavy decoration.'

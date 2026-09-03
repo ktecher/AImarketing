@@ -28,7 +28,8 @@
  * shut for ten minutes still sends. Outside it, nobody sends on the app's behalf.
  */
 
-import { failed, claim, due, giveUp, succeeded, tokenFor, upcoming, type Post } from '@/lib/social/store'
+import { abandon, failed, claim, due, giveUp, posts, succeeded, tokenFor, upcoming, type Post } from '@/lib/social/store'
+import { reachable } from '@/lib/db'
 import { publishToInstagram } from '@/lib/social/instagram'
 
 /**
@@ -46,7 +47,30 @@ export const GRACE_MS = 30 * 60 * 1000
 const EVERY_MS = 60 * 1000
 
 /** What one pass did, so a caller can log or test it without reading the table. */
-export type SweepResult = { sent: number; failed: number; missed: number }
+export type SweepResult = {
+  sent: number
+  failed: number
+  missed: number
+  /** Rows abandoned mid-publish by a crash, retired for a person to judge. */
+  stuck?: number
+  /** Set when Postgres could not be reached, so an outage is not read as a quiet pass. */
+  down?: boolean
+}
+
+/**
+ * How long a row may sit in `publishing` before it is treated as abandoned.
+ *
+ * `startPost` and `claim` both write `publishing` before the request leaves, so
+ * a crash between that write and the result — a dev-server reload mid-publish, a
+ * closed laptop, Ctrl-C — left a row NOTHING could reach: `claim`, `upcoming`
+ * and `unschedule` all matched other statuses, so it could not be retried,
+ * listed or dropped, and its uploaded images stayed on a paid host with only
+ * that dead row able to name them.
+ *
+ * Ten minutes is far longer than any publish takes and short enough that a
+ * person sees it the same afternoon.
+ */
+export const STUCK_MS = 10 * 60 * 1000
 
 /**
  * One pass: retire what is too late, send what is due.
@@ -61,6 +85,16 @@ export type SweepResult = { sent: number; failed: number; missed: number }
  * the publish route does not abort on one account.
  */
 export async function sweep(): Promise<SweepResult> {
+  // A database outage is not a quiet afternoon.
+  //
+  // `due()` returns [] and `giveUp()` returns 0 when Postgres is unreachable —
+  // both swallow their errors so a blip cannot crash the timer — so this summed
+  // to {sent: 0, failed: 0, missed: 0}, byte-identical to a healthy pass with
+  // nothing due. The sweep runs every minute, unattended, and every scheduled
+  // post in the queue would quietly miss its slot with nothing saying why.
+  if (!(await reachable())) return { sent: 0, failed: 0, missed: 0, down: true }
+
+  const stuck = await abandon(STUCK_MS)
   const missed = await giveUp(GRACE_MS)
   const ready = await due(GRACE_MS)
 
@@ -74,23 +108,51 @@ export async function sweep(): Promise<SweepResult> {
     if (await send(post)) sent++
     else failedCount++
   }
-  return { sent, failed: failedCount, missed }
+  return { sent, failed: failedCount, missed, stuck }
 }
+
+/**
+ * What happened when somebody pressed "Post it now".
+ *
+ * Three outcomes, not two. This used to be a bare `boolean`, and the route
+ * turned every false into **"That post was already sent or is no longer
+ * waiting"** — including the one case where the platform had just REFUSED it.
+ *
+ * The realistic failure is the sixty-day token expiring, which the `unschedule`
+ * docstring already names as ordinary. The person pressed the button, Instagram
+ * said no, the row went to `failed` with the real reason stored on it — and they
+ * were told it had been sent. Refreshing corroborated the lie: `upcoming()`
+ * returns only scheduled and missed, so the post had vanished from the panel
+ * they were looking at.
+ */
+export type SendOutcome =
+  | { outcome: 'sent' }
+  /** Nothing to send: already published, or dropped. */
+  | { outcome: 'gone' }
+  /** A sweep or another tab claimed it first. It is being sent right now. */
+  | { outcome: 'taken' }
+  /** The platform refused it. `reason` is what the platform actually said. */
+  | { outcome: 'refused'; reason: string }
 
 /**
  * Send one scheduled or missed post now, by hand.
  *
  * The same claim and the same send the sweep uses, deliberately: a second path
  * to publishing is a second place for the token handling and the row bookkeeping
- * to drift. Returns false when there was nothing to claim — already sent, or
- * another sweep got there first.
+ * to drift.
  */
-export async function sendNow(id: string): Promise<boolean> {
+export async function sendNow(id: string): Promise<SendOutcome> {
   const rows = await upcoming()
   const post = rows.find((r) => r.id === id)
-  if (!post) return false
-  if (!(await claim(id))) return false
-  return send(post)
+  if (!post) return { outcome: 'gone' }
+  if (!(await claim(id))) return { outcome: 'taken' }
+  if (await send(post)) return { outcome: 'sent' }
+
+  // `send` has already written the platform's own words to the row. Read them
+  // back rather than inventing a message here: the row is the report, and the
+  // person needs to know it was the token and not a click that went astray.
+  const after = (await posts({ limit: 200 })).find((r) => r.id === id)
+  return { outcome: 'refused', reason: after?.error ?? 'The platform refused this post.' }
 }
 
 /** One scheduled post, already rendered and uploaded. Never throws. */

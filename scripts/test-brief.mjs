@@ -1,6 +1,7 @@
 // The campaign brief: seven answers composed into the one field there is.
 // Pure — no database, no model — so unlike the campaigns suite it always runs.
 const { composeContext, OFFER_MECHANICS } = await import('../lib/brief.ts')
+const { whereInTheYear } = await import('../lib/campaigns.ts')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -80,6 +81,29 @@ ok('spend and measure land before notes',
 console.log('\n--- an empty meeting field omits the line, no blank label ---')
 const blankMeeting = composeContext({ ...FULL, objective: '', spend: '', measure: '' })
 ok('no meeting labels appear at all', !/^(Objective|Spend|Measure):/m.test(blankMeeting), blankMeeting)
+
+
+console.log('\n--- the retail calendar is read in Kuwait time ---')
+// This read UTC while the date printed beside it in the prompt was local, so
+// for the three hours after midnight — Kuwait is UTC+3 — the model was told
+// "TODAY IS 25 February" and, on the next line, that the season was Hala
+// Febrayer. Two contradictory sentences about the same day.
+//
+// Pinned to Asia/Kuwait rather than the machine's zone: the answer is about the
+// Kuwaiti retail year and must not change because a laptop travelled.
+const at = (iso) => whereInTheYear(new Date(iso))
+ok('just past midnight in Kuwait on National Day',
+   /National Day/.test(at('2027-02-24T22:00:00Z')), at('2027-02-24T22:00:00Z').slice(0, 40))
+ok('and the same instant is NOT read as the day before',
+   !/Hala Febrayer/.test(at('2027-02-24T22:00:00Z')))
+ok('midday on the 24th is still Hala Febrayer',
+   /Hala Febrayer/.test(at('2027-02-24T09:00:00Z')))
+// formatToParts, not format().split('/') — en-GB writes the day first, and
+// destructuring [month, day] silently reversed them. 25 February parsed as
+// month 25 and returned an empty season.
+ok('September is back to school',  /Back to School/.test(at('2026-09-03T10:00:00Z')))
+ok('November is Black Friday',     /Black Friday/.test(at('2026-11-20T10:00:00Z')))
+ok('a quiet month says nothing',   at('2026-04-15T10:00:00Z') === '')
 
 console.log(`\n${failed ? `${failed} FAILED` : 'the brief composes'}`)
 process.exit(failed ? 1 : 0)

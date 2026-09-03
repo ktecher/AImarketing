@@ -209,8 +209,9 @@ export async function startPost(p: {
   const rows = await query(
     `insert into social_posts
        (id, campaign_id, skus, account_id, caption, image_urls, image_public_ids,
-        status, scheduled_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        status, scheduled_at, publishing_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+             case when $8 = 'publishing' then now() else null end)
      returning *`,
     [
       randomUUID(), p.campaignId ?? null, p.skus ?? [], p.accountId, p.caption,
@@ -283,7 +284,7 @@ export async function giveUp(graceMs: number): Promise<number> {
  */
 export async function claim(id: string): Promise<boolean> {
   const rows = await query<{ id: string }>(
-    `update social_posts set status = 'publishing'
+    `update social_posts set status = 'publishing', publishing_at = now()
       where id = $1 and status in ('scheduled','missed')
       returning id`,
     [id],
@@ -319,6 +320,49 @@ export async function unschedule(id: string): Promise<string[] | null> {
     [id],
   )
   return rows.length ? (rows[0].image_public_ids ?? []) : null
+}
+
+/**
+ * Retire rows abandoned mid-publish, so a crash cannot strand one forever.
+ *
+ * `startPost` writes `publishing` before the request leaves and `claim` writes
+ * it again, which is right — it is the evidence that an attempt began. But if
+ * the process dies between that write and `succeeded`/`failed`, nothing could
+ * ever reach the row again: `claim` and `upcoming` match scheduled and missed,
+ * `unschedule` matches those two plus failed, and the screen offered its buttons
+ * on the same short list. The row sat there forever and its Cloudinary images
+ * sat with it, unreferenced, on a paid host.
+ *
+ * **It is retired to `failed`, never retried.** `publishing` is the one status
+ * nothing can be sure about: the request may have reached Instagram and the post
+ * may be public right now. Sending it again risks posting the same thing twice
+ * as the shop, which is worse than the row being stuck — so this hands it to a
+ * person, with the uncertainty written into the message, and they decide. From
+ * `failed` they can drop it, which frees the images.
+ *
+ * Never throws: it runs inside the sweep's timer.
+ */
+export async function abandon(afterMs: number): Promise<number> {
+  try {
+    const rows = await query<{ id: string }>(
+      `update social_posts
+          set status = 'failed',
+              error = 'Interrupted while publishing, so nobody knows whether it went out. Check the account before trying again — sending it a second time could post it twice.'
+        where status = 'publishing'
+          -- publishing_at, NEVER created_at: a post scheduled for next week is
+          -- created today, so created_at is already days old when the sweep
+          -- legitimately claims it, and measuring from there would retire a
+          -- publish that started four seconds ago. Coalesced so a row written
+          -- before migration 008 is still reachable rather than stranded by the
+          -- very fix meant to free it.
+          and coalesce(publishing_at, created_at) < now() - ($1 || ' milliseconds')::interval
+      returning id`,
+      [String(afterMs)],
+    )
+    return rows.length
+  } catch {
+    return 0
+  }
 }
 
 /** What is waiting to go out, and what was missed. Soonest first. */

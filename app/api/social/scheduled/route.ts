@@ -39,12 +39,29 @@ export async function POST(req: Request) {
   if (!id) return NextResponse.json({ error: 'Which post?' }, { status: 400 })
 
   try {
-    const ok = await sendNow(String(id))
-    if (!ok) {
-      // Not an error worth a 500: the usual cause is the sweep sending it a
-      // moment earlier, which is the outcome the person wanted anyway.
+    const r = await sendNow(String(id))
+
+    // Three outcomes, three sentences. This used to collapse them into one:
+    // every falsy result was reported as "already sent or no longer waiting",
+    // INCLUDING the case where Instagram had just refused the post. The person
+    // was told their post had gone out, refreshed, saw it gone from the queue —
+    // because `upcoming()` lists only scheduled and missed — and had every
+    // reason to believe it. The row held the real reason the whole time.
+    if (r.outcome === 'refused') {
       return NextResponse.json(
-        { ok: false, error: 'That post was already sent or is no longer waiting. Refresh to see it.' },
+        { ok: false, refused: true, error: `Instagram refused it: ${r.reason}` },
+        { status: 502 },
+      )
+    }
+    if (r.outcome === 'taken') {
+      return NextResponse.json(
+        { ok: false, error: 'It is going out right now — the scheduler reached it first. Refresh in a moment.' },
+        { status: 409 },
+      )
+    }
+    if (r.outcome === 'gone') {
+      return NextResponse.json(
+        { ok: false, error: 'That post is no longer waiting — it has already gone out, or it was dropped.' },
         { status: 409 },
       )
     }
