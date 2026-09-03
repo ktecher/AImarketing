@@ -153,9 +153,30 @@ ok('an invented count is caught',              !numOf('We have 23 laptops', SPEC
   // Swap the real store aside so this never reads or writes somebody's real work.
   const DIR = 'data/state/content'
   const STASH = 'data/state/content.testbackup'
-  if (existsSync(STASH)) rmSync(STASH, { recursive: true, force: true })
+
+  // A stash already here means the last run was INTERRUPTED, and the stash is
+  // the real work — recover it rather than delete it. This was `rmSync(STASH)`,
+  // the destructive half of a data-loss bug: no `finally` and no exit handler
+  // runs on SIGINT, `npm test` is a long chain people press Ctrl-C in, and the
+  // next run then deleted what the interrupted one had set aside. `data/state/`
+  // is gitignored, so that was final.
+  if (existsSync(STASH)) {
+    rmSync(DIR, { recursive: true, force: true })
+    renameSync(STASH, DIR)
+  }
   if (existsSync(DIR)) renameSync(DIR, STASH)
   mkdirSync(DIR, { recursive: true })
+
+  const restore = () => {
+    try {
+      rmSync(DIR, { recursive: true, force: true })
+      if (existsSync(STASH)) renameSync(STASH, DIR)
+    } catch { /* the stash is still on disk under its own name */ }
+  }
+  // Signals as well as `finally`: SIGINT is the one exit path a person causes.
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => { restore(); process.exit(130) })
+  }
 
   // Everything below runs inside try/finally, and that is not ceremony. The
   // real store has been RENAMED aside: if anything in here throws — a bad
@@ -201,7 +222,6 @@ ok('an invented count is caught',              !numOf('We have 23 laptops', SPEC
   ok('an absent store returns {} without throwing', JSON.stringify(coverage()) === '{}')
 
   } finally {
-    rmSync(DIR, { recursive: true, force: true })
-    if (existsSync(STASH)) renameSync(STASH, DIR)
+    restore()
   }
 }

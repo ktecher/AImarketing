@@ -13,7 +13,12 @@ type Product = { sku: string; name: string; onSale?: boolean; approved?: number;
 type Check = { name: string; pass: boolean; span?: string; hint?: string }
 type Tpl = { id: string; name: string }
 /** One account's outcome. Per account, because one failing does not stop the others. */
-type Result = { accountId: string; ok: boolean; platformPostId?: string; permalinkUrl?: string; error?: string }
+type Result = {
+  accountId: string; ok: boolean; platformPostId?: string; permalinkUrl?: string; error?: string
+  /** Set instead of a post id when this was scheduled rather than sent (D89).
+   * `ok: true` is shared by both, so this is the only thing that tells them apart. */
+  scheduled?: string
+}
 type Post = {
   id: string; skus: string[]; account_id: string; caption: string
   // Mirrors PostStatus in lib/social/store.ts. 'scheduled' and 'missed' are

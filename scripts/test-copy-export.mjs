@@ -9,7 +9,19 @@ const ok = (label, cond) => { console.log(`${cond ? 'ok  ' : 'FAIL'}  ${label}`)
 // Swap the real store aside so this never reads or writes somebody's real work.
 const DIR = 'data/state/content'
 const STASH = 'data/state/content.testbackup'
-if (existsSync(STASH)) rmSync(STASH, { recursive: true, force: true })
+// If a stash is already here, the last run was INTERRUPTED and the stash is the
+// real work — recover it instead of deleting it.
+//
+// This used to be `rmSync(STASH)`, which is the destructive half of a data-loss
+// bug: neither `finally` nor `process.on('exit')` runs on SIGINT, and `npm test`
+// is a long chain people press Ctrl-C in. The interrupted run left the real
+// store under the stash name with a fixture in its place, and then the NEXT run
+// deleted the stash. `data/state/` is gitignored, so that was final. Proven by
+// sending SIGINT to a mirror of this code.
+if (existsSync(STASH)) {
+  rmSync(DIR, { recursive: true, force: true })
+  renameSync(STASH, DIR)
+}
 if (existsSync(DIR)) renameSync(DIR, STASH)
 mkdirSync(DIR, { recursive: true })
 
@@ -25,12 +37,19 @@ mkdirSync(DIR, { recursive: true })
 // This test also runs EARLY in the `npm test` chain, so the same throw left
 // every later test in the run reading a store that was not theirs either.
 // A test that moves real data has to put it back whatever happens to it.
-process.on('exit', () => {
+function restore() {
   try {
     rmSync(DIR, { recursive: true, force: true })
     if (existsSync(STASH)) renameSync(STASH, DIR)
   } catch { /* nothing left to try; the stash is still on disk under its own name */ }
-})
+}
+process.on('exit', restore)
+// Signals too. A `finally` and an `exit` handler both miss SIGINT, which is the
+// one exit path a person actually causes.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { restore(); process.exit(130) })
+}
+
 
 const piece = (over) => ({
   id: 'x', sku: 'ABC-1', kind: 'caption', lang: 'en', channel: 'instagram',
