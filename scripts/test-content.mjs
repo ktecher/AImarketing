@@ -137,6 +137,50 @@ ok('a digit merely INSIDE a number is caught', !numOf('We have 4 in stock', SPEC
 ok('a digit inside 14-inch is caught',         !numOf('Just 1 left', SPECS).pass)
 ok('an invented count is caught',              !numOf('We have 23 laptops', SPECS).pass)
 
+// --- formatKwd must never print a figure the shop did not set ---
+//
+// `Number('')` is 0 AND finite, so anything that stripped to nothing used to
+// print "0.000 KD" — indistinguishable, on a poster, from a real price.
+ok('a real number formats',        formatKwd(12.5) === '12.500 KD')
+ok('a numeric string formats',     formatKwd('12.5') === '12.500 KD')
+ok('a price with a unit formats',  formatKwd('12.500 KD') === '12.500 KD')
+ok('"N/A" prints nothing',         formatKwd('N/A') === '')
+ok('"Call for price" prints nothing', formatKwd('Call for price') === '')
+ok('an em dash prints nothing',    formatKwd('—') === '')
+// The sign was stripped before the number was read, so a broken cell became a
+// plausible price. A negative price does not exist in a catalogue.
+ok('a negative is refused, not flipped', formatKwd('-5') === '')
+ok('nothing is still nothing',     formatKwd('') === '' && formatKwd(null) === '' && formatKwd(undefined) === '')
+// Zero itself is a real number a person can set, and must still print.
+ok('a genuine zero still prints',  formatKwd(0) === '0.000 KD')
+
+// --- Arabic compliance, after the ta marbuta fold ---
+//
+// Four curated stems are spelled with ه where Arabic writes ة, so before the
+// fold NONE of them could match real text and four checks were silently dead.
+// The control at the end matters as much as the rest: a fold that made the
+// guard fire on ordinary Arabic would be the opposite failure.
+{
+  const AR = { sku: 'AR-1', name_en: 'Test', price_now: 10, price_was: 20 }
+  const fires = (t) => blockers(check(t, AR)).map((c) => c.name)
+
+  ok('أعلى جودة — a superlative in real spelling is caught',
+     fires('أعلى جودة في الكويت').includes('no unsubstantiable superlative'))
+  ok('ضمان مدى الحياة — a lifetime guarantee is caught',
+     fires('ضمان مدى الحياة على كل الأجهزة').length > 0)
+  ok('بركة — a religious angle is caught',
+     fires('عرض بركة رمضان').length > 0)
+  ok('صلاة — likewise',
+     fires('احصل عليه قبل صلاة الجمعة').length > 0)
+
+  // Control. Plain product copy with ة in ordinary words — شاشة, بطارية, ساعة —
+  // must still pass, or the fold has made the guard useless in the other
+  // direction.
+  ok('ordinary Arabic copy still passes',
+     fires('شاشة كبيرة وبطارية تدوم طوال اليوم').length === 0,
+     JSON.stringify(fires('شاشة كبيرة وبطارية تدوم طوال اليوم')))
+}
+
 // --- coverage() ---
 //
 // The Publish screen only ever accepts a `kind === 'caption'` piece, but the

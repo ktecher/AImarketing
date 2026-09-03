@@ -75,3 +75,45 @@ if (threw) console.log(`      threw: ${threw.message}`)
 ok('and reads exactly the same products', commented?.products.length === r.products.length)
 ok('comments do not disturb image matching',
   commented?.products.filter((p) => p.image).length === r.products.filter((p) => p.image).length)
+
+// --- a price cell that is not a number must be REPORTED, not silently zeroed ---
+//
+// `Number('')` is 0 and is finite, so a cell reading "N/A" or "TBC" used to
+// parse as a price of zero. Both warnings then went silent — `price "…" is not
+// a number` needs undefined, and `has no price` needs an empty cell — and this
+// file's contract is that every skip names its row and its reason.
+//
+// The sale column was the worst of it: a word there gave price_now 0 against a
+// real price_was, so `on_sale` was true and a poster printed "0.000 KD" struck
+// through with the real price and badged -100%, with nothing reported anywhere.
+{
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('Products')
+  ws.addRow(['SKU', 'Name (EN)', 'Price (KD)', 'Sale Price'])
+  ws.addRow(['P-PLAIN', 'Plain', 449.5, null])
+  ws.addRow(['P-WORD',  'Word',  'N/A', null])
+  ws.addRow(['P-SALE',  'Sale',  449.5, 'No offer'])
+  const rich = ws.addRow(['P-RICH', 'Rich', null, null])
+  rich.getCell(3).value = { richText: [{ text: '449.5' }] }
+  const form = ws.addRow(['P-FORM', 'Formula', null, null])
+  form.getCell(3).value = { formula: 'A1*2', result: 449.5 }
+
+  const out = await parseWorkbook(Buffer.from(await wb.xlsx.writeBuffer()))
+  const by = (sku) => out.products.find((p) => p.sku === sku)
+
+  ok('a plain price still parses',      by('P-PLAIN')?.price_kwd === 449.5)
+  ok('a word is not a price of zero',   by('P-WORD')?.price_kwd === undefined)
+  ok('and the row says why',
+     out.issues.some((i) => /P-WORD/.test(i.reason) && /not a number/.test(i.reason)))
+  // The one that reached a poster: a word in the sale column made the product
+  // look 100% off.
+  ok('a word in the sale column does not zero the price', by('P-SALE')?.price_now === 449.5)
+  ok('and does not put it on sale',     by('P-SALE')?.on_sale !== true)
+  // exceljs hands back objects for these; the raw cell stringified to
+  // "[object Object]" and stripped to nothing, so a valid price became zero.
+  ok('a rich-text price parses',        by('P-RICH')?.price_kwd === 449.5)
+  ok('a formula price parses',          by('P-FORM')?.price_kwd === 449.5)
+  ok('and none of them print a figure nobody set',
+     [by('P-WORD')].every((p) => formatKwd(p?.price_now) === ''))
+}

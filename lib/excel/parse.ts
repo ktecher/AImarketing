@@ -122,7 +122,29 @@ const PATTERNS: Record<string, RegExp> = {
 function parsePrice(v: unknown): number | undefined {
   if (v === null || v === undefined || v === '') return undefined
   if (typeof v === 'number') return Number.isFinite(v) ? v : undefined
-  const cleaned = String(v).replace(/[^\d.,-]/g, '').replace(/,/g, '')
+
+  // Objects, through the same reader the sibling call already uses.
+  //
+  // Line 227 passed the RAW cell here while line 226 passed the same cell
+  // through `cellText`, and the two disagreed: exceljs hands back an object for
+  // a formula, a hyperlink or rich text, `String(v)` of that is
+  // "[object Object]", and everything below then stripped it to nothing. A
+  // formula cell holding a perfectly good 449.5 parsed as a price of ZERO.
+  const text = typeof v === 'object' ? cellText(v) : String(v)
+
+  const cleaned = text.replace(/[^\d.,-]/g, '').replace(/,/g, '')
+
+  // `Number('')` is 0 AND is finite, so without this a cell reading "N/A",
+  // "No offer", "TBC" or "—" returned 0 rather than undefined — and 0 is a
+  // price. Both warnings that exist to catch this then went silent: `price "…"
+  // is not a number` needs undefined, and `has no price` needs an empty cell.
+  // This file's own header promises every skip names its row and its reason.
+  //
+  // Worst case was the sale column: a word in it gave price_now 0 against a
+  // price_was of 449.5, so `onSale` was true and a poster printed "0.000 KD",
+  // struck through with 449.500, badged -100%, with nothing reported.
+  if (!cleaned || !/\d/.test(cleaned)) return undefined
+
   const n = Number(cleaned)
   return Number.isFinite(n) ? n : undefined
 }

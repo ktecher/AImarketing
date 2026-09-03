@@ -171,6 +171,19 @@ export function normaliseArabic(s: string): string {
     .replace(/٬/g, ',')
     .replace(/[أإآٱ]/g, 'ا')
     .replace(/ى/g, 'ي')
+    // Ta marbuta. Four of the curated stems above are written with ه where
+    // Arabic writes ة — ضمان مدي الحياه, اعلي جوده, بركه, صلاه — so without this fold NONE of
+    // them could ever match real text, and four compliance checks were dead.
+    // Measured before the fix: check('أعلى جودة في الكويت', …) returned ZERO
+    // blockers, on a line that is both an unsubstantiable superlative and a
+    // comparison to the whole market.
+    //
+    // Folded towards ه because that is how the stems are already spelled, and
+    // no stem contains ة, so nothing already matching stops matching. Same
+    // trade the alef and yaa folds make: a few unrelated words collide, and a
+    // guard that over-matches gets corrected by a person, while one that
+    // under-matches is invisible — which is exactly what this was.
+    .replace(/ة/g, 'ه')
     .replace(/[\u064B-\u0652\u0670]/g, '')
 }
 
