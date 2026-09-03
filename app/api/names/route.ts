@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
+import { reachable } from '@/lib/db'
 import { campaignProducts, displayNames, saveDisplayNames } from '@/lib/template/columns'
 import { checkName, nameBlockers, suggestNames, POSTER_MAX } from '@/lib/content/names'
 
@@ -41,8 +42,19 @@ async function rows(pending: Record<string, string> = {}) {
 }
 
 export async function GET() {
+  // An unreachable database reads as an empty catalogue otherwise — see the
+  // comment in app/api/advisor/route.ts. The screen would say nobody has
+  // imported a sheet, and importing needs the database too.
+  if (!(await reachable())) {
+    return NextResponse.json(
+      { up: false, posterMax: POSTER_MAX, products: [], counts: { total: 0, set: 0, tooLong: 0 },
+        error: 'Postgres is not answering. Run: npm run db:up' },
+      { status: 503 },
+    )
+  }
   const all = await rows()
   return NextResponse.json({
+    up: true,
     posterMax: POSTER_MAX,
     products: all,
     counts: {

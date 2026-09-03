@@ -92,7 +92,10 @@ export default function Social() {
   const [batchBusy, setBatchBusy] = useState('')
   const [batchConfirm, setBatchConfirm] = useState<'' | 'each' | 'carousel'>('')
   const [batchDone, setBatchDone] = useState<
-    { sku: string; posted: number; accounts: number; error?: string }[] | null
+    // `scheduled` is counted apart from `posted` for the reason the publish
+    // route counts them apart: a post that has not happened yet must never be
+    // announced as one that has. See below.
+    { sku: string; posted: number; scheduled: number; at?: string; accounts: number; error?: string }[] | null
   >(null)
 
   /** '' means send it now. Otherwise a datetime-local value (D89). */
@@ -392,7 +395,7 @@ export default function Social() {
     setBatchConfirm('')
     setBatchDone(null)
     setError('')
-    const out: { sku: string; posted: number; accounts: number; error?: string }[] = []
+    const out: { sku: string; posted: number; scheduled: number; at?: string; accounts: number; error?: string }[] = []
     for (let i = 0; i < list.length; i++) {
       const one = list[i]
       setBatchBusy(`Posting ${i + 1} of ${list.length}…`)
@@ -411,14 +414,21 @@ export default function Social() {
         const d = (await res.json().catch(() => ({}))) as
           { results?: Result[]; error?: string }
         const rs = d.results ?? []
+        // `ok: true` is shared by "sent to Instagram" and "written to the
+        // queue" — the route returns it for a scheduled post WITHOUT calling
+        // Instagram at all. `r.scheduled` is the only thing that separates
+        // them, so counting `ok` alone reported unsent posts as published.
+        const queued = rs.filter((r) => r.ok && r.scheduled)
         out.push({
           sku: one,
-          posted: rs.filter((r) => r.ok).length,
+          posted: rs.filter((r) => r.ok && !r.scheduled).length,
+          scheduled: queued.length,
+          at: queued[0]?.scheduled,
           accounts: rs.length,
           error: d.error ?? rs.find((r) => !r.ok)?.error,
         })
       } catch (e) {
-        out.push({ sku: one, posted: 0, accounts: 0,
+        out.push({ sku: one, posted: 0, scheduled: 0, accounts: 0,
           error: e instanceof Error ? e.message : 'Publishing failed.' })
       }
       // Set inside the loop, so a long run shows what has already happened
@@ -657,7 +667,16 @@ export default function Social() {
               {batchBusy && <div className="notice" style={{ marginTop: 12 }}>{batchBusy}</div>}
 
               {batchDone && batchDone.map((r) => (
-                r.posted > 0 ? (
+                /* Scheduled first: it is the case that used to be reported as
+                   posted, and the word "posted" must not appear for something
+                   nobody has seen yet. */
+                r.scheduled > 0 ? (
+                  <div key={r.sku} className="notice" style={{ marginTop: 8 }}>
+                    {products.find((x) => x.sku === r.sku)?.name ?? r.sku}
+                    {' — scheduled for ' + r.scheduled + ' of ' + r.accounts + ', '}
+                    {r.at ? when(r.at) : 'later'}. Nothing is public yet.
+                  </div>
+                ) : r.posted > 0 ? (
                   <div key={r.sku} className="notice" style={{ marginTop: 8 }}>
                     {products.find((x) => x.sku === r.sku)?.name ?? r.sku}
                     {' — posted to ' + r.posted + ' of ' + r.accounts + '.'}
@@ -789,11 +808,20 @@ export default function Social() {
             <div style={{ marginTop: 14 }}>
               {results.filter((r) => r.ok).map((r) => (
                 <div key={r.accountId} className="notice" style={{ marginBottom: 8 }}>
-                  Posted to {accountName(r.accountId)}.{' '}
+                  {/* A scheduled post shares `ok: true` with a published one —
+                      the route sets it without calling Instagram — so this said
+                      "Posted to @theshop" about something nobody had seen. It
+                      is also the only place that would have said otherwise: if
+                      the app is not running at the appointed minute the row is
+                      marked missed, and nobody looks, because this line already
+                      claimed it went out. */}
+                  {r.scheduled
+                    ? <>Scheduled for {accountName(r.accountId)}, {when(r.scheduled)}. Nothing is public yet.</>
+                    : <>Posted to {accountName(r.accountId)}.{' '}</>}
                   {/* Underlined: inside a notice the link is already the same
                       accent colour as the sentence around it, so colour alone
                       does not say it is a link. */}
-                  {r.permalinkUrl
+                  {r.permalinkUrl && !r.scheduled
                     ? <a href={r.permalinkUrl} target="_blank" rel="noreferrer"
                          style={{ textDecoration: 'underline' }}>See it</a>
                     : null}

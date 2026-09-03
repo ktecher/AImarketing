@@ -53,10 +53,17 @@ export default function Advisor() {
   const [copied, setCopied] = useState('')
   const foot = useRef<HTMLDivElement>(null)
 
+  // Null while loading, false once the route says the database is not answering.
+  // Without this an outage rendered as "no catalogue is loaded — import a sheet
+  // first", which is advice that cannot work: importing needs the database too.
+  const [dbUp, setDbUp] = useState<boolean | null>(null)
+
   useEffect(() => {
     void fetch('/api/advisor').then((r) => r.json())
-      .then((d) => setProducts(d.list ?? []))
-      .catch(() => setProducts([]))
+      .then((d) => { setDbUp(d.up !== false); setProducts(d.list ?? []) })
+      // A fetch that rejects outright — the server gone — reads the same as the
+      // database being down, and the same sentence is the right one.
+      .catch(() => { setDbUp(false); setProducts([]) })
   }, [])
 
   // The newest turn is the one being read. Without this a long answer arrives
@@ -110,7 +117,13 @@ export default function Advisor() {
         No opinion out of ten, ever.
       </p>
 
-      {products?.length === 0 && (
+      {dbUp === false ? (
+        <div className="notice warn-notice">
+          Postgres is not answering, so there is no price to check a draft against.
+          Run <code>npm run db:up</code>. Importing a sheet will not help — that needs
+          the database too.
+        </div>
+      ) : products?.length === 0 && (
         <div className="notice warn-notice">
           No catalogue is loaded, so there is no price to check a draft against.
           Import a product sheet on <b>Products &amp; designs</b> first.

@@ -4,6 +4,7 @@ import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, t
 import { productsFor } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
 import { readJson } from '@/lib/http'
+import { reachable } from '@/lib/db'
 import { recordExport } from '@/lib/assets'
 import { current } from '@/lib/campaigns'
 
@@ -32,6 +33,13 @@ export async function POST(req: Request) {
 
   // Resolved rather than filtered: a SKU chosen from the catalogue is not in
   // any sheet, and filtering the sheet for it returned an empty ZIP.
+  // 503 before the 400 below. `productsFor()` swallows a database error and
+  // returns nothing, so an outage arrived at the next line and was reported as
+  // "you chose nothing" — a refusal blamed on the person, for a database they
+  // had not started.
+  if (!(await reachable())) {
+    return Response.json({ error: 'Postgres is not answering. Run: npm run db:up' }, { status: 503 })
+  }
   const rows: ProductValues[] = await productsFor(skus)
   if (!rows.length) {
     return Response.json(

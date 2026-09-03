@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
+import { reachable } from '@/lib/db'
 import { campaignProducts } from '@/lib/template/columns'
 import { blockers, check, DERIVED, fill } from '@/lib/content/guard'
 import { approve, coverage, draft, load, save, type Channel, type Kind, type Piece } from '@/lib/content/studio'
@@ -44,6 +45,14 @@ const dress = (pieces: Piece[], values: Record<string, unknown>) =>
   }))
 
 export async function GET(req: Request) {
+  // See app/api/advisor/route.ts: a stopped Postgres and an empty catalogue are
+  // the same empty list otherwise, and the screen gives advice that cannot work.
+  if (!(await reachable())) {
+    return NextResponse.json(
+      { up: false, products: [], error: 'Postgres is not answering. Run: npm run db:up' },
+      { status: 503 },
+    )
+  }
   const sku = new URL(req.url).searchParams.get('sku')
   const products = await campaignProducts()
 

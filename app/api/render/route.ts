@@ -3,6 +3,7 @@ import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
 import { productsFor } from '@/lib/template/columns'
 import { readJson } from '@/lib/http'
+import { reachable } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -22,7 +23,22 @@ export async function POST(req: Request) {
   // Three ways to say what to render, narrowest first: rows handed over
   // wholesale (the editor previewing an unsaved layout), a list of SKUs picked
   // from the catalogue, or nothing — which still means "the sheet we imported".
-  const all: ProductValues[] = Array.isArray(products) && products.length
+  const handedOver = Array.isArray(products) && products.length
+  // Only when this actually goes to the catalogue. The editor hands its rows
+  // over wholesale to preview an unsaved layout and needs no database at all —
+  // refusing that would break a screen that was working.
+  //
+  // On the path that DOES read: `productsFor()` returns [] on a database error,
+  // so an outage rendered as `total: 0` with a 200 beside it, and the Designs
+  // grid came up empty with nothing saying why. See app/api/advisor/route.ts.
+  if (!handedOver && !(await reachable())) {
+    return Response.json(
+      { error: 'Postgres is not answering. Run: npm run db:up' },
+      { status: 503 },
+    )
+  }
+
+  const all: ProductValues[] = handedOver
     ? (products as ProductValues[])
     : await productsFor(Array.isArray(skus) ? (skus as unknown[]).map(String) : undefined)
 
