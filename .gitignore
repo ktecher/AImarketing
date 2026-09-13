@@ -67,3 +67,6 @@ backups/
 
 # next dev --experimental-https writes its self-signed cert here (D86).
 certificates/
+
+# Isolated workspaces for subagent-driven plan execution.
+.worktrees/
