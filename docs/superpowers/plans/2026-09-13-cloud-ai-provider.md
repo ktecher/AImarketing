@@ -106,8 +106,10 @@ Apply it: `psql "$DATABASE_URL" -f db/009_ai_settings.sql` (or `npm run db:migra
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64')
 
-import { query } from '../lib/db.ts'
-import { FEATURES, resolve, setGlobal, setFeature } from '../lib/ai/settings.ts'
+// Dynamic, after the env is set -- static imports are hoisted ahead of the
+// two lines above, same convention scripts/test-schedule.mjs already follows.
+const { query } = await import('../lib/db.ts')
+const { FEATURES, resolve, setGlobal, setFeature } = await import('../lib/ai/settings.ts')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -455,7 +457,9 @@ Provider APIs are stubbed via a replaced global `fetch` — same pattern `script
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 
 import { z } from 'zod'
-import { generate, generateJson, generateStream, DEFAULT_MODELS } from '../lib/ai/cloud.ts'
+// Dynamic: same convention as the other new test scripts here, even though
+// this module doesn't itself read process.env at import time.
+const { generate, generateJson, generateStream, DEFAULT_MODELS } = await import('../lib/ai/cloud.ts')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -879,16 +883,20 @@ git commit -m "Add lib/ai/cloud.ts: OpenAI/Anthropic/Google adapters (D97)"
 ```js
 // scripts/test-ai-route.mjs
 //
-// The router: local vs. cloud dispatch, and that modelLabel never makes a
-// network call. Both generate.ts and cloud.ts are replaced with stubs here --
-// this test is about WHICH ONE gets called, not what either does (that's
-// test-ai-cloud.mjs's job).
+// The router: local vs. cloud dispatch, proven by actually calling
+// route.generate()/generateJson() with fetch replaced -- not inferred from
+// modelLabel() alone. modelLabel resolves the SAME setting but never calls
+// anything, so it cannot prove which backend a real call actually reaches;
+// this test asserts the real call landed on the right host.
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64')
 
-import { query } from '../lib/db.ts'
-import { setGlobal, setFeature } from '../lib/ai/settings.ts'
-import * as route from '../lib/ai/route.ts'
+// Dynamic, after the env is set -- static imports are hoisted ahead of the
+// two lines above, same convention scripts/test-schedule.mjs already follows.
+const { query } = await import('../lib/db.ts')
+const { setGlobal, setFeature } = await import('../lib/ai/settings.ts')
+const route = await import('../lib/ai/route.ts')
+const { z } = await import('zod')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -896,15 +904,43 @@ const ok = (label, cond, detail = '') => {
   console.log(`${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `   ${detail}` : ''}`)
 }
 
+let calls = []
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url))
+  calls.push({ host: u.host, path: u.pathname })
+  if (u.host.startsWith('127.0.0.1') || u.host === 'localhost:11434') {
+    return { ok: true, status: 200, json: async () => ({ response: 'hi from local' }) }
+  }
+  if (u.host === 'api.openai.com') {
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'hi from cloud' } }] }) }
+  }
+  throw new Error(`test stub: unexpected host ${u.host}`)
+}
+
 const before = await query('select * from ai_settings order by feature')
 
 try {
   await setGlobal('local')
   await setFeature('content_studio', 'default')
+
+  calls = []
+  const localText = await route.generate('content_studio', 'hi')
+  ok('generate: a local feature reaches Ollama', localText === 'hi from local', localText)
+  ok('generate: local call hits the loopback host, not a provider',
+     calls.length === 1 && (calls[0].host.startsWith('127.0.0.1') || calls[0].host === 'localhost:11434'),
+     JSON.stringify(calls))
+
   const localModel = await route.modelLabel('content_studio')
   ok('modelLabel: local feature returns the Ollama model id', localModel === 'gemma4:12b', localModel)
 
   await setFeature('content_studio', 'openai', { apiKey: 'sk-x', model: 'gpt-4o-mini' })
+
+  calls = []
+  const cloudText = await route.generate('content_studio', 'hi')
+  ok('generate: a cloud feature reaches the configured provider', cloudText === 'hi from cloud', cloudText)
+  ok('generate: cloud call hits api.openai.com, not Ollama',
+     calls.length === 1 && calls[0].host === 'api.openai.com', JSON.stringify(calls))
+
   const cloudModel = await route.modelLabel('content_studio')
   ok('modelLabel: cloud feature returns "provider:model"', cloudModel === 'openai:gpt-4o-mini', cloudModel)
 
@@ -912,6 +948,22 @@ try {
   const cloudDefaultModel = await route.modelLabel('content_studio')
   ok('modelLabel: no stored model falls back to the provider default', cloudDefaultModel === 'openai:gpt-4o-mini', cloudDefaultModel)
 
+  // generateJson takes the same dispatch branch as generate -- one call
+  // proves the branch, not the JSON parsing itself (test-ai-cloud.mjs and
+  // the existing generate.ts suite already cover that).
+  await setFeature('content_studio', 'default')
+  await setGlobal('openai', { apiKey: 'sk-global' })
+  calls = []
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url))
+    calls.push({ host: u.host })
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) }
+  }
+  const jsonResult = await route.generateJson('content_studio', 'hi', z.object({ ok: z.boolean() }), {})
+  ok('generateJson: "default" following a cloud global also dispatches to cloud',
+     jsonResult.ok === true && calls[0]?.host === 'api.openai.com', JSON.stringify({ jsonResult, calls }))
+
+  await setGlobal('local')
   await setFeature('content_studio', 'default')
   ok('embed is not exported by route.ts', route.embed === undefined)
 } finally {
