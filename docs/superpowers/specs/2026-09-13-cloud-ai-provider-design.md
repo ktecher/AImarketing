@@ -52,10 +52,15 @@ specific feature being explicitly switched to it in Settings.
   or a provider outage fails the call visibly, same as a bad JSON response
   from Ollama does today. Falling back silently would hide a cost or quality
   problem behind output that looks normal.
-- **No unified multi-provider SDK abstraction** (e.g. Vercel AI SDK). Three
-  light, official SDKs (`openai`, `@anthropic-ai/sdk`, `@google/generative-ai`)
-  cover this with less new surface than a generic abstraction layer would,
-  and the `openai` client already works against Ollama unchanged.
+- **No provider SDK at all** (not `openai`, not `@anthropic-ai/sdk`, not
+  `@google/generative-ai`, not the Vercel AI SDK). None is currently
+  installed, and this codebase has already made this exact call twice —
+  `lib/social/cloudinary.ts` and `lib/social/instagram.ts` both hand-roll
+  their HTTP against documented REST APIs rather than take on "a dependency,
+  a bundle, and an update treadmill" for a handful of `fetch` calls. All
+  three providers' chat endpoints are plain JSON-over-HTTPS with a
+  bearer/API-key header; `cloud.ts` does what `generate.ts` already does for
+  Ollama, against three more hosts.
 - **No change to `lib/ai/generate.ts` itself.** Its loopback assertion and
   guarantees stay exactly as they are; it remains the local-only path,
   untouched by this feature.
