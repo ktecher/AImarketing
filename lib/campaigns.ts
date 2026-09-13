@@ -29,7 +29,7 @@ import { postedFor } from '@/lib/social/store'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { query } from '@/lib/db'
-import { generateJson, MODELS } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { inbox, forgetCampaign as forgetInChat, type Conversation } from '@/lib/chat/store'
 import { allPieces, forgetCampaign as forgetInCopy, type Piece } from '@/lib/content/studio'
 import { why } from '@/lib/chat/reasons'
@@ -496,7 +496,8 @@ export async function suggest(idea: string): Promise<Suggestion> {
     .slice(0, 2)
     .filter((c) => c.context.trim())
 
-  const out = await generateJson(
+  const out = await route.generateJson(
+    'campaigns',
     [
       'You are a campaign planner for a consumer electronics shop in Kuwait.',
       'A colleague has given you a rough idea. Turn it into the head of a brief.',
@@ -594,5 +595,5 @@ export async function suggest(idea: string): Promise<Suggestion> {
       : []),
   ]
 
-  return { ...out, invented: [...new Set(invented)], weak, model: MODELS.english }
+  return { ...out, invented: [...new Set(invented)], weak, model: await route.modelLabel('campaigns') }
 }

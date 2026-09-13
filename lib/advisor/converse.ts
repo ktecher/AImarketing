@@ -20,7 +20,8 @@
  */
 
 import { z } from 'zod'
-import { generate, generateJson, isQuoted, MODELS } from '@/lib/ai/generate'
+import { isQuoted } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { blockers, check, type Check } from '@/lib/content/guard'
 import { CHANNELS, type Channel } from '@/lib/content/studio'
 import { type Row } from '@/lib/rag/retrieve'
@@ -185,7 +186,8 @@ export async function converse(
 
   let prose: string
   try {
-    prose = await generate(
+    prose = await route.generate(
+      'advisor',
       `${base}\n\n` +
         'Give your read in under 120 words. Say the one thing that is working, then the ' +
         'biggest problem with the opening line, then whether the call to action is doing ' +
@@ -214,7 +216,7 @@ export async function converse(
       offline: /fetch failed|ECONNREFUSED/i.test(msg)
         ? 'Ollama is not answering, so there is no written advice this turn. The checks below ran anyway — they need no model.'
         : 'The model failed this turn. The checks below ran anyway.',
-      model: MODELS.english,
+      model: await route.modelLabel('advisor'),
       prompt_version: ADVISOR_PROMPT_VERSION,
     }
   }
@@ -223,7 +225,8 @@ export async function converse(
   // suggestions without the constraint touching the prose above.
   let extracted: z.infer<typeof AdviceSchema>
   try {
-    extracted = await generateJson(
+    extracted = await route.generateJson(
+      'advisor',
       'Pull the concrete suggestions out of this creative note.\n\n' +
         'rewrites: only where the note WROTE OUT a replacement line. `instead_of` must be copied ' +
         'WORD FOR WORD from the draft below; `write` must be the finished line, publishable as ' +
@@ -287,7 +290,7 @@ export async function converse(
     caution: blockers(check(prose, (row ?? {}) as Record<string, unknown>))
       .filter((c) => c.name !== 'every placeholder is a real field' && c.name !== 'every placeholder has a value')
       .filter((c) => !(c.span && draft.includes(c.span))),
-    model: MODELS.english,
+    model: await route.modelLabel('advisor'),
     prompt_version: ADVISOR_PROMPT_VERSION,
   }
 }

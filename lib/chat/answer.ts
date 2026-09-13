@@ -17,7 +17,8 @@
  */
 
 import { z } from 'zod'
-import { generate, isGrounded, MODELS } from '@/lib/ai/generate'
+import { isGrounded } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { isProductIdentity } from '@/lib/content/guard'
 import { formatKwd } from '@/lib/money'
 import { retrieve, type Hit, type Row } from '@/lib/rag/retrieve'
@@ -152,7 +153,7 @@ export const ESCALATION =
  * answer "your bot told me 40 KD" six weeks later.
  */
 export async function answer(question: string): Promise<Answer & { hits: Hit[] }> {
-  const base = { model: MODELS.english, prompt_version: PROMPT_VERSION }
+  const base = { model: await route.modelLabel('sales_chat'), prompt_version: PROMPT_VERSION }
   const escalate = (reason: Answer['reason'], hits: Hit[] = []) => ({
     ...base, hits, reply: ESCALATION, cited: [], escalated: true, reason,
     retrieved: hits.map((h) => h.sku),
@@ -166,7 +167,7 @@ export async function answer(question: string): Promise<Answer & { hits: Hit[] }
 
   let raw: string
   try {
-    raw = await generate(`${factSheet(hits)}\n\nCustomer: ${question}`, { system: SYSTEM, temperature: 0, maxTokens: 220 })
+    raw = await route.generate('sales_chat', `${factSheet(hits)}\n\nCustomer: ${question}`, { system: SYSTEM, temperature: 0, maxTokens: 220 })
   } catch {
     return escalate('model-unavailable', hits)
   }

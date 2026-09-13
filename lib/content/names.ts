@@ -13,7 +13,7 @@
  */
 
 import { z } from 'zod'
-import { generateJson } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 
 /** The range a poster headline actually occupies. Not a style preference. */
 export const POSTER_MAX = 35
@@ -132,7 +132,7 @@ export async function suggestNames(
       `TITLES:\n${list}`
 
     try {
-      const { suggestions } = await generateJson(prompt, Suggestion, z.toJSONSchema(Suggestion), {
+      const { suggestions } = await route.generateJson('content_studio', prompt, Suggestion, z.toJSONSchema(Suggestion), {
         maxTokens: 700,
       })
       const wanted = new Map(batch.map((p) => [p.sku, p]))

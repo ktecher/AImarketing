@@ -33,7 +33,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { generate, generateJson, MODELS } from '@/lib/ai/generate'
+import { MODELS } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { blockers, check, isProductIdentity } from '@/lib/content/guard'
 import { retrieve } from '@/lib/rag/retrieve'
 import { campaignProducts } from '@/lib/template/columns'
@@ -572,7 +573,8 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
   // prompt, on a call somebody is waiting through.
   let known = withYou.known
   try {
-    const out = await generateJson(
+    const out = await route.generateJson(
+      'campaigns',
       [
         'Read this meeting transcript and record only what the COLLEAGUE has actually said.',
         'You are a note-taker, not a planner. You are not being asked what would be sensible.',
@@ -621,7 +623,8 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
 
   let prose: string
   try {
-    prose = await generate(
+    prose = await route.generate(
+      'campaigns',
       [
         base,
         '',
@@ -835,7 +838,8 @@ export async function plan(m: Meeting): Promise<Plan> {
   const { text: base, asOf } = await preamble(m, idea)
   const total = budgetOf(m.known)
 
-  const reasoning = await generate(
+  const reasoning = await route.generate(
+    'campaigns',
     [
       base,
       '',
@@ -848,7 +852,8 @@ export async function plan(m: Meeting): Promise<Plan> {
     { temperature: 0.6 },
   )
 
-  const out = await generateJson(
+  const out = await route.generateJson(
+    'campaigns',
     [
       base,
       '',
@@ -927,7 +932,7 @@ export async function plan(m: Meeting): Promise<Plan> {
     caution: blockers(check(prose, identity))
       .filter((c) => c.name !== 'every placeholder is a real field' && c.name !== 'every placeholder has a value')
       .filter((c) => !(c.span && mine.includes(c.span))),
-    model: MODELS.english,
+    model: await route.modelLabel('campaigns'),
     prompt_version: MEETING_PROMPT_VERSION,
   }
 }

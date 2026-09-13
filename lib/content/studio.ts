@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { generate, generateJson, MODELS } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { check, blockers, fill, tokensFor, type Check } from './guard'
 
 /** Bump when a prompt changes. Stored on every piece, so old drafts stay explicable. */
@@ -243,7 +243,8 @@ export async function draft(
 
   const [copyProse, scriptProse] = await Promise.all([
     wantsCopy
-      ? generate(
+      ? route.generate(
+          'content_studio',
           `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}${steer}\n\n` +
             `Write, for this one product:\n${asks.join('\n')}\n\n` +
             `Write them as a plain list. Do not explain your choices.`,
@@ -253,7 +254,8 @@ export async function draft(
         )
       : '',
     kinds.has('script')
-      ? generate(
+      ? route.generate(
+          'content_studio',
           `${base}\n\nCHANNEL — ${ch.label}. ${ch.brief}${steer}${existing}\n\n` +
             `Write a short vertical video script for a person holding this product on camera:\n` +
             `- the hook: the first line spoken, under two seconds\n` +
@@ -272,7 +274,8 @@ export async function draft(
   const copySpec = copySchema(kinds)
   const [copy, script] = await Promise.all([
     wantsCopy
-      ? generateJson(
+      ? route.generateJson(
+          'content_studio',
           `Sort this copy into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written. Drop anything that is a heading, a note, or an explanation.\n\n${copyProse}`,
           copySpec.schema,
           copySpec.json,
@@ -280,7 +283,8 @@ export async function draft(
         )
       : Promise.resolve({} as { slogans?: string[]; captions?: string[]; hashtags?: string[] }),
     kinds.has('script')
-      ? generateJson(
+      ? route.generateJson(
+          'content_studio',
           `Sort this video script into fields. Change nothing about the wording — keep placeholders like {price_now} exactly as written.\n\n${scriptProse}`,
           ScriptSchema,
           z.toJSONSchema(ScriptSchema),
@@ -292,7 +296,7 @@ export async function draft(
   const meta = {
     sku, lang: 'en' as const, channel,
     status: 'draft' as const, source: 'model' as const,
-    model: MODELS.english, prompt_version: PROMPT_VERSION,
+    model: await route.modelLabel('content_studio'), prompt_version: PROMPT_VERSION,
     campaign_id: campaignId, created_at: now,
   }
 
