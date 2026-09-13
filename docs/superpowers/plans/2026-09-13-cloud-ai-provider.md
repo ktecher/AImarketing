@@ -869,14 +869,15 @@ git commit -m "Add lib/ai/cloud.ts: OpenAI/Anthropic/Google adapters (D97)"
 - Modify: `package.json` — add `test-ai-route.mjs` right after `test-ai-cloud.mjs`.
 
 **Interfaces:**
-- Consumes: `resolve`, `Feature` from `@/lib/ai/settings`; `generate`, `generateJson`, `generateStream`, `MODELS` from `@/lib/ai/generate`; `generate` (as `cloudGenerate`), `generateJson` (as `cloudGenerateJson`), `generateStream` (as `cloudGenerateStream`), `DEFAULT_MODELS` from `@/lib/ai/cloud`.
+- Consumes: `resolve`, `Feature` from `@/lib/ai/settings`; `generate`, `generateJson`, `MODELS` from `@/lib/ai/generate`; `generate` (as `cloudGenerate`), `generateJson` (as `cloudGenerateJson`), `DEFAULT_MODELS` from `@/lib/ai/cloud`.
 - Produces (for Task 5's six call sites):
   ```ts
   export async function generate(feature: Feature, prompt: string, opts?: Options): Promise<string>
   export async function generateJson<T>(feature: Feature, prompt: string, schema: z.ZodType<T>, jsonSchema: unknown, opts?: Options): Promise<T>
-  export async function generateStream(feature: Feature, prompt: string, opts: Options, onDelta: (text: string) => void): Promise<string>
   export async function modelLabel(feature: Feature): Promise<string>
   ```
+
+**Ruling, recorded during execution (not in the original spec):** `lib/ai/generate.ts` — the real, committed local seam this branch builds on — has no `generateStream` export, and no committed call site in this codebase currently calls one either. The original plan assumed one existed (based on a misread of an uncommitted, in-progress edit on `main` that was never part of this branch's history). Since nothing needs router-dispatched streaming today, `route.ts` does not export `generateStream` at all — adding one here would mean either breaking the "no change to `generate.ts`" constraint to invent a local counterpart with no caller, or shipping a dead export. `lib/ai/cloud.ts`'s own `generateStream` (Task 3, already built and reviewed) is untouched and remains directly callable by a future feature that needs cloud-only streaming.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1005,13 +1006,11 @@ import { resolve, type Feature } from '@/lib/ai/settings'
 import {
   generate as localGenerate,
   generateJson as localGenerateJson,
-  generateStream as localGenerateStream,
   MODELS,
 } from '@/lib/ai/generate'
 import {
   generate as cloudGenerate,
   generateJson as cloudGenerateJson,
-  generateStream as cloudGenerateStream,
   DEFAULT_MODELS,
   type CloudProvider,
 } from '@/lib/ai/cloud'
@@ -1045,18 +1044,6 @@ export async function generateJson<T>(
   return provider
     ? cloudGenerateJson(prompt, schema, jsonSchema, opts, provider)
     : localGenerateJson(prompt, schema, jsonSchema, opts)
-}
-
-export async function generateStream(
-  feature: Feature,
-  prompt: string,
-  opts: Options,
-  onDelta: (text: string) => void,
-): Promise<string> {
-  const provider = await cloudProviderFor(feature)
-  return provider
-    ? cloudGenerateStream(prompt, opts, onDelta, provider)
-    : localGenerateStream(prompt, opts, onDelta)
 }
 
 /**
@@ -1097,14 +1084,16 @@ git commit -m "Add lib/ai/route.ts: per-feature local/cloud dispatch (D97)"
 **Files:**
 - Modify: `lib/content/studio.ts:17,246,256,275,283,295`
 - Modify: `lib/content/names.ts:16,135`
-- Modify: `lib/advisor/converse.ts:23,198,227,236,300`
+- Modify: `lib/advisor/converse.ts:23,188,217,226,290`
 - Modify: `lib/chat/answer.ts:20,155,169`
-- Modify: `lib/campaigns.ts:32,548,649`
-- Modify: `lib/meeting.ts:36,181,750,919,1109,1122,1202`
+- Modify: `lib/campaigns.ts:32,499,597`
+- Modify: `lib/meeting.ts:36,163,575,624,838,851,930`
 - Test: existing `scripts/test-content.mjs`, `scripts/test-names.mjs`, `scripts/test-advisor.mjs`, `scripts/test-chat.mjs`, `scripts/test-campaigns.mjs`, `scripts/test-meeting.mjs` (all already in `npm test` — no new test files; this task's correctness is that they still pass unchanged, since with every feature at its seeded 'default'/'local' state the router's behavior is identical to calling `generate.ts` directly).
 
+**Note on line numbers:** these were re-verified directly against this branch's actual committed files during Task 4's fix loop — they differ from an earlier draft of this plan, which was accidentally written against an uncommitted, in-progress edit on `main` that this branch never had (see Task 4's ruling). `lib/meeting.ts` in particular has no `generateStream` call anywhere in this branch — its four async calls are `generateJson`, `generate`, `generate`, `generateJson`, in that order, listed below exactly as they appear.
+
 **Interfaces:**
-- Consumes: `generate`, `generateJson`, `generateStream`, `modelLabel` from `@/lib/ai/route` (feature id is each file's own constant — `'content_studio'`, `'advisor'`, `'sales_chat'`, or `'campaigns'`).
+- Consumes: `generate`, `generateJson`, `modelLabel` from `@/lib/ai/route` (feature id is each file's own constant — `'content_studio'`, `'advisor'`, `'sales_chat'`, or `'campaigns'`). No file in this task uses `generateStream` — `lib/ai/route.ts` does not export one (Task 4's ruling).
 - Produces: no change to any of these files' own exports.
 
 Because every `ai_settings` row is seeded to `'local'`/`'default'` (Task 1), `route.generate(feature, ...)` calls `localGenerate(...)` under the hood exactly as `generate.ts`'s own `generate(...)` did before — these six files' behavior is unchanged until someone uses the Settings screen (Task 7).
@@ -1147,7 +1136,7 @@ to:
 import { isQuoted } from '@/lib/ai/generate'
 import * as route from '@/lib/ai/route'
 ```
-Change the `generate(` call at line 198 to `route.generate('advisor', ` and the `generateJson(` call at line 236 to `route.generateJson('advisor', `. Change both `model: MODELS.english` literals (lines 227 and 300) to `model: await route.modelLabel('advisor')`.
+Change the `generate(` call at line 188 to `route.generate('advisor', ` and the `generateJson(` call at line 226 to `route.generateJson('advisor', `. Change both `model: MODELS.english` literals (lines 217 and 290) to `model: await route.modelLabel('advisor')`.
 
 - [ ] **Step 4: Run this feature's tests**
 
@@ -1182,17 +1171,17 @@ to:
 ```ts
 import * as route from '@/lib/ai/route'
 ```
-Change the `generateJson(` call at line 548 to `route.generateJson('campaigns', `. Change the `model: MODELS.english` literal at line 649 to `model: await route.modelLabel('campaigns')`.
+Change the `generateJson(` call at line 499 to `route.generateJson('campaigns', `. Change the `model: MODELS.english` literal at line 597 to `model: await route.modelLabel('campaigns')`.
 
 In `lib/meeting.ts:36`, change:
 ```ts
-import { generate, generateJson, generateStream, MODELS } from '@/lib/ai/generate'
+import { generate, generateJson, MODELS } from '@/lib/ai/generate'
 ```
 to:
 ```ts
 import * as route from '@/lib/ai/route'
 ```
-Change the `generateJson(` call at line 750 to `route.generateJson('campaigns', `, the `generateStream(` call at line 919 to `route.generateStream('campaigns', `, the `generate(` call at line 1109 to `route.generate('campaigns', `, and the `generateJson(` call at line 1122 to `route.generateJson('campaigns', `. Change both `model: MODELS.english` literals (lines 181 and 1202) to `model: await route.modelLabel('campaigns')`.
+This file has four calls to route, in source order: the `generateJson(` call at line 575 becomes `route.generateJson('campaigns', `; the `generate(` call at line 624 becomes `route.generate('campaigns', `; the `generate(` call at line 838 becomes `route.generate('campaigns', `; the `generateJson(` call at line 851 becomes `route.generateJson('campaigns', `. Change both `model: MODELS.english` literals (lines 163 and 930) to `model: await route.modelLabel('campaigns')`. There is no `generateStream` call in this file — `lib/ai/route.ts` does not export one (Task 4's ruling), and nothing here needs it.
 
 - [ ] **Step 8: Run this feature's tests**
 
@@ -1493,4 +1482,4 @@ git commit -m "Record D97: bring-your-own cloud AI provider"
 
 - **Spec coverage:** Settings storage (Task 1), `lib/ai/cloud.ts` (Task 3), `lib/ai/route.ts` + `modelLabel` (Task 4), checker exception (Task 2, sequenced before Task 3 so `npm test` never goes red), all six call sites (Task 5), Settings UI + validation-before-save (Tasks 6–7), decision entry (Task 8). Embeddings-excluded requirement is enforced structurally — `route.ts` never imports or re-exports `embed`, and Task 4's test asserts that.
 - **Type consistency checked:** `Feature`, `Provider`, `Backend`, `CloudProvider` are defined once (`lib/ai/settings.ts` and `lib/ai/cloud.ts` respectively) and only ever imported downstream, never redeclared.
-- **Known ceiling, on record (Task 3):** `generateStream` only implements OpenAI's SSE framing; Anthropic/Google streaming throws a clear error rather than silently degrading. None of today's six call sites need cloud-routed streaming to work on day one — `lib/meeting.ts`'s `generateStream` caller only runs when `campaigns` is local, which is the default.
+- **Known ceiling, on record (Task 3):** `lib/ai/cloud.ts`'s `generateStream` only implements OpenAI's SSE framing; Anthropic/Google streaming throws a clear error rather than silently degrading. It has no caller today — `lib/ai/route.ts` does not export a `generateStream` at all (Task 4's ruling, made when Task 4 discovered `lib/ai/generate.ts` has no local streaming primitive in this branch, unlike an earlier draft of this plan that assumed one existed). Add one to both files together if a future feature genuinely needs router-dispatched streaming.
