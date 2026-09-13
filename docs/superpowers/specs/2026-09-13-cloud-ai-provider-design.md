@@ -16,9 +16,8 @@ rows, customer messages and drafts never leave this machine.
 The maintainer wants an escape hatch, opt-in and explicit: connect an OpenAI,
 Anthropic or Google API key and let specific features use that provider
 instead of the local model. Some features (advising, campaigns) may want
-cloud reasoning quality; sales chat and the catalogue helper carry customer
-and product data, so switching those to cloud is a real, informed choice, not
-a default.
+cloud reasoning quality; sales chat carries live customer messages, so
+switching it to cloud is a real, informed choice, not a default.
 
 This is a deliberate, recorded widening of rule 1 — not a workaround of it.
 What still never happens: nothing is sent to a cloud provider without that
@@ -29,18 +28,21 @@ specific feature being explicitly switched to it in Settings.
 **In:**
 - A `Settings` screen: a global default (local vs. one connected cloud
   provider) and a per-feature override for each of: content studio, creative
-  advisor, sales chat, campaigns/meeting, catalogue helper.
+  advisor, sales chat, campaigns/meeting.
 - Storage for one API key per provider (OpenAI, Anthropic, Google), encrypted
   at rest.
 - A new `lib/ai/cloud.ts`, the only other file (besides `lib/social/`)
   permitted to reach off this machine, implementing the same three calls
   `generate.ts` exposes (`generate`, `generateJson`, `generateStream`) against
   whichever provider a feature is set to.
-- A router, `lib/ai/route.ts`, that every one of the eight existing call
-  sites imports instead of `generate.ts` directly, resolving which backend to
-  use per feature at call time.
-- A visible, specific warning next to the sales-chat and catalogue-helper
-  toggles stating what leaves when cloud is on for them.
+- A router, `lib/ai/route.ts`, that every one of the six existing
+  text-generation call sites imports instead of `generate.ts` directly,
+  resolving which backend to use per feature at call time:
+  `lib/content/studio.ts`, `lib/content/names.ts` (feature `content_studio`);
+  `lib/advisor/converse.ts` (`advisor`); `lib/chat/answer.ts` (`sales_chat`);
+  `lib/campaigns.ts`, `lib/meeting.ts` (`campaigns`).
+- A visible, specific warning next to the sales-chat toggle stating what
+  leaves when cloud is on for it.
 
 **Out, deliberately:**
 - **Embeddings are not switchable.** `rag/retrieve.ts`'s `embed()` keeps
@@ -73,7 +75,7 @@ specific feature being explicitly switched to it in Settings.
 ```
                     ┌─────────────────────┐
 call sites  ──────▶ │   lib/ai/route.ts   │
-(8 modules)         │  (per-feature pick) │
+(6 modules)         │  (per-feature pick) │
                     └──────────┬──────────┘
                           local│      │cloud
                     ┌──────────▼──┐ ┌─▼──────────────┐
@@ -93,7 +95,7 @@ either way — a call site never branches on provider itself.
 ```sql
 create table ai_settings (
   feature           text primary key,   -- 'global' | 'content_studio' | 'advisor'
-                                          -- | 'sales_chat' | 'campaigns' | 'catalogue'
+                                          -- | 'sales_chat' | 'campaigns'
   provider          text not null,       -- 'default' | 'local' | 'openai' | 'anthropic' | 'google'
   model             text,                -- provider-specific model id; null = provider default
   api_key_encrypted text,                -- null when provider = 'local' or 'default'
@@ -145,18 +147,37 @@ call to make). Per provider:
 ## `lib/ai/route.ts`
 
 ```ts
-type Feature = 'content_studio' | 'advisor' | 'sales_chat' | 'campaigns' | 'catalogue'
+type Feature = 'content_studio' | 'advisor' | 'sales_chat' | 'campaigns'
 
 async function backendFor(feature: Feature): Promise<Backend>  // reads ai_settings; 'default' resolves to the global row
 export async function generate(feature, prompt, opts): Promise<string>
 export async function generateJson<T>(feature, prompt, schema, jsonSchema, opts): Promise<T>
 export async function generateStream(feature, prompt, opts, onDelta): Promise<string>
+/** Display-only: what backend/model this feature currently resolves to. Same
+ *  resolution as the calls above, no network request of its own. */
+export async function modelLabel(feature: Feature): Promise<string>
 ```
 
-Each of the eight existing call sites changes its import from
-`@/lib/ai/generate` to `@/lib/ai/route` and adds its feature id as the first
-argument. No other change to those files — the router's return shape matches
-`generate.ts`'s exactly.
+Each of the six call sites changes its import from `@/lib/ai/generate` to
+`@/lib/ai/route` and adds its feature id as the first argument to `generate`/
+`generateJson`/`generateStream`. `generate`/`generateJson`/`generateStream`
+return exactly what `generate.ts`'s do — no shape change for the actual
+model output.
+
+**One more thing each call site touches, and only this:** none of the six
+ever passes an explicit `model` into `generate.ts` today — every call relies
+on its default (`MODELS.english`). But each file separately echoes
+`model: MODELS.english` back inside its OWN result object, as display
+metadata ("which model wrote this"), e.g. `lib/advisor/converse.ts:227` and
+`:300`, `lib/chat/answer.ts:155`, `lib/content/studio.ts:295`,
+`lib/meeting.ts:181` and `:1202`, `lib/campaigns.ts:649`. That literal is
+wrong once a feature is on a cloud provider, so `route.ts` exports one more
+function, `modelLabel(feature): Promise<string>`, that resolves the same
+setting `generate`/`generateJson` do (without calling anything) and returns
+either the Ollama model id or `"openai:gpt-4o-mini"`-style label. Each of
+those six literal-`MODELS.english` lines becomes
+`model: await modelLabel('content_studio')` (or the matching feature id).
+That is the only other change these files need.
 
 `scripts/check-localhost.mjs` gains one more named exception, the same shape
 as its existing `lib/social/` carve-out: `lib/ai/cloud.ts` may name
@@ -169,12 +190,13 @@ nowhere else.
 A new `app/(staff)/settings/` (or a tab on an existing screen) with:
 - Global default: Local / OpenAI / Anthropic / Google, each cloud option
   revealing its key field once selected.
-- Five per-feature rows, each starting at "Default (follows global)" with an
-  override dropdown of Local / OpenAI / Anthropic / Google.
-- Inline, next to the **sales chat** and **catalogue** rows specifically: a
-  visible sentence that customer messages / catalog rows leave this machine
-  when that row is set to a cloud provider. Not a tooltip — always visible
-  when a cloud provider is selected for that row.
+- Four per-feature rows (content studio, advisor, sales chat, campaigns),
+  each starting at "Default (follows global)" with an override dropdown of
+  Local / OpenAI / Anthropic / Google.
+- Inline, next to the **sales chat** row specifically: a visible sentence
+  that customer messages leave this machine when that row is set to a cloud
+  provider. Not a tooltip — always visible when a cloud provider is selected
+  for that row.
 - Saving writes to `ai_settings`; keys are encrypted before the row is
   written and never re-displayed in full afterward (masked, same UX as a
   connected Instagram account's token).
@@ -194,9 +216,10 @@ A new `app/(staff)/settings/` (or a tab on an existing screen) with:
 - `scripts/test-ai-route.mjs` (new, mirrors the shape of the existing
   `scripts/test-*.mjs` scripts): feature resolution (`default` follows
   `global`, an explicit per-feature value ignores it, changing `global`
-  moves every `default` feature at once), that `embed()` is never reachable
-  through the router, and that a cloud call with a missing key fails before
-  any network call is attempted.
+  moves every `default` feature at once), `modelLabel()` returning the
+  matching Ollama id when local and a `provider:model` label when cloud,
+  that `embed()` is never reachable through the router, and that a cloud
+  call with a missing key fails before any network call is attempted.
 - `scripts/check-localhost.mjs` extended with a fixture asserting the three
   new hosts are allowed only inside `lib/ai/cloud.ts`, and that a fourth host
   or a different file still fails the build — exactly like the existing
