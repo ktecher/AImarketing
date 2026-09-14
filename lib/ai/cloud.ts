@@ -24,14 +24,33 @@ export type CloudProvider = {
 }
 
 /**
- * Placeholders. Confirm each is still the provider's current recommended
- * small/cheap chat model before shipping — these change often. Fully
- * overridable per feature via ai_settings.model regardless.
+ * Confirmed against each provider's own docs 2026-09-14 (see
+ * fix-wave-report.md for sources) — these change often, so re-check before
+ * relying on one still being current. Fully overridable per feature via
+ * ai_settings.model regardless.
  */
 export const DEFAULT_MODELS: Record<CloudProviderName, string> = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  google: 'gemini-1.5-flash',
+  openai: 'gpt-5.6-luna',
+  anthropic: 'claude-haiku-4-5-20251001',
+  google: 'gemini-3.5-flash-lite',
+}
+
+/**
+ * Strips JSON Schema keys a provider's structured-output mode rejects.
+ * Recurses into nested objects/arrays so a nested `additionalProperties`
+ * (from a nested Zod object) is stripped too, not just the top level.
+ */
+function stripSchemaKeys(schema: unknown, keys: string[]): unknown {
+  if (Array.isArray(schema)) return schema.map((s) => stripSchemaKeys(s, keys))
+  if (schema && typeof schema === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+      if (keys.includes(k)) continue
+      out[k] = stripSchemaKeys(v, keys)
+    }
+    return out
+  }
+  return schema
 }
 
 type Options = { temperature?: number; maxTokens?: number; system?: string }
@@ -87,7 +106,7 @@ async function anthropicCall(
     messages: [{ role: 'user', content: prompt }],
     ...(opts.format
       ? {
-          tools: [{ name: 'emit', description: 'Emit the result.', input_schema: opts.format }],
+          tools: [{ name: 'emit', description: 'Emit the result.', input_schema: stripSchemaKeys(opts.format, ['$schema']) }],
           tool_choice: { type: 'tool', name: 'emit' },
         }
       : {}),
@@ -119,14 +138,16 @@ async function googleCall(
     generationConfig: {
       temperature: opts.temperature ?? 0,
       ...(opts.maxTokens ? { maxOutputTokens: opts.maxTokens } : {}),
-      ...(opts.format ? { responseMimeType: 'application/json', responseSchema: opts.format } : {}),
+      ...(opts.format
+        ? { responseMimeType: 'application/json', responseSchema: stripSchemaKeys(opts.format, ['$schema', 'additionalProperties']) }
+        : {}),
     },
   }
   const method = stream ? 'streamGenerateContent' : 'generateContent'
-  const qs = stream ? '&alt=sse' : ''
+  const qs = stream ? '?alt=sse' : ''
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${modelOf(provider)}:${method}?key=${provider.apiKey}${qs}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelOf(provider)}:${method}${qs}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': provider.apiKey }, body: JSON.stringify(body) },
   )
   if (!res.ok) throw new Error(`Google ${res.status} for ${modelOf(provider)}: ${await res.text()}`)
   return res
@@ -192,12 +213,14 @@ export async function generateJson<T>(
 }
 
 /**
- * Each provider's SSE framing differs; only OpenAI's is implemented for the
- * delta shape used by streaming callers today (the advisor and meeting
- * screens, which are always local — see D97 scope). This throws rather than
- * silently falling back to a full non-streaming call, so a future caller that
- * turns on Anthropic/Google streaming finds out immediately rather than
- * shipping a UI that never streams.
+ * Each provider's SSE framing differs; only OpenAI's is implemented, for the
+ * delta shape its Chat Completions API uses. Nothing on this branch calls
+ * this yet — `lib/ai/route.ts` doesn't export `generateStream` (D97); the
+ * advisor and meeting screens are always local. This is built and tested,
+ * unwired, for whenever a cloud-routed feature needs streamed output — and
+ * throws rather than silently falling back to a full non-streaming call, so
+ * that future caller finds out immediately rather than shipping a UI that
+ * never streams.
  * ponytail: OpenAI-only streaming; add Anthropic/Google SSE parsing if a
  * cloud-routed feature needs streamed output.
  */

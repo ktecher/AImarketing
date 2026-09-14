@@ -64,6 +64,9 @@ export default function SettingsPage() {
   }
 
   function choose(feature: Row['feature'], provider: Row['provider']) {
+    // A stray keystroke in the key field for the PREVIOUS provider can still
+    // be sitting in keyDraft; it means nothing for the newly-picked one.
+    setKeyDraft((d) => ({ ...d, [feature]: '' }))
     if (provider === 'local' || provider === 'default') {
       setPendingProvider((p) => { const n = { ...p }; delete n[feature]; return n })
       save(feature, provider)
@@ -84,6 +87,11 @@ export default function SettingsPage() {
       {rows.map((r) => {
         const shown = pendingProvider[r.feature] ?? r.provider
         const isCloud = shown !== 'local' && shown !== 'default'
+        const rowBusy = busy === r.feature
+        // hasKey reflects whatever is saved for r.provider. The moment `shown`
+        // picks a DIFFERENT cloud provider, that flag describes the wrong
+        // provider's key, not this one's.
+        const hasKeyForShown = r.hasKey && shown === r.provider
         return (
           <div key={r.feature} style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
             <strong>{LABEL[r.feature]}</strong>
@@ -92,8 +100,8 @@ export default function SettingsPage() {
             </div>
             <select
               value={shown}
-              onChange={(e) => choose(r.feature, e.target.value as Row['provider'])}
-              disabled={busy === r.feature}
+              onChange={(e) => { if (!rowBusy) choose(r.feature, e.target.value as Row['provider']) }}
+              disabled={rowBusy}
             >
               {r.feature !== 'global' && <option value="default">Default (follows global)</option>}
               {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -101,10 +109,11 @@ export default function SettingsPage() {
             {isCloud && (
               <input
                 type="password"
-                placeholder={r.hasKey ? 'Key saved — enter a new one to replace it' : 'API key'}
+                placeholder={hasKeyForShown ? 'Key saved — enter a new one to replace it' : 'API key'}
                 value={keyDraft[r.feature] ?? ''}
                 onChange={(e) => setKeyDraft((d) => ({ ...d, [r.feature]: e.target.value }))}
-                onBlur={() => keyDraft[r.feature] && save(r.feature, shown)}
+                onBlur={() => { if (!rowBusy && keyDraft[r.feature]) save(r.feature, shown) }}
+                disabled={rowBusy}
                 style={{ marginLeft: 8 }}
               />
             )}

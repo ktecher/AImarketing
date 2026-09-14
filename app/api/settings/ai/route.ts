@@ -40,6 +40,10 @@ export async function PUT(req: Request) {
   if (feature !== 'global' && !FEATURES.includes(feature as Feature)) {
     return NextResponse.json({ error: `Unknown feature "${feature}".` }, { status: 400 })
   }
+  const validProviders: (Provider | 'default')[] = ['local', 'openai', 'anthropic', 'google', 'default']
+  if (!validProviders.includes(provider)) {
+    return NextResponse.json({ error: `Unknown provider "${provider}".` }, { status: 400 })
+  }
   if (feature === 'global' && provider === 'default') {
     return NextResponse.json({ error: 'The global default cannot be "default" — it has nothing to follow.' }, { status: 400 })
   }
@@ -64,8 +68,11 @@ export async function PUT(req: Request) {
     } else {
       await setFeature(feature as Feature, provider, { model: body.model, apiKey: body.apiKey })
     }
-  } catch {
-    return NextResponse.json({ error: 'Postgres is not answering, so this was not saved. Run: npm run db:up' }, { status: 503 })
+  } catch (e) {
+    return NextResponse.json(
+      { error: `Could not save: ${e instanceof Error ? e.message : 'the database rejected this write'}. If Postgres is down, run: npm run db:up` },
+      { status: 503 },
+    )
   }
 
   return NextResponse.json({ ok: true, rows: mask(await all()) })

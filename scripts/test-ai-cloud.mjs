@@ -69,13 +69,41 @@ calls = []
 respond = () => ({ body: { candidates: [{ content: { parts: [{ text: 'hello from gemini' }] } }] } })
 const googleText = await generate('hi', {}, { name: 'google', apiKey: 'g-x', model: null })
 ok('google: generate returns the part text', googleText === 'hello from gemini')
-ok('google: key travels as a query param, not a header', calls[0].path.includes(':generateContent') && String(new URL(`https://x${calls[0].path}`).search).length >= 0)
+ok('google: hits the generateContent endpoint', calls[0].path.includes(':generateContent'))
+ok('google: key travels as a header, not a query param', calls[0].headers['x-goog-api-key'] === 'g-x' && !calls[0].path.includes('g-x'))
 
 calls = []
 respond = () => ({ body: { candidates: [{ content: { parts: [{ text: '{"name":"Ada"}' }] } }] } })
 const googleJson = await generateJson('hi', Schema, {}, {}, { name: 'google', apiKey: 'g-x', model: null })
 ok('google: generateJson parses and validates', googleJson.name === 'Ada')
 ok('google: sends responseSchema', !!calls[0].body.generationConfig?.responseSchema)
+
+// ---------------------------------------------------------------------------
+// Schema stripping: Google's responseSchema and Anthropic's input_schema
+// reject keys z.toJSONSchema() emits ($schema everywhere, additionalProperties
+// on every object, nested ones included).
+// ---------------------------------------------------------------------------
+function hasKeyDeep(obj, key) {
+  if (Array.isArray(obj)) return obj.some((v) => hasKeyDeep(v, key))
+  if (obj && typeof obj === 'object') return key in obj || Object.values(obj).some((v) => hasKeyDeep(v, key))
+  return false
+}
+const NestedSchema = z.object({ inner: z.object({ x: z.string() }) })
+const nestedJsonSchema = z.toJSONSchema(NestedSchema)
+ok('fixture: z.toJSONSchema nests additionalProperties', hasKeyDeep(nestedJsonSchema.properties.inner, 'additionalProperties'))
+
+calls = []
+respond = () => ({ body: { content: [{ type: 'tool_use', input: { inner: { x: 'a' } } }] } })
+await generateJson('hi', NestedSchema, nestedJsonSchema, {}, { name: 'anthropic', apiKey: 'ant-x', model: null })
+ok('anthropic: strips $schema from the tool input_schema', !('$schema' in calls[0].body.tools[0].input_schema))
+
+calls = []
+respond = () => ({ body: { candidates: [{ content: { parts: [{ text: '{"inner":{"x":"a"}}' }] } }] } })
+await generateJson('hi', NestedSchema, nestedJsonSchema, {}, { name: 'google', apiKey: 'g-x', model: null })
+const sentSchema = calls[0].body.generationConfig.responseSchema
+ok('google: strips $schema from responseSchema', !('$schema' in sentSchema))
+ok('google: strips additionalProperties recursively, nested objects included', !hasKeyDeep(sentSchema, 'additionalProperties'))
+ok('google: the schema itself still round-trips through', sentSchema.properties?.inner?.properties?.x?.type === 'string')
 
 // ---------------------------------------------------------------------------
 // generateJson retry: first reply is bad JSON, second is good -- must not

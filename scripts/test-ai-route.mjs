@@ -11,6 +11,7 @@ process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64')
 const { query } = await import('../lib/db.ts')
 const { setGlobal, setFeature } = await import('../lib/ai/settings.ts')
 const route = await import('../lib/ai/route.ts')
+const { DEFAULT_MODELS } = await import('../lib/ai/cloud.ts')
 const { z } = await import('zod')
 
 let failed = 0
@@ -61,7 +62,7 @@ try {
 
   await setFeature('content_studio', 'openai', { apiKey: 'sk-x' })
   const cloudDefaultModel = await route.modelLabel('content_studio')
-  ok('modelLabel: no stored model falls back to the provider default', cloudDefaultModel === 'openai:gpt-4o-mini', cloudDefaultModel)
+  ok('modelLabel: no stored model falls back to the provider default', cloudDefaultModel === `openai:${DEFAULT_MODELS.openai}`, cloudDefaultModel)
 
   // generateJson takes the same dispatch branch as generate -- one call
   // proves the branch, not the JSON parsing itself (test-ai-cloud.mjs and

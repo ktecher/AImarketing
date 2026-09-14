@@ -1,7 +1,7 @@
 # Bring-your-own cloud AI provider
 
 **Date:** 2026-09-13
-**Status:** approved, not yet implemented
+**Status:** implemented
 **Decision entry:** D97 (to be written when this lands)
 
 ---
