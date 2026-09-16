@@ -19,9 +19,25 @@ const LABEL: Record<Row['feature'], string> = {
   campaigns: 'Campaigns / meeting',
 }
 
-const WARNING: Partial<Record<Row['feature'], string>> = {
-  sales_chat: 'Customer messages leave this machine and go to the connected provider while this is set to a cloud option.',
+/* What each feature would actually send, in the words of the person who has to
+   decide. "Catalogue rows" is what leaves; "content_studio" is how the table
+   spells it, and nobody reading this screen thinks in table names. */
+const SENDS: Record<Row['feature'], string> = {
+  global: 'Whatever the features below inherit from it.',
+  content_studio: 'Product names, prices and descriptions from the campaign sheet.',
+  advisor: 'The draft the team pasted in, and the checks run against it.',
+  sales_chat: 'What customers type, and the catalogue rows retrieved to answer them.',
+  campaigns: 'The campaign brief, the shelf it matched, and the whole meeting transcript.',
 }
+
+const PROVIDER: Record<Exclude<Row['provider'], 'default'>, string> = {
+  local: 'Local (Ollama)',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+}
+
+const options: Exclude<Row['provider'], 'default'>[] = ['local', 'openai', 'anthropic', 'google']
 
 export default function SettingsPage() {
   const [rows, setRows] = useState<Row[] | null>(null)
@@ -75,54 +91,132 @@ export default function SettingsPage() {
     }
   }
 
-  if (loadError) return <p style={{ color: '#c0392b' }}>{loadError}</p>
-  if (!rows) return <p>Loading…</p>
+  if (loadError) return <p className="err">{loadError}</p>
+  if (!rows) return <p className="hint">Loading…</p>
 
-  const options: Row['provider'][] = ['local', 'openai', 'anthropic', 'google']
+  const global = rows.find((r) => r.feature === 'global')
+  const features = rows.filter((r) => r.feature !== 'global')
 
-  return (
-    <div style={{ maxWidth: 640 }}>
-      <h1>AI provider</h1>
-      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
-      {rows.map((r) => {
-        const shown = pendingProvider[r.feature] ?? r.provider
-        const isCloud = shown !== 'local' && shown !== 'default'
-        const rowBusy = busy === r.feature
-        // hasKey reflects whatever is saved for r.provider. The moment `shown`
-        // picks a DIFFERENT cloud provider, that flag describes the wrong
-        // provider's key, not this one's.
-        const hasKeyForShown = r.hasKey && shown === r.provider
-        return (
-          <div key={r.feature} style={{ marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
-            <strong>{LABEL[r.feature]}</strong>
-            <div style={{ fontSize: 13, color: '#666' }}>
-              Currently: {r.resolvedProvider}{r.resolvedModel ? ` (${r.resolvedModel})` : ''}
-            </div>
+  /* One row of the screen. The global default and the four features differ in
+     what they may be set to and in nothing else, so they are drawn by the same
+     function rather than by two that drift apart. */
+  function control(r: Row) {
+    const shown = pendingProvider[r.feature] ?? r.provider
+    const isCloud = shown !== 'local' && shown !== 'default'
+    const rowBusy = busy === r.feature
+    // hasKey reflects whatever is saved for r.provider. The moment `shown`
+    // picks a DIFFERENT cloud provider, that flag describes the wrong
+    // provider's key, not this one's.
+    const hasKeyForShown = r.hasKey && shown === r.provider
+    const inherits = r.provider === 'default'
+    const draft = keyDraft[r.feature] ?? ''
+
+    return (
+      <>
+        <div className="row">
+          <label className="fld" style={{ flex: '1 1 220px', marginBottom: 0 }}>
+            <span>Runs on</span>
             <select
               value={shown}
               onChange={(e) => { if (!rowBusy) choose(r.feature, e.target.value as Row['provider']) }}
               disabled={rowBusy}
             >
-              {r.feature !== 'global' && <option value="default">Default (follows global)</option>}
-              {options.map((o) => <option key={o} value={o}>{o}</option>)}
+              {r.feature !== 'global' && <option value="default">Follow the global default</option>}
+              {options.map((o) => <option key={o} value={o}>{PROVIDER[o]}</option>)}
             </select>
-            {isCloud && (
+          </label>
+        </div>
+
+        {isCloud && (
+          <form
+            className="row"
+            style={{ marginTop: 12, alignItems: 'flex-end' }}
+            onSubmit={(e) => { e.preventDefault(); if (!rowBusy && draft) save(r.feature, shown) }}
+          >
+            <label className="fld" style={{ flex: '1 1 260px', marginBottom: 0 }}>
+              <span>{PROVIDER[shown]} API key</span>
               <input
                 type="password"
-                placeholder={hasKeyForShown ? 'Key saved — enter a new one to replace it' : 'API key'}
-                value={keyDraft[r.feature] ?? ''}
+                placeholder={hasKeyForShown ? 'Saved — enter a new one to replace it' : 'Paste the key'}
+                value={draft}
                 onChange={(e) => setKeyDraft((d) => ({ ...d, [r.feature]: e.target.value }))}
-                onBlur={() => { if (!rowBusy && keyDraft[r.feature]) save(r.feature, shown) }}
                 disabled={rowBusy}
-                style={{ marginLeft: 8 }}
               />
-            )}
-            {WARNING[r.feature] && isCloud && (
-              <p style={{ color: '#c0392b', fontSize: 13 }}>{WARNING[r.feature]}</p>
-            )}
+            </label>
+            <button className="btn" type="submit" disabled={rowBusy || !draft}>
+              {rowBusy ? 'Checking the key…' : hasKeyForShown ? 'Replace key' : 'Save key'}
+            </button>
+          </form>
+        )}
+
+        {/* The one place the screen raises its voice. Sales chat is the only
+            feature whose input is somebody else's words rather than the
+            company's own, so it is the only one that gets a warning. */}
+        {isCloud && r.feature === 'sales_chat' && (
+          <p className="notice warn-notice" style={{ marginTop: 12, marginBottom: 0 }}>
+            Customer messages leave this machine while sales chat is on a cloud provider.
+          </p>
+        )}
+
+        {isCloud && !hasKeyForShown && (
+          <p className="hint" style={{ marginTop: 10 }}>
+            Nothing changes until the key is saved. It is checked against {PROVIDER[shown]} first,
+            then encrypted here — {inherits ? 'until then this keeps following the global default' : `until then this stays on ${PROVIDER[(r.provider === 'default' ? 'local' : r.provider)]}`}.
+          </p>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <div className="section-head">
+        <h1>AI provider</h1>
+      </div>
+
+      <p className="hint" style={{ maxWidth: '62ch', marginTop: 0 }}>
+        Every feature writes with the local model unless you point it somewhere else.
+        Retrieval always stays local: a catalogue embedded by one model cannot be
+        searched by another.
+      </p>
+
+      {error && <p className="err" style={{ marginBottom: 14 }}>{error}</p>}
+
+      {global && (
+        <div className="panel">
+          <div className="panel-head">
+            <b>{LABEL.global}</b>
+            <span className="badge live">{label(global)}</span>
           </div>
-        )
-      })}
+          <p className="hint" style={{ marginTop: 0 }}>
+            What a feature uses when it has no choice of its own. Changing it moves
+            every feature below that is still following it.
+          </p>
+          {control(global)}
+        </div>
+      )}
+
+      {features.map((r) => (
+        <div className="panel" key={r.feature}>
+          <div className="panel-head">
+            <b>{LABEL[r.feature]}</b>
+            {/* Warn, not error: sending a caption to a cloud model is a choice
+                the screen exists to offer. `bad` here would be a red flag on a
+                legitimate answer, and the next red flag would be ignored too. */}
+            <span className={`badge ${r.resolvedProvider === 'local' ? 'live' : 'part'}`}>{label(r)}</span>
+          </div>
+          <p className="hint" style={{ marginTop: 0 }}>{SENDS[r.feature]}</p>
+          {control(r)}
+        </div>
+      ))}
     </div>
   )
+}
+
+/* The badge says where the work actually happens, which for a feature on
+   "default" is not what its own row stores. Resolution is the server's answer,
+   never recomputed here. */
+function label(r: Row): string {
+  const where = r.resolvedProvider === 'local' ? 'local' : r.resolvedProvider
+  return r.resolvedModel ? `${where} · ${r.resolvedModel}` : where
 }
