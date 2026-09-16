@@ -494,6 +494,24 @@ export default function Social() {
    * Reuses the single-post `results` display: a carousel is still one post to N
    * accounts, so the outcome has the same shape.
    */
+  /**
+   * Move one product to the front of the carousel.
+   *
+   * A Set keeps insertion order, so the order things were ticked in IS the
+   * carousel order and rebuilding the Set with one product first is the whole
+   * operation. Instagram shows the first image as the cover and it is the only
+   * one that appears in a grid, so "which is first" is the only ordering
+   * question worth a control; the rest is the order they were picked in.
+   */
+  function makeFirst(sku: string) {
+    setBatchOn((was) => new Set([sku, ...[...was].filter((s) => s !== sku)]))
+  }
+
+  /** Selected, in carousel order — the order the customer will swipe through. */
+  const carouselOrder = [...batchOn]
+  /** Ticked products with nothing approved to say. Fine in a carousel, not alone. */
+  const unsayable = carouselOrder.filter((sku) => !batchCaptions[sku])
+
   async function postCarousel() {
     const list = [...batchOn]
     setBatchConfirm('')
@@ -628,7 +646,9 @@ export default function Social() {
               <p className="hint" style={{ marginTop: 10 }}>
                 One post each, or all of them as a single carousel. Instagram allows
                 exactly one caption per carousel, so a carousel uses the box below
-                rather than joining the captions into something nobody wrote.
+                rather than joining the captions into something nobody wrote — and
+                a product with nothing approved to say can still ride in one. The
+                first in the list is the cover: it is what shows in the grid.
               </p>
 
 
@@ -642,7 +662,12 @@ export default function Social() {
                         onChange={(e) => setCarouselCaption(e.target.value)} />
 
               <p style={{ marginTop: 12 }}>
-                <button className="btn small" disabled={!batchOn.size || Boolean(blocked && blocked !== 'no caption') || Boolean(batchBusy)}
+                {/* Separate posts need a caption EACH, and this is where that is
+                    refused now that the checkbox allows an uncaptioned product
+                    to be ticked for a carousel. The button says which ones. */}
+                <button className="btn small"
+                        disabled={!batchOn.size || unsayable.length > 0
+                                  || Boolean(blocked && blocked !== 'no caption') || Boolean(batchBusy)}
                         onClick={() => setBatchConfirm('each')}>
                   Post separately ({batchOn.size})
                 </button>
@@ -655,34 +680,57 @@ export default function Social() {
                 </button>
               </p>
 
+              {unsayable.length > 0 && (
+                <p className="hint" style={{ marginTop: -4 }}>
+                  {unsayable.length} of the {batchOn.size} ticked {unsayable.length === 1 ? 'has' : 'have'}
+                  {' '}no approved caption. They can go in the carousel, which carries one
+                  caption for the whole post — they cannot go out as separate posts.
+                </p>
+              )}
+
               {/* Capped and scrolled. A campaign of twenty-six pushed the buttons
                   below the fold and left a list nothing could act on. */}
               <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 12 }}>
+              {/* The order NEVER depends on what is ticked. Sorting the selected
+                  to the top re-sorts the list under the pointer on every click,
+                  so ticking three in a row lands on three different products —
+                  found by doing exactly that. Carousel position is shown as a
+                  number instead, which says the same thing and holds still. */}
               {[...mine].sort((a, b) =>
-                // Postable first. A screen that opens on twelve rows saying "write
-                // one first" buries the two that are ready to go.
+                // The ones with something approved to say first: a screen
+                // opening on twelve rows saying "write one first" buries the
+                // two that are ready to go.
                 Number(Boolean(batchCaptions[b.sku])) - Number(Boolean(batchCaptions[a.sku]))
               ).map((m) => {
                 const cap = batchCaptions[m.sku] ?? ''
+                const at = carouselOrder.indexOf(m.sku)
                 return (
                   <div className="kv" key={m.sku} style={{ gap: 12 }}>
                     <label style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
-                      {/* A product with no approved caption cannot go out, so it
-                          cannot be ticked — an unpostable tick is a promise the
-                          button cannot keep. */}
-                      <input type="checkbox" checked={batchOn.has(m.sku)} disabled={!cap}
+                      {/* Tickable with or without a caption. A carousel carries
+                          exactly one caption for the whole post, so requiring
+                          one per product kept products out of a carousel that
+                          had nothing to say and did not need to. Posting them
+                          SEPARATELY still needs one each, and that button says
+                          so rather than this checkbox refusing in advance. */}
+                      <input type="checkbox" checked={batchOn.has(m.sku)}
                              onChange={(e) => setBatchOn((was) => {
                                const next = new Set(was)
                                if (e.target.checked) next.add(m.sku); else next.delete(m.sku)
                                return next
                              })} />
+                      {at === 0 && <span className="badge live">cover</span>}
+                      {at > 0 && <span className="hint" style={{ minWidth: 14 }}>{at + 1}</span>}
                       {/* One line. A full laptop name wraps to three and the
                           list stops being scannable. */}
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {m.name}
                       </span>
                     </label>
-                    <span className="hint" style={{ whiteSpace: 'nowrap' }}>
+                    <span className="hint" style={{ whiteSpace: 'nowrap', display: 'flex', gap: 10 }}>
+                      {at > 0 && (
+                        <button className="linkish" onClick={() => makeFirst(m.sku)}>make cover</button>
+                      )}
                       {cap
                         ? oneLine(cap)
                         : <a href={`/studio?sku=${encodeURIComponent(m.sku)}`}>no caption — write one</a>}
