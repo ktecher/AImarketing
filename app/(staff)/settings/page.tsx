@@ -51,14 +51,22 @@ export default function SettingsPage() {
   // that's supposed to appear for it would never show.
   const [pendingProvider, setPendingProvider] = useState<Record<string, Row['provider']>>({})
 
+  /* A route that fails before it reaches our own handler answers with Next's
+     HTML error page, and res.json() throws on it. Reading the body has to be
+     the thing that can fail, not the thing every later line assumes worked. */
+  async function body(res: Response): Promise<Record<string, unknown>> {
+    try { return await res.json() } catch { return {} }
+  }
+
   async function load() {
-    const res = await fetch('/api/settings/ai')
-    const data = await res.json()
-    if (res.ok) {
-      setRows(data.rows)
+    try {
+      const res = await fetch('/api/settings/ai')
+      const data = await body(res)
+      if (!res.ok) { setLoadError(String(data.error || `Could not load settings (${res.status}).`)); return }
+      setRows(data.rows as Row[])
       setLoadError(null)
-    } else {
-      setLoadError(data.error || 'Could not load settings.')
+    } catch {
+      setLoadError('Could not reach the app to load settings. Is it still running?')
     }
   }
   useEffect(() => { load() }, [])
@@ -66,17 +74,28 @@ export default function SettingsPage() {
   async function save(feature: Row['feature'], provider: Row['provider']) {
     setBusy(feature)
     setError(null)
-    const res = await fetch('/api/settings/ai', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ feature, provider, apiKey: keyDraft[feature] || undefined }),
-    })
-    const data = await res.json()
-    setBusy(null)
-    if (!res.ok) { setError(data.error); return }
-    setRows(data.rows)
-    setKeyDraft((d) => ({ ...d, [feature]: '' }))
-    setPendingProvider((p) => { const n = { ...p }; delete n[feature]; return n })
+    try {
+      const res = await fetch('/api/settings/ai', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feature, provider, apiKey: keyDraft[feature] || undefined }),
+      })
+      const data = await body(res)
+      // Never a bare data.error: a response with no error key would set this to
+      // undefined, render nothing, and leave the screen looking like the save
+      // simply did not happen.
+      if (!res.ok) { setError(String(data.error || `Could not save (${res.status}).`)); return }
+      setRows(data.rows as Row[])
+      setKeyDraft((d) => ({ ...d, [feature]: '' }))
+      setPendingProvider((p) => { const n = { ...p }; delete n[feature]; return n })
+    } catch {
+      setError('Could not reach the app to save that. Nothing was changed.')
+    } finally {
+      // In a finally, not after the await: a throw above this line used to
+      // leave the button disabled on "Checking the key…" with nothing on
+      // screen saying why, and no way back except a reload.
+      setBusy(null)
+    }
   }
 
   function choose(feature: Row['feature'], provider: Row['provider']) {
@@ -91,8 +110,10 @@ export default function SettingsPage() {
     }
   }
 
-  if (loadError) return <p className="err">{loadError}</p>
-  if (!rows) return <p className="hint">Loading…</p>
+  // <main> in the early returns too: it is the element carrying the page's
+  // padding, so a bare <p> here lands in the corner of the viewport.
+  if (loadError) return <main><p className="err" role="alert">{loadError}</p></main>
+  if (!rows) return <main><p className="hint">Loading…</p></main>
 
   const global = rows.find((r) => r.feature === 'global')
   const features = rows.filter((r) => r.feature !== 'global')
@@ -169,10 +190,11 @@ export default function SettingsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <div className="section-head">
-        <h1>AI provider</h1>
-      </div>
+    /* <main>, like every other staff page. The page's padding, max width and
+       centring all live on this element in globals.css and nowhere else, so a
+       <div> here sat flush against the sidebar with no padding at all. */
+    <main>
+      <h1>AI provider</h1>
 
       <p className="hint" style={{ maxWidth: '62ch', marginTop: 0 }}>
         Every feature writes with the local model unless you point it somewhere else.
@@ -180,7 +202,7 @@ export default function SettingsPage() {
         searched by another.
       </p>
 
-      {error && <p className="err" style={{ marginBottom: 14 }}>{error}</p>}
+      {error && <p className="err" role="alert" style={{ marginBottom: 14 }}>{error}</p>}
 
       {global && (
         <div className="panel">
@@ -209,7 +231,7 @@ export default function SettingsPage() {
           {control(r)}
         </div>
       ))}
-    </div>
+    </main>
   )
 }
 
