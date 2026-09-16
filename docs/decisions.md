@@ -2768,3 +2768,50 @@ with no evidence behind it.
 in a row routinely, the fault is not transient and the fetch itself is the thing
 to change, most likely by serving JPEG. The tell is a run of `failed` rows whose
 error all carry 2207052.
+
+## D99 — a product photo may be fetched from one address a person typed
+
+**2026-09-16.** 60 of 62 products have a photo; the two that do not are Samsung
+SKUs whose Excel row carried no embedded image. Until now the only way to fix
+that was to find the file yourself and drag it in. The Products screen can now
+fetch one.
+
+**What leaves.** One GET to one address, typed or pasted by a person. No
+catalogue row goes with it — the SKU names the file on this machine and is
+never sent. Nothing is stored by fetching: the bytes come back to the screen,
+and a second, explicit press saves them. This is the third enumerated exception
+to rule 1, after publishing (D83) and cloud AI (D97), and it is the loosest of
+the three, because the host is whatever somebody pasted.
+
+**The checker had a hole and now does not.** `scripts/check-localhost.mjs` reads
+IMPORTS and URL LITERALS. It cannot see `fetch(url)` where the url arrived in a
+request body — its own comment on `CLIENTS` has always said so. That was
+theoretical until this route existed. It now also refuses a `fetch(` whose first
+argument is not a same-origin string, outside an enumerated list of three files
+and `lib/social/`. Mutation-checked: removing the route from that list fails the
+build with exit 1.
+
+**What is not checked, and cannot be.** Whether the image is of the product. A
+CDN answering `img404=default` returns a crossed-out camera icon as a valid
+2400x2400 JPEG — measured on the day this was written, where three different
+asset ids, one of them invented, returned byte-identical placeholders that
+passed content-type, dimension and file-size tests. So the machine checks what a
+machine can check (a real image, not SVG, at least 600px on the short edge, not
+an address on this machine) and the person looks at the picture. That is why
+accepting is a separate press from fetching, and why the fetched bytes — not the
+url — are what gets saved. Re-fetching at save time would store something nobody
+approved, which is exactly what this project watched Meta's CDN do to the same
+url minutes apart (D98).
+
+**Byte size is not a signal, and the obvious rule was wrong.** The research said
+reject anything under 20KB as a broken placeholder. Measured: that placeholder is
+15KB at 2400x2400, and a genuine product shot on white is 3KB at 640px. The rule
+would have rejected good images and accepted the icon. Only the decoded
+dimensions are trusted, and they come from the decoder, never from a header.
+
+**Reverses if.** A search provider is wired (there is no free one — Google's image
+API is closed to new customers, Bing's is retired, DuckDuckGo's endpoint answers
+403, and Gemini's grounding returns page urls and no image at all). At that point
+the address stops being typed and starts being chosen from results, the exception
+widens from one host to any host, and that is a decision to write down rather
+than an extension of this one.

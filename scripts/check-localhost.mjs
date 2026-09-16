@@ -150,6 +150,27 @@ const AI_CLOUD_HOSTS = new Set([
   'generativelanguage.googleapis.com',
 ])
 
+/**
+ * Files that may call `fetch` with a target this check cannot read.
+ *
+ * The two checks above read IMPORTS and URL LITERALS. Neither can see
+ * `fetch(url)` where `url` arrived in a request body — and the comment on
+ * CLIENTS has always said so: fetch is a global, so an import rule cannot see
+ * it. Until D99 nothing in app/ or lib/ did that, and the gap was theoretical.
+ * `app/api/products/photo/route.ts` fetches one image from an address a person
+ * pasted, so the gap is now real and this is what keeps it from widening
+ * quietly: a dynamic fetch anywhere else fails the build.
+ *
+ * A fetch whose first argument is a string starting with `/` is same-origin by
+ * construction — that is every client component in this project talking to its
+ * own API, and none of it leaves the machine.
+ */
+const DYNAMIC_FETCH_FILES = new Set([
+  SEAM,
+  AI_CLOUD,
+  'app/api/products/photo/route.ts',
+])
+
 const isLoopback = (host) =>
   host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' ||
   host.endsWith('.localhost')
@@ -168,6 +189,9 @@ function sources(dir, out = []) {
 // bare `import "x"` for side effects.
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["']([^"']+)["']/g
 const URL_LITERAL = /["'`]https?:\/\/([^/:?#"'`\s]+)/gi
+// `fetch(` whose first argument is not a same-origin string literal. The
+// lookbehind keeps `x.fetch(` and `prefetch(` out of it.
+const DYNAMIC_FETCH = /(?<![.\w])fetch\s*\(\s*(?!['"`]\/)/g
 
 const problems = []
 
@@ -229,6 +253,15 @@ for (const root of [...ROOTS, ...ALSO]) {
     for (const m of code.matchAll(SPECIFIER)) {
       if (!CLIENTS.has(m[1]) || isSeam) continue
       problems.push(`${rel}:${lineOf(m[0], m[1])}  imports "${m[1]}" — only ${SEAM} may originate a request`)
+    }
+
+    if (!DYNAMIC_FETCH_FILES.has(rel) && !isSocial) {
+      for (const m of code.matchAll(DYNAMIC_FETCH)) {
+        problems.push(
+          `${rel}:${lineOf(m[0])}  calls fetch() with a target this check cannot read — ` +
+          `only ${[...DYNAMIC_FETCH_FILES].join(', ')} and ${SOCIAL} may do that`,
+        )
+      }
     }
 
     for (const m of code.matchAll(URL_LITERAL)) {

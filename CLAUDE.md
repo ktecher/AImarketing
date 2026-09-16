@@ -37,6 +37,16 @@ Enforcement is structural, not a promise:
   - **What leaves:** the rendered poster image (it carries a product name and a price), the caption text, and the Instagram/Cloudinary credentials. Per post.
   - **Publishing is opt-in per post and never automatic.** Not on render, not on save, not on a timer. A person picks the design, reads the caption, and presses publish.
 
+  **Fetching a product photo is the third exception** (D99). `app/api/products/photo/route.ts`
+  fetches ONE address a person typed, to show a candidate image on the Products screen. No
+  catalogue row goes with it — the SKU names the file here and is never sent — and nothing is
+  stored by fetching: a second, explicit press saves the bytes the screen showed. The host is
+  whatever somebody pasted, which makes this the loosest of the three, so the checker gained a
+  third rule for it: a `fetch(` whose first argument is not a same-origin string fails the build
+  outside `lib/ai/generate.ts`, `lib/ai/cloud.ts`, `app/api/products/photo/route.ts` and
+  `lib/social/`. Import and URL-literal rules could never have seen this; that gap was named in
+  the checker's own comments long before anything exercised it.
+
   Note what the rule above still says, unchanged: catalogue rows in bulk, customer messages, uploaded Excel contents, and any product nobody chose to publish never leave. A topic somebody typed into a search box and a post somebody chose to publish are the exceptions, they are enumerated here, and widening this again is a decision that gets written down.
 
 Note what this rule does **not** say. It does not ban the `openai` package — Ollama's endpoint is OpenAI-compatible, so the `openai` client pointed at localhost is the correct implementation. Do not hand-roll HTTP to avoid an import.

@@ -1,22 +1,18 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import sharp from 'sharp'
 import { NextResponse } from 'next/server'
 import { readForm, readJson, isResponse } from '@/lib/http'
 import { parseWorkbook } from '@/lib/excel/parse'
 import { catalogueSize, reachable } from '@/lib/db'
 import {
-  add, asShopPrices, asRenderPrices, embedPending, listFiltered, matchingSkus, photoIndex, photoKey, remove,
-  removeMany, sameValue, saveEdits, upsert,
+  add, asShopPrices, asRenderPrices, embedPending, listFiltered, matchingSkus, photoDir, photoIndex,
+  photoKey, photoPath, remove, removeMany, sameValue, saveEdits, upsert, writePhoto,
   type Editable, type Filters,
 } from '@/lib/catalogue'
 
 export const runtime = 'nodejs'
 // Thousands of rows, embedded in batches. The client keeps asking until done.
 export const maxDuration = 600
-
-const photoDir = () => join(process.cwd(), 'data/samples/images')
-const photoPath = (sku: string) => join(photoDir(), `${sku}.png`)
 
 /** Every SKU with a photo on disk. One directory read instead of one stat per row. */
 function skusWithPhoto(): string[] {
@@ -88,16 +84,9 @@ export async function GET(req: Request) {
   })
 }
 
-/** One image, normalised the way every other path here normalises one. */
-async function writePhoto(sku: string, file: File) {
-  // 600px PNG, because the renderer embeds these as data URIs. Two paths
-  // writing different shapes is how a poster ends up correct from one source
-  // and wrong from the other.
-  await sharp(Buffer.from(await file.arrayBuffer()))
-    .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
-    .png()
-    .toFile(photoPath(sku))
-}
+/** `writePhoto` takes bytes; every caller here starts from an uploaded File. */
+const writeUpload = async (sku: string, file: File) =>
+  writePhoto(sku, Buffer.from(await file.arrayBuffer()))
 
 /**
  * Attach many photos in one drop.
@@ -122,7 +111,7 @@ async function addPhotos(files: File[]) {
     const sku = index.get(photoKey(file.name))
     if (!sku) { unmatched.push(file.name); continue }
     try {
-      await writePhoto(sku, file)
+      await writeUpload(sku, file)
       attached.push(sku)
     } catch (e) {
       failed.push({ file: file.name, reason: e instanceof Error ? e.message : 'could not be read' })
@@ -198,7 +187,7 @@ export async function POST(req: Request) {
     }
     try {
       mkdirSync(join(process.cwd(), 'data/samples/images'), { recursive: true })
-      await writePhoto(sku, file)
+      await writeUpload(sku, file)
       return NextResponse.json({ replaced: sku })
     } catch (e) {
       return NextResponse.json(

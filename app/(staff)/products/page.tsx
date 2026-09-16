@@ -46,6 +46,11 @@ const FIELD_LABEL: Record<string, string> = {
   category: 'category', price_now: 'price', price_was: 'price', description_en: 'description',
 }
 
+type Facts = { exists: boolean; width?: number; height?: number; bytes?: number }
+type Candidate = {
+  width: number; height: number; bytes: number; hq: boolean; from: string; dataUrl: string
+}
+
 export default function Products() {
   const [rows, setRows] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
@@ -72,6 +77,17 @@ export default function Products() {
   const photoFor = useRef<string | null>(null)
   const photoInput = useRef<HTMLInputElement>(null)
   const photosInput = useRef<HTMLInputElement>(null)
+
+  /* The image panel. `imageFor` is the SKU whose photo is open; `facts` is what
+     is stored for it, read from the bytes rather than assumed; `candidate` is a
+     fetched image nobody has accepted yet — it is held here and never on disk,
+     so closing the panel throws it away. */
+  const [imageFor, setImageFor] = useState<string | null>(null)
+  const [facts, setFacts] = useState<Facts | null>(null)
+  const [urlDraft, setUrlDraft] = useState('')
+  const [candidate, setCandidate] = useState<Candidate | null>(null)
+  const [imgBusy, setImgBusy] = useState('')
+  const [imgError, setImgError] = useState('')
 
   /** Which products are ticked. Survives paging so a selection can span pages. */
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -198,6 +214,57 @@ export default function Products() {
       if (!res.ok) setError(d.error ?? 'Could not delete.')
       else { setNotice(`${name || sku} deleted.`); await load() }
     } catch { setError('Could not delete.') }
+  }
+
+  /* ── the image panel ──────────────────────────────────────────────────── */
+
+  /** Open the panel for one product and read what is actually stored for it. */
+  async function openImage(sku: string) {
+    setImageFor(sku); setFacts(null); setCandidate(null); setUrlDraft(''); setImgError('')
+    try {
+      const res = await fetch(`/api/products/photo?sku=${encodeURIComponent(sku)}`)
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setImgError(d.error ?? 'Could not read that photo.'); return }
+      setFacts(d)
+    } catch { setImgError('Could not read that photo.') }
+  }
+
+  /** Fetch a candidate. Nothing is stored — this only comes back to the screen. */
+  async function findImage() {
+    if (!imageFor || !urlDraft.trim()) return
+    setImgBusy('find'); setImgError(''); setCandidate(null)
+    try {
+      const res = await fetch('/api/products/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku: imageFor, url: urlDraft.trim() }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setImgError(d.error ?? `Could not fetch that image (${res.status}).`); return }
+      setCandidate(d)
+    } catch {
+      setImgError('Could not reach the app to fetch that image.')
+    } finally { setImgBusy('') }
+  }
+
+  /** Accept: the bytes on screen are the bytes stored, never a second fetch. */
+  async function acceptImage() {
+    if (!imageFor || !candidate) return
+    setImgBusy('save'); setImgError('')
+    try {
+      const res = await fetch('/api/products/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku: imageFor, dataUrl: candidate.dataUrl }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setImgError(d.error ?? `Could not save that image (${res.status}).`); return }
+      setFacts(d); setCandidate(null); setUrlDraft('')
+      setNotice('Photo saved. Designs already made with the old one are now out of date.')
+      await load()
+    } catch {
+      setImgError('Could not reach the app to save that image.')
+    } finally { setImgBusy('') }
   }
 
   async function replacePhoto(file: File) {
@@ -338,6 +405,74 @@ export default function Products() {
       </div>
 
       {adding && <AddProduct categories={categories} onDone={() => { setAdding(false); void load() }} onError={setError} />}
+
+      {imageFor && (
+        <div className="panel">
+          <div className="panel-head">
+            <b>{imageFor}</b>
+            <button className="linkish" onClick={() => { setImageFor(null); setCandidate(null) }}>
+              close
+            </button>
+          </div>
+
+          {imgError && <p className="err" role="alert">{imgError}</p>}
+
+          <div className="grid2">
+            <div>
+              <p className="hint" style={{ marginTop: 0 }}>
+                {facts === null
+                  ? 'Reading…'
+                  : facts.exists
+                    ? `Stored now — ${facts.width}×${facts.height}, ${Math.round((facts.bytes ?? 0) / 1024)} KB`
+                    : 'No photo yet. The poster prints a dashed placeholder for this product.'}
+              </p>
+              {facts?.exists
+                /* Cache-busted by the byte count so an accepted image replaces
+                   the old one on screen instead of showing the browser's copy. */
+                ? <img className="live" alt={`Photo for ${imageFor}`}
+                       src={`/api/products/photo?sku=${encodeURIComponent(imageFor)}&raw=1&v=${facts.bytes}`} />
+                : <div className="live placeholder"><span>Nothing stored</span></div>}
+            </div>
+
+            <div>
+              <p className="hint" style={{ marginTop: 0 }}>
+                {candidate
+                  ? `From ${candidate.from} — ${candidate.width}×${candidate.height}${candidate.hq ? '' : ', below 1200px'}`
+                  : 'Paste the address of an image to see it here before anything is saved.'}
+              </p>
+              {candidate
+                ? <img className="live" alt="Image found, not yet saved" src={candidate.dataUrl} />
+                : <div className="live placeholder"><span>Nothing fetched</span></div>}
+            </div>
+          </div>
+
+          <form className="row" style={{ marginTop: 14, alignItems: 'flex-end' }}
+                onSubmit={(e) => { e.preventDefault(); void findImage() }}>
+            <label className="fld" style={{ flex: '1 1 320px', marginBottom: 0 }}>
+              <span>Image address</span>
+              <input type="url" placeholder="Paste the address of an image" value={urlDraft}
+                     onChange={(e) => setUrlDraft(e.target.value)} disabled={Boolean(imgBusy)} />
+            </label>
+            <button className="btn" type="submit" disabled={Boolean(imgBusy) || !urlDraft.trim()}>
+              {imgBusy === 'find' ? 'Fetching…' : 'Fetch'}
+            </button>
+          </form>
+
+          {candidate && (
+            <p className="row" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={() => void acceptImage()} disabled={Boolean(imgBusy)}>
+                {imgBusy === 'save' ? 'Saving…' : 'Use this one'}
+              </button>
+              <button className="chip" onClick={() => setCandidate(null)} disabled={Boolean(imgBusy)}>
+                Discard
+              </button>
+              <span className="hint">
+                Saved at 600×600, which is what the poster uses.
+              </span>
+            </p>
+          )}
+        </div>
+      )}
 
       {notice && <p className="ok-note">{notice}</p>}
       {error && <p className="note bad">{error}</p>}
@@ -501,9 +636,8 @@ export default function Products() {
                       </label>
                     </td>
                     <td>
-                      <button className="linkish"
-                        onClick={() => { photoFor.current = r.sku; photoInput.current?.click() }}>
-                        {r.has_photo ? 'replace' : 'add one'}
+                      <button className="linkish" onClick={() => void openImage(r.sku)}>
+                        {r.has_photo ? 'view' : 'add one'}
                       </button>
                     </td>
                     <td>

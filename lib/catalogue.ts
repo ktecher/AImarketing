@@ -16,6 +16,9 @@
  * of each other's changes.
  */
 
+import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import sharp from 'sharp'
 import { embed } from '@/lib/ai/generate'
 import { query } from '@/lib/db'
 import type { ProductRow } from '@/lib/excel/parse'
@@ -521,6 +524,38 @@ export async function removeMany(skus: string[]): Promise<string[]> {
 
 /** An image extension, so a filename in a sheet is told apart from a name. */
 const IMAGE_NAME = /\.(png|jpe?g|webp|avif|tiff?|gif)$/i
+
+/**
+ * Where a product's photo lives, and the single way one is written.
+ *
+ * These sat inside `app/api/products/route.ts` while that route was the only
+ * thing writing a photo. A second writer makes them shared or makes them
+ * duplicated, and the comment below is the reason duplication is not an
+ * option: two paths writing different shapes is how a poster comes out right
+ * from one source and wrong from the other.
+ */
+export const photoDir = () => join(process.cwd(), 'data/samples/images')
+export const photoPath = (sku: string) => join(photoDir(), `${sku}.png`)
+
+/** One image, normalised the way every path here normalises one. */
+export async function writePhoto(sku: string, bytes: Buffer): Promise<void> {
+  // 600px PNG, because the renderer embeds these as data URIs.
+  mkdirSync(photoDir(), { recursive: true })
+  await sharp(bytes)
+    .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toFile(photoPath(sku))
+}
+
+/** What a stored photo actually is, for a screen that has to show it honestly. */
+export async function photoFacts(
+  sku: string,
+): Promise<{ exists: boolean; width?: number; height?: number; bytes?: number }> {
+  const path = photoPath(sku)
+  if (!existsSync(path)) return { exists: false }
+  const [meta, stat] = await Promise.all([sharp(path).metadata(), Promise.resolve(statSync(path))])
+  return { exists: true, width: meta.width, height: meta.height, bytes: stat.size }
+}
 
 /** Lowercased, no directory, no extension — how a dropped file is compared. */
 export const photoKey = (name: string) =>
