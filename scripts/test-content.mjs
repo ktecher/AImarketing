@@ -154,6 +154,28 @@ ok('nothing is still nothing',     formatKwd('') === '' && formatKwd(null) === '
 // Zero itself is a real number a person can set, and must still print.
 ok('a genuine zero still prints',  formatKwd(0) === '0.000 KD')
 
+// --- the Products edit screen, the other price path ---
+//
+// asPrice normalises a price cell on blur. Its own comment claimed "19,900"
+// landed on 19.900; it printed 19900.000. "-5" printed 5.000 and "N/A" printed
+// 0.000 — the same "a figure nobody set" failure as above, on the one screen a
+// person types prices into. It defers to formatKwd now, and refuses the comma
+// formatKwd does not catch, leaving anything it will not take exactly as typed.
+{
+  const { asPrice } = await import('../app/(staff)/products/page.tsx')
+  ok('a plain price gains three decimals', asPrice('19.9') === '19.900')
+  ok('an integer gains three decimals',    asPrice('12') === '12.000')
+  ok('a price with its unit is accepted',  asPrice('12.500 KD') === '12.500')
+  ok('a genuine zero still formats',       asPrice('0') === '0.000')
+  ok('an ambiguous comma is left alone, not read as 19900',
+     asPrice('19,900') === '19,900')
+  ok('a negative is left alone, not stripped to 5.000',
+     asPrice('-5') === '-5')
+  ok('"N/A" is left alone, not turned into 0.000',
+     asPrice('N/A') === 'N/A')
+  ok('an empty cell stays empty',          asPrice('') === '')
+}
+
 // --- Arabic compliance, after the ta marbuta fold ---
 //
 // Four curated stems are spelled with ه where Arabic writes ة, so before the

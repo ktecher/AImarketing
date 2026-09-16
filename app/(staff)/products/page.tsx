@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CATALOGUE_TABS, Tabs } from '../tabs'
+import { formatKwd } from '@/lib/money'
 
 type Row = {
   sku: string
@@ -25,11 +26,20 @@ type Staged = Record<string, Record<string, string | boolean>>
 
 const PAGES = [20, 50, 100]
 
-/** Three decimals, always. Typing "19.9" or "19,900" both land on 19.900. */
-const asPrice = (v: string) => {
-  const n = Number(String(v).replace(/[^\d.]/g, ''))
-  return Number.isFinite(n) && String(v).trim() ? n.toFixed(3) : ''
-}
+/**
+ * Three decimals on the way out of a price cell: "19.9" lands on 19.900.
+ *
+ * The comment here used to claim "19,900" landed there too. It did not — the
+ * comma was stripped, not read, so the cell said 19900.000. "-5" lost its sign
+ * and said 5.000, and "N/A" said 0.000. formatKwd already refuses the last two
+ * for exactly this reason, so this defers to it rather than keeping a second,
+ * looser set of rules; the comma is the one case formatKwd does not catch, and
+ * "19,900" is either nineteen thousand or nineteen point nine with nothing to
+ * say which. Anything it will not take is left exactly as typed: text that
+ * looks wrong gets fixed, a confident figure nobody set does not (rule 2).
+ */
+export const asPrice = (v: string) =>
+  (v.includes(',') ? '' : formatKwd(v).replace(' KD', '')) || v
 
 const FIELD_LABEL: Record<string, string> = {
   name_en: 'name', name_ar: 'Arabic name', display_name: 'short name',
