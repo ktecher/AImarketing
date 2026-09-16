@@ -19,7 +19,7 @@ The company's requirement is absolute: catalog rows, customer messages, uploaded
 Enforcement is structural, not a promise:
 
 - A boot-time assert that `OLLAMA_BASE_URL`'s host is a loopback address, throwing with an actionable message.
-- `scripts/check-localhost.mjs`, first in `npm test`. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine or one of the two publishing hosts named below, inside `lib/social/` and nowhere else. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
+- `scripts/check-localhost.mjs`, second in `npm test` — only `scripts/css-dead-decls.mjs` runs ahead of it. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine or one of the two publishing hosts named below, inside `lib/social/` and nowhere else. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
 
   Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
 
@@ -150,15 +150,17 @@ knowledge/kuwait/  evergreen/ (stable) and timely/ (dated, sourced)
 data/samples/    real Excel and images — gitignored, never leaves the machine
 data/fonts/      self-hosted OFL fonts; never hotlink Google Fonts
 evals/           frozen test sets — the substitute for a deadline
-app/(staff)/     studio, advisor, templates, sales-inbox, campaigns
+app/(staff)/     products, templates, studio, advisor, sales, campaigns, kuwait, social
 app/chat/        the public customer widget
-lib/             excel, template, ai, rag, advisor
+lib/             excel, template, ai, rag, advisor, social — plus flat single files
+                 (db, http, money, catalogue, assets, campaigns, brief, meeting,
+                  spend, snapshot, kuwait)
 db/  scripts/
 ```
 
-Five lib modules, not seven. `lib/render` belongs inside `lib/template` — they share the manifest type, font loading, and measurement. `lib/kuwait` does not exist; it is markdown plus one read function.
+Five lib modules, not seven. `lib/render` belongs inside `lib/template` — they share the manifest type, font loading, and measurement. `lib/kuwait` is the flat file above, markdown plus one read function, not a directory. `lib/social/` is the one directory added since, and D84 is the argument it had to beat: it shares nothing with anything, and it is the sole place a host off this machine may be named (rule 1).
 
-**`lib/template/layout.ts` must stay pure** — shaping, measurement, wrapping, fitting. No I/O, no database, no sibling imports. It is the hardest code in the project and purity is what makes it testable. Keep the SVG snapshot fixtures current; text-layout regressions are invisible until you are looking at 200 bad posts.
+**`lib/template/layout.ts` must stay pure** — shaping, measurement, wrapping, fitting. No I/O, no database, no sibling imports. It is the hardest code in the project and purity is what makes it testable. `scripts/test-layout.mjs` asserts it directly; there is no golden-SVG set, so text-layout regressions are invisible until you render it and look at 200 bad posts.
 
 ---
 

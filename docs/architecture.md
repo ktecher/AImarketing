@@ -264,16 +264,18 @@ Real retail sheets have merged cells, headers below row 1, blank and duplicate S
 
 ## Module boundaries
 
-`lib/excel`, `lib/template`, `lib/ai`, `lib/rag`, `lib/advisor`. Five, not seven — `lib/render` shares the manifest type, font loading, and measurement with `lib/template`, and `lib/kuwait` is markdown plus one read function.
+`lib/excel`, `lib/template`, `lib/ai`, `lib/rag`, `lib/advisor`. Five, not seven — `lib/render` shares the manifest type, font loading, and measurement with `lib/template`, and `lib/kuwait` is markdown plus one read function. `lib/social` is the sixth and the only one added since, on the D84 test: it shares nothing, and the localhost checker's rule is directory-shaped, so the boundary is only as sharp as the directory is.
 
 The boundary that pays off over months is inside `lib/template`: **`layout.ts` must be pure.** Shaping, measurement, wrapping, fitting. No I/O, no database, no sibling imports. It is the hardest code in the project and purity is what makes it testable.
 
-One runnable check: roughly fifteen fixtures rendered to committed SVG snapshots — short and long English, short and long Arabic, mixed Arabic with a Latin brand name, a price, a string containing `&`, an empty cell. **Text-layout regressions are invisible until you are looking at 200 bad posts.**
+The runnable check is `scripts/test-layout.mjs`: assertions run straight against `layout.ts`'s pure functions — Arabic detection, base direction, bidi isolation of numeric runs, shaped measurement, wrapping, and fit-shrinking. No rendering, no golden files.
+
+**There is no committed golden-SVG regression set.** One was described here for months and never built; nothing in the repo compares a rendered poster to a stored one, and `lib/snapshot.ts` is unrelated — it is the pre-delete copy a destructive route takes. So a layout regression that the assertions above do not name is caught by rendering it and looking, and by nothing else. **Text-layout regressions are invisible until you are looking at 200 bad posts.**
 
 ---
 
 ## Enforcing the localhost rule
 
-A boot-time assert that `OLLAMA_BASE_URL`'s host is loopback, throwing with an actionable message, plus ESLint `no-restricted-imports` on HTTP clients everywhere except `lib/ai/generate.ts`. About twenty lines, and it makes the offline proof true by construction rather than by luck.
+A boot-time assert that `OLLAMA_BASE_URL`'s host is loopback, throwing with an actionable message, plus `scripts/check-localhost.mjs` in `npm test`: no HTTP client imported outside `lib/ai/generate.ts`, and no external URL literal in `app/`, `lib/` or `db/` beyond the publishing hosts, which may be named only inside `lib/social/`. **Not ESLint** — no typescript-eslint supports TypeScript 7, so the source goes through esbuild and the check reads what is left. See CLAUDE.md rule 1 for the current host list; it is the source of truth.
 
 Note the rule bans *requests leaving localhost*, not the `openai` package — Ollama's endpoint is OpenAI-compatible, so that client pointed at localhost is the correct implementation.

@@ -1,6 +1,6 @@
 # Handoff
 
-State of the project as of 2026-08-26. Read `CLAUDE.md` for the rules, `docs/db.md` for the database, `docs/decisions.md` for why anything is the way it is (append-only, 72 entries, each with a reversal condition), and this file for where things stand.
+State of the project as of 2026-09-03. Read `CLAUDE.md` for the rules, `docs/db.md` for the database, `docs/decisions.md` for why anything is the way it is (append-only, 92 entries, each with a reversal condition), and this file for where things stand.
 
 ---
 
@@ -11,7 +11,8 @@ brew services start ollama          # models already pulled, ~21 GB on disk
 npm run db:up                       # Postgres in Docker, pinned to pg17, port 5434
 npm run db:migrate                  # once, and after any db/*.sql change
 npm run dev                         # http://localhost:3000
-npm test                            # 367 assertions across 12 suites, seconds
+npm run dev:https                   # https://localhost:3000 — the ONLY way Instagram OAuth works (D86)
+npm test                            # 905 assertions across 21 suites, seconds
 npm run typecheck
 npm run eval:chat                   # 30 questions against the live model, ~2 min
 npm run kuwait:trends               # today's Kuwait search trends, by hand
@@ -43,8 +44,9 @@ The database currently holds **62 rows** — the campaign sheet re-imported, not
 | `/advisor` — **Advisor** | Paste a draft: named binary checks, quoted spans, ranked fixes, `not_assessed` printed. Never a score |
 | `/chat` | The PUBLIC customer widget — no sidebar, nothing staff-only reachable from it |
 | `/sales` — **Inbox** | Every conversation with full provenance per bot message, why it escalated, silent takeover, campaign shown |
-| `/campaigns` — **The loop** | Four columns. What was promoted vs what customers asked about, and what the assistant could not answer. D68 |
-| `/kuwait` — **Kuwait** | `knowledge/kuwait/` rendered (markdown stays the source), plus dated search trends with a Refresh button. D70–D72 |
+| `/campaigns` — **The loop** | Four columns. What was promoted vs what customers asked about, and what the assistant could not answer. D68. The front door is the **meeting** (`lib/meeting.ts`): one question at a time until the person presses *Write the plan*, and the budget is split by weight WORDS the model chooses and digits `lib/spend.ts` computes. D92 |
+| `/social` — **Publish** | The only screen that reaches off this machine. Connect Instagram once, pick a design and its approved caption, publish now or schedule, and read back what went out — permalink, error, or `missed`. D83–D91 |
+| `/kuwait` — **Kuwait** | `knowledge/kuwait/` rendered (markdown stays the source), plus dated search trends and a typed topic search. D70–D73 |
 
 **The chatbot eval passes** — `evals/chat.json`, 30 frozen questions, `npm run eval:chat`: 25/25 answerable, 5/5 escalations, **zero invented figures**, median 3.8s. That is vision.md's third success criterion, met and repeatable. The set is frozen: never edit a question to make a run pass.
 
@@ -56,7 +58,7 @@ The database currently holds **62 rows** — the campaign sheet re-imported, not
 
 ## The three rules that matter most
 
-1. **No request may leave localhost** — boot-time loopback asserts in `lib/ai/generate.ts` and `lib/db.ts`, plus `scripts/check-localhost.mjs` first in `npm test`: no HTTP client import outside the seam, no external URL literal in `app/`, `lib/`, `db/`. It is not ESLint and cannot be (TS 7 is the Go port; no typescript-eslint supports it) — esbuild strips comments/types and the check reads what is left. D66.
+1. **No request may leave localhost** — boot-time loopback asserts in `lib/ai/generate.ts` and `lib/db.ts`, plus `scripts/check-localhost.mjs`, second in `npm test` behind `css-dead-decls`: no HTTP client import outside the seam, no external URL literal in `app/`, `lib/`, `db/`. It is not ESLint and cannot be (TS 7 is the Go port; no typescript-eslint supports it) — esbuild strips comments/types and the check reads what is left. D66. **Publishing is the enumerated exception**: four Instagram/Cloudinary hosts, nameable only inside `lib/social/`, per post, on a person's click. A fifth host there, or any of the four one directory over, fails the build. D83–D86.
 2. **The model never emits a number.** It writes `{price_now:502037}`; `formatKwd` fills it from the row. Grounding is a set operation (`cited ⊆ retrieved`), checked in TypeScript, never asked of the model.
 3. **No score anywhere.** Binary named checks with quoted spans. A test greps the advisor for `score|rating|grade` and fails if one appears. The campaigns table is four columns and a test counts them.
 
@@ -64,7 +66,7 @@ The database currently holds **62 rows** — the campaign sheet re-imported, not
 
 ## Real usage so far
 
-34 conversations sit in `data/state/chat/`, **7 escalated and waiting for a person** in the Inbox. 9 products have content drafts; 5 designs are recorded in `assets` (all pre-campaign, so unstamped). No campaign exists yet — the table is empty, and the first one created becomes `current()` and starts stamping everything. Somebody has clicked Refresh on the Kuwait tab.
+34 conversations sit in `data/state/chat/`, **7 escalated and waiting for a person** in the Inbox. 9 products have content drafts. **62 designs are recorded in `assets`**, and **5 Instagram posts have actually gone out** — one connected account, all five `posted`. No campaign exists yet: the table is empty, so none of that is stamped, and the first campaign created becomes `current()` and starts stamping everything from that moment. Somebody has clicked Refresh on the Kuwait tab.
 
 ---
 
@@ -72,11 +74,13 @@ The database currently holds **62 rows** — the campaign sheet re-imported, not
 
 **1. No Kuwaiti voice in the copy.** Competent English retail copy with nothing local, because there are no exemplars to few-shot from. Waiting-list item 4 — not a modelling problem, and the largest gap in any pillar.
 
-**2. Arabic names still flag the poster — and it is the sheet, not the app.** The `name_ar` column holds spec sentences, not names (longest 231 chars). Either the sheet gets real Arabic names, or a designer drops the Arabic slot — one click in the editor, and a legitimate choice.
+**2. Arabic names still flag the poster — and it is the sheet, not the app.** Counted in the live catalogue on 2026-09-03: `name_ar` holds a spec sentence rather than a name on **40 of 62** rows (longest 231 chars), **60 of 62** have no `display_name` to fall back to, and **all 62** are flagged on sale. Either the sheet gets real Arabic names and honest sale flags, or a designer drops the Arabic slot — one click in the editor, and a legitimate choice.
 
 **3. The advisor's other half is gated on the social export.** Comparison to past posts sits in `not_assessed`, named, rather than silently absent. The blind historical test (10 posts, 5 good 5 flops) is the best acceptance test in the project and needs that export.
 
-**4. Most stores are still files.** Postgres holds `products`, `assets`, `campaigns`. Chat conversations, content drafts, the campaign sheet, short names and templates are files. `docs/db.md` lists what each first migration must carry — those columns are irrecoverable. The campaigns FK lands when `content_pieces` and `conversations` do, on all three at once.
+**4. Most stores are still files.** Postgres holds `products`, `assets`, `campaigns`, `social_accounts`, `social_posts`. Chat conversations, content drafts, campaign meetings, the campaign sheet, short names and templates are files. `docs/db.md` lists what each first migration must carry — those columns are irrecoverable. `social_posts` already carries a real `campaign_id` FK because both its sides are in Postgres; `assets` and the file stores get theirs when they move.
+
+**4a. Two things with no test at all, and both matter.** `lib/http.ts` — 18 API routes import it, and it is named in the traps below. And most of `lib/template`: only `layout.ts` (`test-layout.mjs`) and `columns.ts` (`test-catalogue.mjs`) are asserted, so `render.ts`, `svg.ts`, `render-text.ts`, `export.ts`, `store.ts` and `artwork.ts` — the pipeline `architecture.md` calls the hardest code in the project — are covered by rendering one and looking.
 
 **5. Memory at ~200 products on export** — ~1.5 GB peak, accepted at current scale (D39).
 
@@ -99,19 +103,21 @@ The database currently holds **62 rows** — the campaign sheet re-imported, not
 - **`table.catalogue` carries a `min-width: 840px` floor** for the Products table; any other table using the class inherits it. `.knowledge` overrides to 0.
 - **Retrieval embeds at most 64 missing rows inline.** Beyond that, unembedded rows answer lexically until the Products embed queue runs — a page load must not become minutes of model time.
 - **`evals/` is not `npm test`.** The eval needs Ollama and Postgres and refuses to skip — a missing dependency is a loud failure, because an eval that skips silently passes silently.
+- **A scheduled post sends only while this app is running.** The sweep publishes inside a grace window and marks anything past it `missed`, visibly, rather than firing a "tonight only" offer the next morning (D89).
 - **For anything visual, render it and look.** Reversed digits, scrambled model numbers, one name on sixty posters, overlapping panels, a squeezed guardrails column — every one passed the suite.
 
 ---
 
-## Verified, 2026-08-26
+## Verified, 2026-09-03
 
 Everything below was run, not assumed.
 
 | | |
 |---|---|
-| `npm test` | **367 assertions, 0 failures**, 12 suites |
+| `npm test` | **905 assertions, 0 failures**, 21 suites |
 | `npm run typecheck` | clean |
-| `npm run build` | 27 routes, 0 errors (2 known benign trace warnings from reading `knowledge/` at request time) |
+| `npm run build` | 39 routes, 0 errors (3 "Dynamic filesystem access" warnings, all from `lib/snapshot.ts` reached via `app/api/templates/[id]/route.ts` — the pre-delete copy, reading the directory it is about to save) |
+| Live database | `products` 62 (62 vectors), `assets` 62, `campaigns` 0, `social_accounts` 1, `social_posts` 5 all `posted`. 11 MB |
 | `npm run eval:chat` (2026-08-23) | **PASS — 25/25, 5/5 escalations, 0 invented figures, median 3.8s** |
 | `npm run kuwait:trends` | 10 trends written; the tab's Refresh button does the same on a click |
 | Campaign loop, live | question escalates → appears in the report in the customer's words; export stamps; cited product counts as asked-about |
@@ -130,6 +136,14 @@ Everything below was run, not assumed.
 - **D70** The chatbot eval (frozen, passing) and the Kuwait screen (markdown rendered, calendar beside the guardrails).
 - **D71** Trends via a hand-run script into `timely/`, freshness displayed, no model reads the feed.
 - **D72** The Refresh button: a click is a person running the tool. Fixed path, no arguments, body never read.
+
+## And where they stopped since (D73–D92)
+
+- **D73–D74, D77, D79–D81** The screens got smaller: a typed topic may leave (stripped and capped, at the route and again in the script), sidebar categories deleted, the campaign form replaced by one question, an assist that gives back something you did not type, and deleting a campaign that keeps the work and kills the id.
+- **D75, D78, D82** The advisor got the half people opened it for — `converse.ts` answers hook, clarity, retention and CTA, asks in TypeScript when it cannot tell what it is looking at, and rule 5 was extended to what the trends feed SHOWS, not only to what we write.
+- **D83–D87** Publishing. Four hosts in one directory, Instagram API with Instagram Login because the shop has no Meta Business portfolio and no Page, and `npm run dev:https` because Meta refuses an http redirect URI.
+- **D88–D91** One post is about a LIST of products (`skus`, replacing `sku`); scheduling that admits when later never came (`missed`, and `publishing_at` so a crash cannot strand a row); three screens that lied, fixed.
+- **D92** The campaign meeting. One question per turn, and a budget split from weight words — `dominant · large · moderate · small · minimal` — with every digit computed in `lib/spend.ts` and the rounding remainder on the LARGEST line, never on Contingency.
 
 The way of working that produced all of it, and the one to keep: **grill the module to a shared understanding, build it, then use it for real before believing it.** Every real defect came from using the thing, never from the suite — a correct price called invented, a new campaign inheriting last week's offer, a static page freezing the trends, one laptop's name on sixty posters. The suite exists to stop the SECOND occurrence.
 
@@ -175,13 +189,28 @@ lib/content/studio.ts     drafts, approval gate, campaign context in the prompt
 lib/content/guard.ts      the binary checks copy and chat both reuse
 lib/advisor/review.ts     review(text) — checks, blockers, not_assessed
 lib/campaigns.ts          create/current/report — the loop, derived membership
+lib/brief.ts              the one-question first screen and its assist
+lib/meeting.ts            the campaign meeting: one question a turn, then the plan
+lib/spend.ts              split() — weight words in, fils out, remainder on the largest line
 lib/money.ts              formatKwd, the only place a price becomes a string
 lib/assets.ts             what was exported, and what was baked into it
+lib/http.ts               req.json() that does not throw. 18 routes. NO TEST
+lib/snapshot.ts           the copy a destructive route takes first (not an SVG snapshot)
+
+lib/social/instagram.ts   OAuth, token exchange, publish — reaches the network
+lib/social/cloudinary.ts  hosts the poster so Meta can FETCH it — reaches the network
+lib/social/store.ts       social_accounts / social_posts, local Postgres only
+lib/social/tokens.ts      AES-256-GCM at rest, key in APP_ENCRYPTION_KEY
+lib/social/scheduler.ts   the sweep: what is due, what was missed, what was abandoned
 
 app/api/campaigns         list/create/context + the report
+app/api/campaigns/meeting the planner's turns, and the plan it writes
+app/api/export/copy       approved copy out, beside the designs
+app/api/social/*          instagram/{start,callback}, accounts, posts, publish, scheduled
 app/api/kuwait/trends     executes scripts/pull-trends.mjs, nothing else
-scripts/pull-trends.mjs   the one outbound request, quarantined, no input
-scripts/check-localhost.mjs  rule 1, enforced (esbuild-stripped source)
+app/api/kuwait/search     executes scripts/search-trends.mjs with ONE stripped topic (D73)
+scripts/pull-trends.mjs   an outbound request, quarantined, no input
+scripts/check-localhost.mjs  rule 1, enforced (esbuild-stripped source), 2nd in npm test
 scripts/eval-chat.mjs     the frozen 30, its own figure check on purpose
 scripts/test-campaigns.mjs  four columns asserted, both report legs
 evals/chat.json           FROZEN — append with a decisions entry, never edit

@@ -2483,3 +2483,54 @@ something they cannot answer.
 the person typed is exempt now, the way `converse.ts` already exempts a price
 quoted back out of a draft. A warning that fires every turn is one nobody reads
 by the third.
+
+---
+
+## D93 — Four docs audited against the running system, and one of them described a harness that was never built
+
+**2026-09-03.** `CLAUDE.md` says a stale doc is worse than a missing one, because
+a future session will follow it. Nothing had ever tested that claim, so the docs
+were read back against the live system — the suite, the build, the container, the
+directory listings — rather than against each other.
+
+**What was wrong.** `HANDOFF.md` was a week old and predated an entire pillar:
+367 assertions when there are 905, 12 suites when there are 21, 27 build routes
+when there are 39, 72 decisions when there are 92, five designs in `assets` when
+there are 62, and no `/social` row at all for the only screen that reaches off
+this machine. `docs/db.md` had a two-table hole — migrations 005–008 and the
+whole publishing surface — and stated that `campaigns` carries no foreign key,
+which stopped being true when `social_posts_campaign_id_fkey` landed. Both files
+listed Postgres as holding three tables; it holds five. `CLAUDE.md`'s layout tree
+omitted `lib/social/`, which its own rule 1 names as the sole directory where a
+host off this machine may appear, and both files called `check-localhost.mjs`
+first in `npm test` when `css-dead-decls.mjs` runs ahead of it.
+
+**The one that mattered most was not a number.** `architecture.md` described
+*"roughly fifteen fixtures rendered to committed SVG snapshots"* covering short
+and long English and Arabic, a mixed string, a price, an `&`, an empty cell. No
+such fixture set has ever existed. `scripts/test-layout.mjs` is assertions
+against `layout.ts`'s pure functions and compares nothing to a golden file;
+`lib/snapshot.ts` is the pre-delete copy a destructive route takes and shares only
+the word; `renders/` is gitignored output. A future session reading that
+paragraph would have believed the hardest code in the project had a regression
+net under it. It does not, and the paragraph now says so.
+
+**Why this is a decision and not a chore.** The failure mode is specific: numbers
+in a handoff decay silently, and a paragraph describing work that was planned and
+then not done is indistinguishable from one describing work that exists. Neither
+is caught by `npm test`, `tsc` or a build, and a doc is the one artefact in this
+project with no runnable check. So the rule that follows is the same one the code
+already lives under — **verify against the running thing, not against the other
+document.** Every figure written today was measured: the suite was run, the build
+was run, the container was queried.
+
+**What was deliberately not touched.** The hard rules, every existing decision
+entry, `evals/`, and `README.md`, which was audited and found correct. No sixth
+doc was created; the publishing tables went into `db.md` where the schema runbook
+already lives.
+
+**Reverses if.** The docs acquire a check that can fail — a script that reads the
+suite's own assertion count, the build's route count and `information_schema`,
+and diffs them against what the markdown claims. At that point this becomes a
+test rather than a decision, and the audit stops needing to be remembered.
+

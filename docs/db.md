@@ -11,14 +11,16 @@ at the files that are the real source of truth rather than copying them:
 
 | Question | The actual answer lives in |
 |---|---|
-| What columns exist | `db/001_products.sql` |
+| What columns exist | `db/001_products.sql` through `db/008_publishing_at.sql` |
 | How Postgres is run | `docker-compose.yml` |
 | How the app connects | `lib/db.ts` |
-| What reads and writes it | `lib/catalogue.ts` |
+| What reads and writes it | `lib/catalogue.ts`, `lib/assets.ts`, `lib/campaigns.ts`, `lib/social/store.ts` |
 
-Last verified 2026-08-20 against a running container: PostgreSQL 17.11 in
-`pgvector/pgvector:pg17`, pgvector 0.8.6 available, 60 products with 60 vectors,
-592 kB on disk.
+Last verified 2026-09-03 against the running container: PostgreSQL 17.11 in
+`pgvector/pgvector:pg17` on `127.0.0.1:5434`, pgvector 0.8.6 available and
+unused. Five tables — `products` 62 rows with 62 vectors (2856 kB), `assets` 62,
+`campaigns` 0, `social_accounts` 1, `social_posts` 5, all `posted`. 11 MB
+database.
 
 ---
 
@@ -265,6 +267,32 @@ both directions.
 
 ---
 
+## Publishing: what actually went out
+
+`social_accounts` and `social_posts`, added after the first four migrations. Each
+file is idempotent, because `db:migrate` re-runs every one of them from the top.
+
+| Migration | What it added |
+|---|---|
+| `005_social.sql` | Both tables. One account somebody connected; one row per publish attempt and its outcome |
+| `006_carousel.sql` | `sku` **replaced** by `skus text[]` — one post is about a list of products (D88) |
+| `007_schedule.sql` | `scheduled_at`, and the statuses `scheduled` and `missed` (D89) |
+| `008_publishing_at.sql` | `publishing_at`, so a crash mid-publish leaves a row something can still reach |
+
+What cannot be taken back here:
+
+- **`token_cipher`, never `token`.** AES-256-GCM at rest, key in `APP_ENCRYPTION_KEY`
+  and never in this database. A long-lived token is a standing grant to post as
+  the shop, and a `pg_dump` in a backup folder is a plain-text copy of it. Only
+  `tokenFor()` reads the column; the name is so a query written in a hurry cannot
+  look like it returned something usable.
+- **`campaign_id` from row one**, with a real FK — see below.
+- **`skus` is not a foreign key to `products`.** A post that went out is a fact
+  about the past; a SKU leaving the catalogue must not take the history of
+  promoting it with it.
+- **`missed` is a status, not an absence.** The laptop sleeps. A post whose moment
+  passed either says so or lies about a future that will not happen.
+
 ## Traps
 
 - **A node script does not load `.env`; Next does.** The catalogue test suite
@@ -286,9 +314,10 @@ both directions.
 
 ## Not in the database yet
 
-Everything except `products`, `assets` and `campaigns`. The chat store is still
-files under `data/state/chat/`, and the campaign sheet, templates, short names and
-content drafts are all still files.
+Everything except `products`, `assets`, `campaigns`, `social_accounts` and
+`social_posts`. The chat store is still files under `data/state/chat/`, and the
+campaign sheet, templates, short names, content drafts and the campaign meeting
+are all still files.
 
 **When each of those moves, its first migration must already carry these** —
 from `architecture.md`, and each is irrecoverable for the same reason:
@@ -307,8 +336,12 @@ The shapes already exist in TypeScript — `lib/chat/store.ts` writes exactly th
 `assets` is **done** — `db/002_assets.sql`. See below.
 
 `campaigns` is **done** — `db/004_campaigns.sql`, and it is four columns with a
-suite assertion that fails on a fifth (D68). It carries no foreign key on
-purpose: `content_pieces` and `conversations` are still files, so a constraint
-would guarantee referential integrity for one of the three consumers of
-`campaign_id` and none of the others, which reads as a guarantee the system does
-not have. The FK lands when those tables do, on all three at once.
+suite assertion that fails on a fifth (D68).
+
+**One of its three consumers now has a real foreign key, and that is deliberate.**
+`social_posts_campaign_id_fkey` references `campaigns(id) on delete set null`,
+because both sides of that one are in Postgres. `assets.campaign_id` still has
+none and neither will content drafts or conversations while they are files — a
+constraint on one of three reads as a guarantee the system does not have, so the
+guarantee is claimed only where it is true. The remaining FKs land when those
+tables do.
