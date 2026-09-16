@@ -133,6 +133,23 @@ const SOCIAL_HOSTS = new Set([
   'api.cloudinary.com',
 ])
 
+/**
+ * The second (and last) file that may name a host off this machine, and the
+ * only hosts it may name (D97).
+ *
+ * A cloud AI call is opt-in per feature and made only when the maintainer has
+ * connected a key in Settings -- see lib/ai/settings.ts and lib/ai/route.ts.
+ * lib/ai/generate.ts (the SEAM) stays local-only and untouched; this is a
+ * SEPARATE file specifically so that guarantee never has to be read with a
+ * conditional in mind.
+ */
+const AI_CLOUD = 'lib/ai/cloud.ts'
+const AI_CLOUD_HOSTS = new Set([
+  'api.openai.com',
+  'api.anthropic.com',
+  'generativelanguage.googleapis.com',
+])
+
 const isLoopback = (host) =>
   host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' ||
   host.endsWith('.localhost')
@@ -165,6 +182,7 @@ for (const root of [...ROOTS, ...ALSO]) {
     const rel = relative(process.cwd(), file)
     const isSeam = rel === SEAM
     const isSocial = rel.startsWith(SOCIAL)
+    const isAiCloud = rel === AI_CLOUD
 
     // Comments and types out; strings and imports left exactly as written.
     // An import esbuild drops as unused is one nothing calls, which is one that
@@ -217,12 +235,17 @@ for (const root of [...ROOTS, ...ALSO]) {
       const host = m[1].toLowerCase()
       if (isLoopback(host) || NAMESPACES.has(host)) continue
       if (isSocial && SOCIAL_HOSTS.has(host)) continue
+      if (isAiCloud && AI_CLOUD_HOSTS.has(host)) continue
       problems.push(
         SOCIAL_HOSTS.has(host)
           ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — publishing lives in ${SOCIAL}, and only there`
           : isSocial
             ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — ${SOCIAL} may name only ${[...SOCIAL_HOSTS].join(', ')}`
-            : `${rel}:${lineOf(m[0], m[1])}  names "${host}" — nothing here may leave this machine`,
+            : AI_CLOUD_HOSTS.has(host)
+              ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — cloud AI calls live in ${AI_CLOUD}, and only there`
+              : isAiCloud
+                ? `${rel}:${lineOf(m[0], m[1])}  names "${host}" — ${AI_CLOUD} may name only ${[...AI_CLOUD_HOSTS].join(', ')}`
+                : `${rel}:${lineOf(m[0], m[1])}  names "${host}" — nothing here may leave this machine`,
       )
     }
   }

@@ -19,7 +19,7 @@ The company's requirement is absolute: catalog rows, customer messages, uploaded
 Enforcement is structural, not a promise:
 
 - A boot-time assert that `OLLAMA_BASE_URL`'s host is a loopback address, throwing with an actionable message.
-- `scripts/check-localhost.mjs`, second in `npm test` — only `scripts/css-dead-decls.mjs` runs ahead of it. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine or one of the two publishing hosts named below, inside `lib/social/` and nowhere else. The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
+- `scripts/check-localhost.mjs`, second in `npm test` — only `scripts/css-dead-decls.mjs` runs ahead of it. Over `app/`, `lib/` and `db/`: no HTTP client imported outside `lib/ai/generate.ts`, and no absolute http(s) URL in a string unless its host is this machine, one of the four publishing hosts named below inside `lib/social/` and nowhere else, or one of the three cloud AI provider hosts inside `lib/ai/cloud.ts` and nowhere else (D97). The second check is the one that matters — `fetch` is a global, so an import rule cannot see it.
 
   Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
 
@@ -28,7 +28,7 @@ Enforcement is structural, not a promise:
   - `/api/kuwait/trends` runs `scripts/pull-trends.mjs` with **no arguments**, never reading the request body (D72).
   - `/api/kuwait/search` runs `scripts/search-trends.mjs <topic>` with **one argument**: a topic a person typed, stripped to letters, digits and spaces and capped at sixty characters, at the route and again in the script. Nothing else reaches the child process (D73).
 
-  **Publishing a post is the second exception, and the only one inside the app** (D83). Meta does not accept uploaded image bytes — it FETCHES the image from a public URL — so a finished poster has to be hosted somewhere Meta can read it, and the maintainer chose Cloudinary over a tunnel and over publishing by hand. Four hosts, one directory, and the checker enforces exactly that:
+  **Publishing a post is the second exception inside the app, and routing a feature to a cloud AI provider is the third** (D83, D97 — see "Calling the model" below). Meta does not accept uploaded image bytes — it FETCHES the image from a public URL — so a finished poster has to be hosted somewhere Meta can read it, and the maintainer chose Cloudinary over a tunnel and over publishing by hand. Four hosts, one directory, and the checker enforces exactly that:
 
   - `api.instagram.com`, `graph.instagram.com` and `api.cloudinary.com` may be named **only inside `lib/social/`**. Those exact hosts, that exact directory. The same host one directory over fails the build, and a fifth host inside `lib/social/` fails the build. Meta splits the login across two of them — the authorisation code is spent at `api.instagram.com`, the long-lived token and every publish happen at `graph.instagram.com` — so neither can be folded into the other.
   - `www.instagram.com` is the fourth, and is not the same kind of thing (D85). It is the OAuth login dialog, which neither API host serves. Nothing fetches it — it goes in a 302 `Location` header and the person’s browser follows it, carrying the client_id, the scope list and a random state. No catalogue row, caption, image or credential rides on it.
@@ -123,7 +123,7 @@ Publishing (D83, D86) adds the only credentials in this project that are not loc
 
 ### Calling the model
 
-Every call goes through `lib/ai/generate.ts`. Two settings are mandatory there, with comments saying why:
+Every call still goes through either `lib/ai/generate.ts` (local, default) or `lib/ai/route.ts` (which dispatches to either `generate.ts` or `lib/ai/cloud.ts`, per a feature's Settings-configured choice — D97). Two settings are mandatory in `generate.ts`, with comments saying why:
 
 - **`num_ctx: 8192` explicitly.** Ollama's default is 2048–4096 and it *silently truncates*, eating retrieved rows and producing bugs that look exactly like model-quality problems. This is the most common local-RAG footgun.
 - **`temperature: 0`** for anything factual.

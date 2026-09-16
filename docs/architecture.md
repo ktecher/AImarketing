@@ -109,7 +109,7 @@ A missing image renders a visible `IMAGE MISSING` placeholder. A blank box that 
 
 **Ollama**, on `localhost:11434`, OpenAI-compatible. The decisive argument is not convenience — the production target is an on-prem server, almost certainly x86 with NVIDIA, and **MLX does not exist there**. Building on MLX would mean rewriting the runtime for production. MLX stays in reserve for a possible LoRA, noting that MLX-finetune to Ollama-serve is not a straight line: fuse, convert to GGUF, requantise. It works, it is lossy, it is fiddly.
 
-Every model call goes through `lib/ai/generate.ts`. That is the file the localhost guardrail is enforced around, and having exactly one is what makes the guardrail real.
+Every model call goes through either `lib/ai/generate.ts` (local, default) or `lib/ai/route.ts`, which dispatches per-feature to `generate.ts` or to `lib/ai/cloud.ts` for a Settings-configured cloud provider (D97). Those are the files the localhost guardrail is enforced around, and having exactly this pair is what makes the guardrail real.
 
 ### Models and the memory budget
 

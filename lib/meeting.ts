@@ -33,7 +33,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { generate, generateJson, generateStream, MODELS } from '@/lib/ai/generate'
+import { MODELS } from '@/lib/ai/generate'
+import * as route from '@/lib/ai/route'
 import { blockers, check, isProductIdentity, normaliseArabic } from '@/lib/content/guard'
 import { retrieve } from '@/lib/rag/retrieve'
 import { campaignProducts } from '@/lib/template/columns'
@@ -747,7 +748,8 @@ export async function reply(
   // prompt, on a call somebody is waiting through.
   let known = withYou.known
   try {
-    const out = await generateJson(
+    const out = await route.generateJson(
+      'campaigns',
       [
         'Read this meeting transcript and record only what the COLLEAGUE has actually said.',
         'You are a note-taker, not a planner. You are not being asked what would be sensible.',
@@ -916,7 +918,9 @@ export async function reply(
   try {
     // A planner that answers at 0 gives the same three sentences to every idea,
     // which reads as a template and stops being read. This is judgement, not fact.
-    prose = await generateStream(prompt, { temperature: 0.6 }, (delta) => on({ at: 'writing', delta }))
+    prose = await route.generateStream('campaigns', prompt, { temperature: 0.6 }, (delta) =>
+      on({ at: 'writing', delta }),
+    )
   } catch (e) {
     const msg = e instanceof Error ? e.message : ''
     // Merged, not written whole: a plan finishing while this turn was in flight
@@ -1106,7 +1110,8 @@ export async function plan(m: Meeting): Promise<Plan> {
   const { text: base, asOf, rows } = await preamble(m, idea, m.known.pushing ?? '')
   const total = budgetOf(m.known)
 
-  const reasoning = await generate(
+  const reasoning = await route.generate(
+    'campaigns',
     [
       base,
       '',
@@ -1119,7 +1124,8 @@ export async function plan(m: Meeting): Promise<Plan> {
     { temperature: 0.6 },
   )
 
-  const out = await generateJson(
+  const out = await route.generateJson(
+    'campaigns',
     [
       base,
       '',
@@ -1199,7 +1205,7 @@ export async function plan(m: Meeting): Promise<Plan> {
     caution: blockers(check(prose, identity))
       .filter((c) => c.name !== 'every placeholder is a real field' && c.name !== 'every placeholder has a value')
       .filter((c) => !(c.span && mine.includes(c.span))),
-    model: MODELS.english,
+    model: await route.modelLabel('campaigns'),
     prompt_version: MEETING_PROMPT_VERSION,
   }
 }

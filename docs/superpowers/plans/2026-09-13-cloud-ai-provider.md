@@ -106,8 +106,10 @@ Apply it: `psql "$DATABASE_URL" -f db/009_ai_settings.sql` (or `npm run db:migra
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64')
 
-import { query } from '../lib/db.ts'
-import { FEATURES, resolve, setGlobal, setFeature } from '../lib/ai/settings.ts'
+// Dynamic, after the env is set -- static imports are hoisted ahead of the
+// two lines above, same convention scripts/test-schedule.mjs already follows.
+const { query } = await import('../lib/db.ts')
+const { FEATURES, resolve, setGlobal, setFeature } = await import('../lib/ai/settings.ts')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -455,7 +457,9 @@ Provider APIs are stubbed via a replaced global `fetch` — same pattern `script
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 
 import { z } from 'zod'
-import { generate, generateJson, generateStream, DEFAULT_MODELS } from '../lib/ai/cloud.ts'
+// Dynamic: same convention as the other new test scripts here, even though
+// this module doesn't itself read process.env at import time.
+const { generate, generateJson, generateStream, DEFAULT_MODELS } = await import('../lib/ai/cloud.ts')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -865,30 +869,35 @@ git commit -m "Add lib/ai/cloud.ts: OpenAI/Anthropic/Google adapters (D97)"
 - Modify: `package.json` — add `test-ai-route.mjs` right after `test-ai-cloud.mjs`.
 
 **Interfaces:**
-- Consumes: `resolve`, `Feature` from `@/lib/ai/settings`; `generate`, `generateJson`, `generateStream`, `MODELS` from `@/lib/ai/generate`; `generate` (as `cloudGenerate`), `generateJson` (as `cloudGenerateJson`), `generateStream` (as `cloudGenerateStream`), `DEFAULT_MODELS` from `@/lib/ai/cloud`.
+- Consumes: `resolve`, `Feature` from `@/lib/ai/settings`; `generate`, `generateJson`, `MODELS` from `@/lib/ai/generate`; `generate` (as `cloudGenerate`), `generateJson` (as `cloudGenerateJson`), `DEFAULT_MODELS` from `@/lib/ai/cloud`.
 - Produces (for Task 5's six call sites):
   ```ts
   export async function generate(feature: Feature, prompt: string, opts?: Options): Promise<string>
   export async function generateJson<T>(feature: Feature, prompt: string, schema: z.ZodType<T>, jsonSchema: unknown, opts?: Options): Promise<T>
-  export async function generateStream(feature: Feature, prompt: string, opts: Options, onDelta: (text: string) => void): Promise<string>
   export async function modelLabel(feature: Feature): Promise<string>
   ```
+
+**Ruling, recorded during execution (not in the original spec):** `lib/ai/generate.ts` — the real, committed local seam this branch builds on — has no `generateStream` export, and no committed call site in this codebase currently calls one either. The original plan assumed one existed (based on a misread of an uncommitted, in-progress edit on `main` that was never part of this branch's history). Since nothing needs router-dispatched streaming today, `route.ts` does not export `generateStream` at all — adding one here would mean either breaking the "no change to `generate.ts`" constraint to invent a local counterpart with no caller, or shipping a dead export. `lib/ai/cloud.ts`'s own `generateStream` (Task 3, already built and reviewed) is untouched and remains directly callable by a future feature that needs cloud-only streaming.
 
 - [ ] **Step 1: Write the failing test**
 
 ```js
 // scripts/test-ai-route.mjs
 //
-// The router: local vs. cloud dispatch, and that modelLabel never makes a
-// network call. Both generate.ts and cloud.ts are replaced with stubs here --
-// this test is about WHICH ONE gets called, not what either does (that's
-// test-ai-cloud.mjs's job).
+// The router: local vs. cloud dispatch, proven by actually calling
+// route.generate()/generateJson() with fetch replaced -- not inferred from
+// modelLabel() alone. modelLabel resolves the SAME setting but never calls
+// anything, so it cannot prove which backend a real call actually reaches;
+// this test asserts the real call landed on the right host.
 try { process.loadEnvFile('.env') } catch { /* no .env is normal on a clone */ }
 process.env.APP_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64')
 
-import { query } from '../lib/db.ts'
-import { setGlobal, setFeature } from '../lib/ai/settings.ts'
-import * as route from '../lib/ai/route.ts'
+// Dynamic, after the env is set -- static imports are hoisted ahead of the
+// two lines above, same convention scripts/test-schedule.mjs already follows.
+const { query } = await import('../lib/db.ts')
+const { setGlobal, setFeature } = await import('../lib/ai/settings.ts')
+const route = await import('../lib/ai/route.ts')
+const { z } = await import('zod')
 
 let failed = 0
 const ok = (label, cond, detail = '') => {
@@ -896,15 +905,43 @@ const ok = (label, cond, detail = '') => {
   console.log(`${cond ? 'ok  ' : 'FAIL'}  ${label}${detail ? `   ${detail}` : ''}`)
 }
 
+let calls = []
+globalThis.fetch = async (url) => {
+  const u = new URL(String(url))
+  calls.push({ host: u.host, path: u.pathname })
+  if (u.host.startsWith('127.0.0.1') || u.host === 'localhost:11434') {
+    return { ok: true, status: 200, json: async () => ({ response: 'hi from local' }) }
+  }
+  if (u.host === 'api.openai.com') {
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'hi from cloud' } }] }) }
+  }
+  throw new Error(`test stub: unexpected host ${u.host}`)
+}
+
 const before = await query('select * from ai_settings order by feature')
 
 try {
   await setGlobal('local')
   await setFeature('content_studio', 'default')
+
+  calls = []
+  const localText = await route.generate('content_studio', 'hi')
+  ok('generate: a local feature reaches Ollama', localText === 'hi from local', localText)
+  ok('generate: local call hits the loopback host, not a provider',
+     calls.length === 1 && (calls[0].host.startsWith('127.0.0.1') || calls[0].host === 'localhost:11434'),
+     JSON.stringify(calls))
+
   const localModel = await route.modelLabel('content_studio')
   ok('modelLabel: local feature returns the Ollama model id', localModel === 'gemma4:12b', localModel)
 
   await setFeature('content_studio', 'openai', { apiKey: 'sk-x', model: 'gpt-4o-mini' })
+
+  calls = []
+  const cloudText = await route.generate('content_studio', 'hi')
+  ok('generate: a cloud feature reaches the configured provider', cloudText === 'hi from cloud', cloudText)
+  ok('generate: cloud call hits api.openai.com, not Ollama',
+     calls.length === 1 && calls[0].host === 'api.openai.com', JSON.stringify(calls))
+
   const cloudModel = await route.modelLabel('content_studio')
   ok('modelLabel: cloud feature returns "provider:model"', cloudModel === 'openai:gpt-4o-mini', cloudModel)
 
@@ -912,6 +949,22 @@ try {
   const cloudDefaultModel = await route.modelLabel('content_studio')
   ok('modelLabel: no stored model falls back to the provider default', cloudDefaultModel === 'openai:gpt-4o-mini', cloudDefaultModel)
 
+  // generateJson takes the same dispatch branch as generate -- one call
+  // proves the branch, not the JSON parsing itself (test-ai-cloud.mjs and
+  // the existing generate.ts suite already cover that).
+  await setFeature('content_studio', 'default')
+  await setGlobal('openai', { apiKey: 'sk-global' })
+  calls = []
+  globalThis.fetch = async (url) => {
+    const u = new URL(String(url))
+    calls.push({ host: u.host })
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) }
+  }
+  const jsonResult = await route.generateJson('content_studio', 'hi', z.object({ ok: z.boolean() }), {})
+  ok('generateJson: "default" following a cloud global also dispatches to cloud',
+     jsonResult.ok === true && calls[0]?.host === 'api.openai.com', JSON.stringify({ jsonResult, calls }))
+
+  await setGlobal('local')
   await setFeature('content_studio', 'default')
   ok('embed is not exported by route.ts', route.embed === undefined)
 } finally {
@@ -953,13 +1006,11 @@ import { resolve, type Feature } from '@/lib/ai/settings'
 import {
   generate as localGenerate,
   generateJson as localGenerateJson,
-  generateStream as localGenerateStream,
   MODELS,
 } from '@/lib/ai/generate'
 import {
   generate as cloudGenerate,
   generateJson as cloudGenerateJson,
-  generateStream as cloudGenerateStream,
   DEFAULT_MODELS,
   type CloudProvider,
 } from '@/lib/ai/cloud'
@@ -993,18 +1044,6 @@ export async function generateJson<T>(
   return provider
     ? cloudGenerateJson(prompt, schema, jsonSchema, opts, provider)
     : localGenerateJson(prompt, schema, jsonSchema, opts)
-}
-
-export async function generateStream(
-  feature: Feature,
-  prompt: string,
-  opts: Options,
-  onDelta: (text: string) => void,
-): Promise<string> {
-  const provider = await cloudProviderFor(feature)
-  return provider
-    ? cloudGenerateStream(prompt, opts, onDelta, provider)
-    : localGenerateStream(prompt, opts, onDelta)
 }
 
 /**
@@ -1045,14 +1084,16 @@ git commit -m "Add lib/ai/route.ts: per-feature local/cloud dispatch (D97)"
 **Files:**
 - Modify: `lib/content/studio.ts:17,246,256,275,283,295`
 - Modify: `lib/content/names.ts:16,135`
-- Modify: `lib/advisor/converse.ts:23,198,227,236,300`
+- Modify: `lib/advisor/converse.ts:23,188,217,226,290`
 - Modify: `lib/chat/answer.ts:20,155,169`
-- Modify: `lib/campaigns.ts:32,548,649`
-- Modify: `lib/meeting.ts:36,181,750,919,1109,1122,1202`
+- Modify: `lib/campaigns.ts:32,499,597`
+- Modify: `lib/meeting.ts:36,163,575,624,838,851,930`
 - Test: existing `scripts/test-content.mjs`, `scripts/test-names.mjs`, `scripts/test-advisor.mjs`, `scripts/test-chat.mjs`, `scripts/test-campaigns.mjs`, `scripts/test-meeting.mjs` (all already in `npm test` — no new test files; this task's correctness is that they still pass unchanged, since with every feature at its seeded 'default'/'local' state the router's behavior is identical to calling `generate.ts` directly).
 
+**Note on line numbers:** these were re-verified directly against this branch's actual committed files during Task 4's fix loop — they differ from an earlier draft of this plan, which was accidentally written against an uncommitted, in-progress edit on `main` that this branch never had (see Task 4's ruling). `lib/meeting.ts` in particular has no `generateStream` call anywhere in this branch — its four async calls are `generateJson`, `generate`, `generate`, `generateJson`, in that order, listed below exactly as they appear.
+
 **Interfaces:**
-- Consumes: `generate`, `generateJson`, `generateStream`, `modelLabel` from `@/lib/ai/route` (feature id is each file's own constant — `'content_studio'`, `'advisor'`, `'sales_chat'`, or `'campaigns'`).
+- Consumes: `generate`, `generateJson`, `modelLabel` from `@/lib/ai/route` (feature id is each file's own constant — `'content_studio'`, `'advisor'`, `'sales_chat'`, or `'campaigns'`). No file in this task uses `generateStream` — `lib/ai/route.ts` does not export one (Task 4's ruling).
 - Produces: no change to any of these files' own exports.
 
 Because every `ai_settings` row is seeded to `'local'`/`'default'` (Task 1), `route.generate(feature, ...)` calls `localGenerate(...)` under the hood exactly as `generate.ts`'s own `generate(...)` did before — these six files' behavior is unchanged until someone uses the Settings screen (Task 7).
@@ -1095,7 +1136,7 @@ to:
 import { isQuoted } from '@/lib/ai/generate'
 import * as route from '@/lib/ai/route'
 ```
-Change the `generate(` call at line 198 to `route.generate('advisor', ` and the `generateJson(` call at line 236 to `route.generateJson('advisor', `. Change both `model: MODELS.english` literals (lines 227 and 300) to `model: await route.modelLabel('advisor')`.
+Change the `generate(` call at line 188 to `route.generate('advisor', ` and the `generateJson(` call at line 226 to `route.generateJson('advisor', `. Change both `model: MODELS.english` literals (lines 217 and 290) to `model: await route.modelLabel('advisor')`.
 
 - [ ] **Step 4: Run this feature's tests**
 
@@ -1130,17 +1171,17 @@ to:
 ```ts
 import * as route from '@/lib/ai/route'
 ```
-Change the `generateJson(` call at line 548 to `route.generateJson('campaigns', `. Change the `model: MODELS.english` literal at line 649 to `model: await route.modelLabel('campaigns')`.
+Change the `generateJson(` call at line 499 to `route.generateJson('campaigns', `. Change the `model: MODELS.english` literal at line 597 to `model: await route.modelLabel('campaigns')`.
 
 In `lib/meeting.ts:36`, change:
 ```ts
-import { generate, generateJson, generateStream, MODELS } from '@/lib/ai/generate'
+import { generate, generateJson, MODELS } from '@/lib/ai/generate'
 ```
 to:
 ```ts
 import * as route from '@/lib/ai/route'
 ```
-Change the `generateJson(` call at line 750 to `route.generateJson('campaigns', `, the `generateStream(` call at line 919 to `route.generateStream('campaigns', `, the `generate(` call at line 1109 to `route.generate('campaigns', `, and the `generateJson(` call at line 1122 to `route.generateJson('campaigns', `. Change both `model: MODELS.english` literals (lines 181 and 1202) to `model: await route.modelLabel('campaigns')`.
+This file has four calls to route, in source order: the `generateJson(` call at line 575 becomes `route.generateJson('campaigns', `; the `generate(` call at line 624 becomes `route.generate('campaigns', `; the `generate(` call at line 838 becomes `route.generate('campaigns', `; the `generateJson(` call at line 851 becomes `route.generateJson('campaigns', `. Change both `model: MODELS.english` literals (lines 163 and 930) to `model: await route.modelLabel('campaigns')`. There is no `generateStream` call in this file — `lib/ai/route.ts` does not export one (Task 4's ruling), and nothing here needs it.
 
 - [ ] **Step 8: Run this feature's tests**
 
@@ -1441,4 +1482,4 @@ git commit -m "Record D97: bring-your-own cloud AI provider"
 
 - **Spec coverage:** Settings storage (Task 1), `lib/ai/cloud.ts` (Task 3), `lib/ai/route.ts` + `modelLabel` (Task 4), checker exception (Task 2, sequenced before Task 3 so `npm test` never goes red), all six call sites (Task 5), Settings UI + validation-before-save (Tasks 6–7), decision entry (Task 8). Embeddings-excluded requirement is enforced structurally — `route.ts` never imports or re-exports `embed`, and Task 4's test asserts that.
 - **Type consistency checked:** `Feature`, `Provider`, `Backend`, `CloudProvider` are defined once (`lib/ai/settings.ts` and `lib/ai/cloud.ts` respectively) and only ever imported downstream, never redeclared.
-- **Known ceiling, on record (Task 3):** `generateStream` only implements OpenAI's SSE framing; Anthropic/Google streaming throws a clear error rather than silently degrading. None of today's six call sites need cloud-routed streaming to work on day one — `lib/meeting.ts`'s `generateStream` caller only runs when `campaigns` is local, which is the default.
+- **Known ceiling, on record (Task 3):** `lib/ai/cloud.ts`'s `generateStream` only implements OpenAI's SSE framing; Anthropic/Google streaming throws a clear error rather than silently degrading. It has no caller today — `lib/ai/route.ts` does not export a `generateStream` at all (Task 4's ruling, made when Task 4 discovered `lib/ai/generate.ts` has no local streaming primitive in this branch, unlike an earlier draft of this plan that assumed one existed). Add one to both files together if a future feature genuinely needs router-dispatched streaming.

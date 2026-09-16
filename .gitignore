@@ -70,3 +70,6 @@ certificates/
 
 # Isolated workspaces for subagent-driven plan execution.
 .worktrees/
+
+# Subagent-driven-development plan workspaces (scratch)
+.superpowers/

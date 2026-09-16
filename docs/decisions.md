@@ -2688,3 +2688,44 @@ customers. "Loyal customers and students" already contains somebody new, and
 pushing back on it would be a guard firing on a correct answer, which is how
 every warning after it gets ignored. The tests assert the negatives as carefully
 as the positives.
+
+## D97 — features may be switched, per-feature, to a connected cloud AI provider
+
+OpenAI, Anthropic, or Google, instead of the local Ollama model. Opt-in only,
+off by default — every feature starts on `'default'`, which follows the
+global default, which starts on `'local'`. Embeddings are excluded
+permanently: `lib/rag/retrieve.ts` and `lib/catalogue.ts` keep calling
+`lib/ai/generate.ts`'s `embed()` directly and are never routed, because
+cosine similarity across a corpus embedded by two different models silently
+corrupts retrieval ranking rather than erroring.
+
+No silent fallback to local on a cloud failure — a bad key, a rate limit, or
+an outage fails the call visibly, the same "fail loud, no tolerant parser"
+rule `generateJson` already followed for bad Ollama JSON.
+
+`lib/ai/cloud.ts` is now the second (and last) file, after `lib/social/`,
+permitted to name a host off this machine — `api.openai.com`,
+`api.anthropic.com`, `generativelanguage.googleapis.com` — gated by
+`scripts/check-localhost.mjs` the same way `lib/social/`'s four hosts are.
+
+No provider SDK: `lib/social/cloudinary.ts` and `lib/social/instagram.ts` had
+already made this call twice, for the same reason — a dependency, a bundle
+and an update treadmill for a handful of `fetch` calls.
+
+`lib/ai/route.ts` does not export `generateStream` — `lib/ai/generate.ts`
+has no local streaming primitive to dispatch to, and nothing here calls one.
+`lib/ai/cloud.ts`'s own `generateStream` (OpenAI SSE only; Anthropic/Google
+throw a clear "not implemented" rather than degrading silently) is built and
+tested but unwired, available directly to a future feature that needs it.
+
+Known gap, tracked rather than fixed here: `lib/meeting.ts`'s `Meeting.model`
+field is set once, synchronously, in `start()`, which is called unawaited
+from two files outside this change's scope
+(`app/api/campaigns/meeting/route.ts`, `scripts/test-meeting.mjs`). It was
+left reading the local Ollama model id even when `campaigns` is switched to
+a cloud provider — nothing reads that field today, but the moment something
+does (an admin view, a debug panel), it will read wrong for a cloud-routed
+meeting. Fix by threading `route.modelLabel('campaigns')` through `start()`'s
+two callers when that day comes.
+
+See `docs/superpowers/specs/2026-09-13-cloud-ai-provider-design.md`.

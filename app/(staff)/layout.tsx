@@ -59,6 +59,11 @@ const NAV: {
   { href: '/advisor', icon: '\u{1F50E}', label: 'Advisor' },
   { href: '/kuwait', icon: '\u{1F1F0}\u{1F1FC}', label: 'Kuwait' },
   { href: '/sales', icon: '\u{1F4AC}', label: 'Inbox' },
+  // Not a workflow door like the rest of this list — the "no Tools group"
+  // reasoning below is about not giving one workflow two entry points. This
+  // is the only admin/config screen that exists, so it gets its own minimal
+  // entry rather than inventing a group for a list of one (D97).
+  { href: '/settings', icon: '\u{2699}️', label: 'Settings' },
   // Opens in a new tab, and that is not a detail. /chat is the PUBLIC widget:
   // it has no sidebar, so navigating there in this tab strands you on a page
   // with no way back. It is listed because staff need to see what a customer
