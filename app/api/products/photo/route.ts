@@ -36,8 +36,12 @@ import { NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { readJsonStrict, isResponse } from '@/lib/http'
 import { photoFacts, photoPath, writePhoto } from '@/lib/catalogue'
+import { cutout, haveModel } from '@/lib/cutout'
 
 export const runtime = 'nodejs'
+// A cutout is ~5s of CPU: a 1024x1024 forward pass, plus two resizes. The
+// default would cut it off partway and report a timeout as a failed removal.
+export const maxDuration = 120
 
 /** A SKU names a file on this machine, so it may not contain a path. */
 const SAFE_SKU = /^[A-Za-z0-9._-]{1,64}$/
@@ -78,7 +82,13 @@ async function describe(bytes: Buffer) {
   const meta = await sharp(bytes).metadata()
   const width = meta.width ?? 0
   const height = meta.height ?? 0
-  return { width, height, bytes: bytes.byteLength, hq: Math.min(width, height) >= HQ_EDGE }
+  return {
+    width, height, bytes: bytes.byteLength,
+    hq: Math.min(width, height) >= HQ_EDGE,
+    // The screen needs this to know whether to show a checkerboard. A cutout
+    // previewed on white is indistinguishable from the photo it came from.
+    alpha: Boolean(meta.hasAlpha),
+  }
 }
 
 export async function GET(req: Request) {
@@ -97,7 +107,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ sku, ...(await photoFacts(sku)) })
 }
 
-type Body = { sku?: string; url?: string; dataUrl?: string }
+type Body = { sku?: string; url?: string; dataUrl?: string; cut?: boolean }
 
 export async function POST(req: Request) {
   const body = await readJsonStrict<Body>(req)
@@ -106,6 +116,32 @@ export async function POST(req: Request) {
   const sku = String(body.sku ?? '')
   if (!SAFE_SKU.test(sku)) return bad('Not a usable SKU.')
 
+  /* Cut the background out — of the candidate on screen if there is one, and of
+     the stored photo otherwise. Like a fetch, this produces something to look
+     at and stores nothing: the same accept press saves it. */
+  if (body.cut) {
+    if (!haveModel()) {
+      return bad('The background-removal model is not on this machine. Run: npm run cutout:model', 503)
+    }
+    const source = body.dataUrl
+      ? Buffer.from(body.dataUrl.slice(body.dataUrl.indexOf(',') + 1), 'base64')
+      : existsSync(photoPath(sku)) ? readFileSync(photoPath(sku)) : null
+    if (!source) return bad('There is no photo to cut out.')
+    let png: Buffer
+    try { png = await cutout(source) } catch (e) {
+      return bad(e instanceof Error ? e.message : 'The background could not be removed.', 500)
+    }
+    return NextResponse.json({
+      sku,
+      ...(await describe(png)),
+      from: 'background removed',
+      dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+    })
+  }
+
+  // Order matters: a cut request carries a dataUrl as its SOURCE, so this has
+  // to come after the cut branch or asking to remove a background silently
+  // saves the untouched candidate instead.
   // Saving takes bytes the screen already showed somebody. Fetching again here
   // would store an image nobody approved — the url could answer differently
   // the second time, which is exactly what this project watched Meta's CDN do.

@@ -2815,3 +2815,42 @@ API is closed to new customers, Bing's is retired, DuckDuckGo's endpoint answers
 the address stops being typed and starts being chosen from results, the exception
 widens from one host to any host, and that is a decision to write down rather
 than an extension of this one.
+
+## D100 — the background comes off here, with weights nobody has to trust a CDN for
+
+**2026-09-16.** BiRefNet_lite, exported to ONNX by onnx-community, run through
+`onnxruntime-node` on the CPU. `lib/cutout.ts`, ~5s an image, ~400MB while it
+runs and released when `release()` is called.
+
+**MIT, and that is the whole reason it is this model.** RMBG-2.0 scores about
+five points better on its author's own benchmark and is CC BY-NC — a retailer's
+marketing tool is a commercial use, so it is not available at any accuracy.
+`@imgly/background-removal-node` is the obvious package and is AGPL, and it
+fetches its model from a CDN on first use, which is a request inside a request
+path. `npm run cutout:model` pulls the weights once, by hand, the way an Ollama
+model is pulled, and checks the sha256 afterwards because a truncated download
+is still a file.
+
+**Three silent failures on the way in, all of which produced a plausible image.**
+`sharp(mask).resize().toBuffer()` returns an ENCODED png, not raw bytes.
+`joinChannel(buffer, {raw})` does nothing at all — three channels in, three out,
+no error, and the "cutout" that comes back is the original photo with every
+dimension correct. And `.raw()` on a one-channel input returns THREE channels,
+so reading it as a mask covers a third of the image on a three-row cycle. Each
+one looks like a model problem. The mask length is now asserted against
+`width * height`, which is the check that would have caught two of the three.
+
+**Judged by looking, not by a number.** `npm run eval:cutout` runs six frozen
+cases and writes a sheet on magenta, because a cutout previewed on white is
+indistinguishable from the photo it came from — the preview in the app has a
+checkerboard for the same reason, and the first version of it was invisible
+because the squares were a 10% tint over a white ground. There is no score: rule
+4's instinct applies to images too, and "kept 6%" on a laptop that fills a tenth
+of the frame is a correct cutout, not a bad one.
+
+**Measured on this catalogue.** The white cable on a white background and the
+white stylus — the two cases picked to fail — both came out clean.
+
+**Reverses if.** A product type turns up that it consistently cuts badly. The
+fix then is another fixture in `evals/cutouts.json` and a decision about whether
+to carry a second model, not a threshold.

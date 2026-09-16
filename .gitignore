@@ -60,6 +60,11 @@ data/templates/*
 tsconfig.tsbuildinfo
 
 # Snapshots taken before a destructive route runs. Real catalogue data.
+# ONNX weights for background removal (D100). Vendored by hand, never fetched
+# from inside a request path — see scripts/fetch-cutout-model.mjs. 224 MB, and
+# a model file is not source.
+data/models/
+
 data/.trash/
 
 # Backups are the data they are backing up — same rule.

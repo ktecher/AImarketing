@@ -48,7 +48,8 @@ const FIELD_LABEL: Record<string, string> = {
 
 type Facts = { exists: boolean; width?: number; height?: number; bytes?: number }
 type Candidate = {
-  width: number; height: number; bytes: number; hq: boolean; from: string; dataUrl: string
+  width: number; height: number; bytes: number; hq: boolean; alpha: boolean
+  from: string; dataUrl: string
 }
 
 export default function Products() {
@@ -247,6 +248,25 @@ export default function Products() {
     } finally { setImgBusy('') }
   }
 
+  /** Remove the background — from the candidate if there is one, else from the
+      stored photo. Produces another candidate; it stores nothing by itself. */
+  async function removeBackground() {
+    if (!imageFor) return
+    setImgBusy('cut'); setImgError('')
+    try {
+      const res = await fetch('/api/products/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku: imageFor, cut: true, dataUrl: candidate?.dataUrl }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setImgError(d.error ?? `Could not remove the background (${res.status}).`); return }
+      setCandidate(d)
+    } catch {
+      setImgError('Could not reach the app to remove the background.')
+    } finally { setImgBusy('') }
+  }
+
   /** Accept: the bytes on screen are the bytes stored, never a second fetch. */
   async function acceptImage() {
     if (!imageFor || !candidate) return
@@ -441,7 +461,8 @@ export default function Products() {
                   : 'Paste the address of an image to see it here before anything is saved.'}
               </p>
               {candidate
-                ? <img className="live" alt="Image found, not yet saved" src={candidate.dataUrl} />
+                ? <img className={`live${candidate.alpha ? ' alpha' : ''}`}
+                       alt="Image found, not yet saved" src={candidate.dataUrl} />
                 : <div className="live placeholder"><span>Nothing fetched</span></div>}
             </div>
           </div>
@@ -455,6 +476,13 @@ export default function Products() {
             </label>
             <button className="btn" type="submit" disabled={Boolean(imgBusy) || !urlDraft.trim()}>
               {imgBusy === 'find' ? 'Fetching…' : 'Fetch'}
+            </button>
+            {/* Works on the candidate when there is one and on the stored photo
+                otherwise, so a background can be removed without fetching
+                anything at all. */}
+            <button className="chip" type="button" onClick={() => void removeBackground()}
+                    disabled={Boolean(imgBusy) || (!candidate && !facts?.exists)}>
+              {imgBusy === 'cut' ? 'Removing…' : 'Remove background'}
             </button>
           </form>
 

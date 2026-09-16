@@ -1,0 +1,11 @@
+{
+  "note": "Frozen. Chosen on 2026-09-16 to span the easy case and the hard ones. Never edit a SKU to make a run look better — add one, or accept the result.",
+  "cases": [
+    { "sku": "554318", "what": "boxed game, hard edges on white", "expect": "clean" },
+    { "sku": "552182", "what": "watch, metal bracelet and a crystal bezel", "expect": "clean" },
+    { "sku": "652468", "what": "white cable and tie on white — no colour contrast at all", "expect": "hard" },
+    { "sku": "533412", "what": "keyboard folio, dark on white, thin gap under the screen", "expect": "clean" },
+    { "sku": "502037", "what": "laptop, thin screen bezel", "expect": "clean" },
+    { "sku": "661023", "what": "stylus, a long thin object", "expect": "hard" }
+  ]
+}
