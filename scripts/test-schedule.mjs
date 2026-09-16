@@ -46,6 +46,9 @@ const sendsFine = (c) => {
 const { reachable, query } = await import('../lib/db.ts')
 const store = await import('../lib/social/store.ts')
 const { sweep, sendNow, GRACE_MS, STUCK_MS } = await import('../lib/social/scheduler.ts')
+// The route, because it is the sentence a person actually reads — and it is
+// where "already gone out" was printed over a post the platform had refused.
+const scheduledRoute = await import('../app/api/social/scheduled/route.ts')
 
 if (!(await reachable())) {
   console.log('\nskipped: Postgres is not running (npm run db:up)')
@@ -221,6 +224,35 @@ try {
   ok('a failed post can be dropped',   Array.isArray(freed), JSON.stringify(freed))
   ok('and hands back its images',      freed?.length === 1, JSON.stringify(freed))
   ok('and is gone from the history',   (await store.posts({ sku: `${MARK}-broken` })).length === 0)
+
+  console.log('\n--- and a dropped connection is not a refusal either ---')
+  // The opposite fact to the section above, and they used to share one sentence.
+  // `postForm` throws InstagramError only where Meta ANSWERED; a socket reset or
+  // dropped Wi-Fi comes out of fetch as a plain TypeError, and by then Meta may
+  // have processed the request and the post may be public. "It was refused" is a
+  // definite no, and a definite no is what makes somebody send it a second time.
+  calls = []
+  respond = () => { throw new TypeError('fetch failed') }
+  await scheduleAt(1, 'dropped')
+  const droppable = (await store.posts({ sku: `${MARK}-dropped` }))[0]
+  const dropped = await sendNow(droppable.id)
+  ok('the outcome is not "refused"',   dropped.outcome === 'unknown', JSON.stringify(dropped))
+  ok('it says nobody knows whether it went out',
+     /nobody knows whether it went out/i.test(dropped.reason ?? ''), dropped.reason ?? '')
+  ok('and keeps what actually broke',  /fetch failed/.test(dropped.reason ?? ''), dropped.reason ?? '')
+  ok('the row says the same thing',
+     /nobody knows/i.test((await store.posts({ sku: `${MARK}-dropped` }))[0].error ?? ''))
+
+  // The route's refusal sentence names Instagram as having refused it, which
+  // here would be a second lie on top of the first.
+  await scheduleAt(1, 'dropped2')
+  const again = (await store.posts({ sku: `${MARK}-dropped2` }))[0]
+  const said = await (await scheduledRoute.POST(new Request('http://localhost:3000/api/social/scheduled', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: again.id }),
+  }))).json()
+  ok('the route does not report it as sent', said.ok === false, JSON.stringify(said))
+  ok('nor as something Instagram refused',   !/refused/i.test(said.error ?? ''), said.error ?? '')
+  ok('and passes the uncertainty on',        /nobody knows/i.test(said.error ?? ''), said.error ?? '')
 } finally {
   await clean()
 }

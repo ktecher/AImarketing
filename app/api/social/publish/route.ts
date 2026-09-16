@@ -35,9 +35,10 @@
 
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
+import { reachable } from '@/lib/db'
 import { current } from '@/lib/campaigns'
-import { accounts, failed, startPost, succeeded, tokenFor, type Account } from '@/lib/social/store'
-import { publishToInstagram } from '@/lib/social/instagram'
+import { accounts, failed, startPost, succeeded, tokenFor, MAYBE_SENT, type Account } from '@/lib/social/store'
+import { InstagramError, publishToInstagram } from '@/lib/social/instagram'
 import { remove, upload } from '@/lib/social/cloudinary'
 // The rendering path, not a copy of it. A second implementation of "turn this
 // SKU into a PNG" drifts from the one the Designs screen shows, and the first
@@ -186,6 +187,19 @@ export async function POST(req: Request) {
     )
   }
 
+  // Asked before anything is rendered or uploaded, and the one route here that
+  // did not ask. `accounts()` swallows a down database and returns [], so every
+  // target below read as "not connected any more" — a sentence sending somebody
+  // to reconnect an account that is connected — AFTER the poster was already on
+  // a paid host, with no row left able to name it. Same guard as the sibling
+  // routes, one round trip, before anything is spent.
+  if (!(await reachable())) {
+    return NextResponse.json(
+      { error: 'Postgres is not answering, so nothing was published. Run: npm run db:up' },
+      { status: 503 },
+    )
+  }
+
   // Which account each id actually is. An id nobody connected gets a line in the
   // results rather than a 400 for the whole request — the other accounts in the
   // same press are still perfectly publishable.
@@ -237,6 +251,10 @@ export async function POST(req: Request) {
 
   // ── the publish ──────────────────────────────────────────────────────────
   const results: Result[] = []
+  // How many rows ended up naming the uploaded images. A row is the ONLY thing
+  // that remembers which uploads belong to a post, so if this stays at zero the
+  // images below are litter on a paid host the moment this request returns.
+  let rowsWritten = 0
   for (const { id, account } of targets) {
     if (!account) {
       results.push({ accountId: id, name: id, platform: 'unknown', ok: false,
@@ -253,6 +271,7 @@ export async function POST(req: Request) {
         accountId: id, caption: text, imageUrls, imagePublicIds,
         campaignId, skus: skuList, scheduledAt: when,
       })).id
+      rowsWritten++
     } catch {
       results.push({ accountId: id, name: account.name, platform: account.platform, ok: false,
         error: 'Postgres is not answering, so this publish was not recorded and was not attempted. Run: npm run db:up' })
@@ -270,10 +289,15 @@ export async function POST(req: Request) {
       continue
     }
 
+    // Flipped the moment the token is in hand: nothing above this line can put
+    // bytes on the wire, so a failure there is a certainty rather than a mystery.
+    let attempted = false
     try {
+      const token = await tokenOrThrow(id)
+      attempted = true
       const published = await publishToInstagram({
         igUserId: account.external_id,
-        token: await tokenOrThrow(id),
+        token,
         caption: text,
         imageUrls,
       })
@@ -286,10 +310,26 @@ export async function POST(req: Request) {
         permalinkUrl: published.permalinkUrl || undefined,
       })
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Instagram refused this post.'
+      const said = e instanceof Error ? e.message : 'Instagram refused this post.'
+      // Two opposite facts, and they used to share one sentence. `InstagramError`
+      // is thrown only where Meta ANSWERED; a socket reset or dropped Wi-Fi comes
+      // out of `fetch` as a plain TypeError, and by then Meta may well have
+      // processed the request and the post may be public right now. "It refused
+      // it" there is what makes somebody press Publish again and post the same
+      // poster twice — the same uncertainty `abandon()` writes for a crash.
+      const message = !attempted || e instanceof InstagramError ? said : `${MAYBE_SENT} (${said})`
       await failed(postRow, message).catch(() => {})
       results.push({ accountId: id, name: account.name, platform: account.platform, ok: false, error: message })
     }
+  }
+
+  // Nothing ever referenced these. Every target failed before `startPost`, so no
+  // row holds their public ids and nothing will ever be able to name them again
+  // — the same paid-for litter the upload catch above clears. A row that WAS
+  // written keeps its images even when Instagram refused the post: the row names
+  // them, and dropping it is what frees them (see `unschedule`).
+  if (!rowsWritten) {
+    await Promise.all(uploaded.map((u) => remove(u.publicId).catch(() => {})))
   }
 
   return NextResponse.json({

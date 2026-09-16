@@ -209,6 +209,29 @@ ok('with Meta’s own words kept',    cancelAt.searchParams.get('error') === 'Pe
    cancelAt.searchParams.get('error') ?? '')
 ok('and nothing was asked of Instagram', calls.length === 0)
 
+console.log('\n--- and the screen it lands on says which of those happened ---')
+// Every outcome above is a redirect parameter, and for a long time nothing at
+// the other end read one: the only query string /social looked at was ?sku. A
+// person who pressed Cancel came back to an identical Connect panel saying
+// nothing at all, and so did an expired state, a mismatched state, a missing
+// INSTAGRAM_APP_ID and a Postgres that would not take the row.
+const screen = (await import('node:fs')).readFileSync('app/(staff)/social/page.tsx', 'utf8')
+for (const param of ['error', 'cancelled', 'connected', 'names']) {
+  ok(`the screen reads ?${param} back`, screen.includes(`q.get('${param}')`))
+}
+ok('and renders what it found',        /\{connectMsg\.text\}/.test(screen))
+ok('then clears it off the URL, so a refresh does not re-announce it',
+   /replaceState/.test(screen))
+
+// Two more things this screen used to throw away, both on the source for the
+// same reason: there is no DOM here, and a silent regression in either is
+// invisible until somebody is looking at a real account list.
+ok('a partial batch keeps the reason the other account failed',
+   (screen.match(/r\.error &&/g) ?? []).length >= 2,
+   String((screen.match(/r\.error &&/g) ?? []).length))
+ok('and accounts are ticked once, then only pruned',
+   /firstAccounts\.current/.test(screen))
+
 // ---------------------------------------------------------------------------
 // Everything below writes rows
 // ---------------------------------------------------------------------------
@@ -453,6 +476,56 @@ try {
   }))
   ok('more than ten is a 400',        tooMany.status === 400, String(tooMany.status))
   ok('and nothing was uploaded',      !calls.some((c) => c.host === 'api.cloudinary.com'))
+
+  console.log('\n--- a poster no row can name again is deleted, not left on the host ---')
+  // Every target was disconnected between the page load and the press. The
+  // poster is already on Cloudinary, no row was written, and the public ids in
+  // this request are the last thing on earth that knows where it is.
+  calls = []
+  respond = (c) =>
+    c.path.endsWith('/destroy')
+      ? { body: { result: 'ok' } }
+      : { body: { public_id: 'zztest/orphan', secure_url: 'https://res.cloudinary.test/zztest/orphan.png' } }
+
+  const orphaned = await publish.POST(POST('/api/social/publish', {
+    accountIds: ['instagram:zztest-nobody'], caption: 'nobody is connected any more',
+    skus: [`${MARK}-orphan`], imageDataUrls: [PNG],
+  }))
+  ok('the account is reported as gone',
+     JSON.parse(await bodyOf(orphaned)).results?.[0]?.ok === false)
+  ok('no row was written for it',     (await store.posts({ sku: `${MARK}-orphan` })).length === 0)
+  ok('and the upload is deleted',
+     calls.some((c) => c.path.endsWith('/destroy') && c.params.public_id === 'zztest/orphan'),
+     JSON.stringify(calls.map((c) => c.path)))
+
+  console.log('\n--- a dropped connection is not a refusal ---')
+  // The Wi-Fi dies during media_publish. Meta may well have processed it and the
+  // post may be public right now — `postForm` throws InstagramError only where
+  // Meta ANSWERED, and a socket reset comes out of fetch as a plain TypeError.
+  // Recording that as "Instagram refused it" is how the same poster goes out
+  // twice: the person reads a definite no and presses Publish again.
+  calls = []
+  respond = (c) => {
+    if (c.host === 'api.cloudinary.com') {
+      return { body: { public_id: 'zztest/dropped', secure_url: 'https://res.cloudinary.test/zztest/dropped.png' } }
+    }
+    throw new TypeError('fetch failed')
+  }
+  const dropped = await publish.POST(POST('/api/social/publish', {
+    accountIds: [IG2_ID], caption: 'the wifi dies here', skus: [`${MARK}-drop`], imageDataUrls: [PNG],
+  }))
+  const dropRes = JSON.parse(await bodyOf(dropped)).results?.[0]
+  ok('the screen is not told it was refused',
+     /nobody knows whether it went out/i.test(dropRes?.error ?? ''), dropRes?.error ?? '')
+  ok('it is told to look before sending it again',
+     /post it twice/i.test(dropRes?.error ?? ''))
+  ok('and what actually broke is kept',  /fetch failed/.test(dropRes?.error ?? ''))
+  const dropRow = (await store.posts({ sku: `${MARK}-drop` }))[0]
+  ok('the row says the same thing',      /nobody knows/i.test(dropRow?.error ?? ''), dropRow?.error ?? '')
+  // The row names the image, so the image stays. Dropping the row is what frees
+  // it — deleting it here would leave a history row pointing at nothing.
+  ok('and its image is left alone',      !calls.some((c) => c.path.endsWith('/destroy')))
+
   console.log('\n--- disconnecting ---')
   ok('an id nobody connected is a 404',
      (await accountsRoute.DELETE(DEL('/api/social/accounts?id=instagram:zztest-nobody'))).status === 404)
@@ -465,6 +538,38 @@ try {
 } finally {
   await clean()
 }
+
+// ---------------------------------------------------------------------------
+// Postgres stops here. Everything below runs against a closed pool, which is
+// what a stopped database looks like to a route, so nothing after this section
+// may touch the table.
+// ---------------------------------------------------------------------------
+
+console.log('\n--- with Postgres stopped, nothing is spent and nothing is claimed ---')
+const { pool } = await import('../lib/db.ts')
+await pool.end()
+ok('the database really is unreachable now', (await reachable()) === false)
+
+calls = []
+const whileDown = await publish.POST(POST('/api/social/publish', {
+  accountIds: [IG2_ID], caption: 'pressed while the database is down', imageDataUrls: [PNG],
+}))
+ok('publishing is refused with a 503',   whileDown.status === 503, String(whileDown.status))
+ok('and says how to fix it',             /db:up/.test(await bodyOf(whileDown)))
+// This is the expensive half. `accounts()` swallows a down database and returns
+// [], so every target read as "that account is not connected any more" — a
+// sentence sending somebody to reconnect an account that is connected — and it
+// said it AFTER the poster was already uploaded, with no row left to name it.
+ok('and nothing reached Cloudinary first',
+   !calls.some((c) => c.host === 'api.cloudinary.com'), JSON.stringify(calls.map((c) => c.host)))
+
+const scheduledRoute = await import('../app/api/social/scheduled/route.ts')
+const sendWhileDown = await scheduledRoute.POST(POST('/api/social/scheduled', { id: 'any-post-at-all' }))
+const sendSaid = await bodyOf(sendWhileDown)
+// `upcoming()` returns [] on a down database too, `.find` misses, and the
+// outcome is `gone` — which this route renders as "it has already gone out".
+ok('“post it now” is a 503, not a shrug', sendWhileDown.status === 503, String(sendWhileDown.status))
+ok('and never says it already went out',  !/already gone out/.test(sendSaid), sendSaid)
 
 // ---------------------------------------------------------------------------
 

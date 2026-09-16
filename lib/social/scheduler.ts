@@ -28,9 +28,9 @@
  * shut for ten minutes still sends. Outside it, nobody sends on the app's behalf.
  */
 
-import { abandon, failed, claim, due, giveUp, posts, succeeded, tokenFor, upcoming, type Post } from '@/lib/social/store'
+import { abandon, failed, claim, due, giveUp, succeeded, tokenFor, upcoming, MAYBE_SENT, type Post } from '@/lib/social/store'
 import { reachable } from '@/lib/db'
-import { publishToInstagram } from '@/lib/social/instagram'
+import { InstagramError, publishToInstagram } from '@/lib/social/instagram'
 
 /**
  * How late is still worth sending.
@@ -105,7 +105,7 @@ export async function sweep(): Promise<SweepResult> {
     // somebody pressing "Post it now", must not both send the same row —
     // Postgres decides, and the loser does nothing.
     if (!(await claim(post.id))) continue
-    if (await send(post)) sent++
+    if ((await send(post)).ok) sent++
     else failedCount++
   }
   return { sent, failed: failedCount, missed, stuck }
@@ -133,6 +133,14 @@ export type SendOutcome =
   | { outcome: 'taken' }
   /** The platform refused it. `reason` is what the platform actually said. */
   | { outcome: 'refused'; reason: string }
+  /**
+   * The connection died mid-send, so it may or may not be public.
+   *
+   * Not a fourth flavour of failure — the opposite fact. A refusal means the
+   * post is definitely not out; this means nobody knows, and the person has to
+   * look at the account before pressing anything again. See `MAYBE_SENT`.
+   */
+  | { outcome: 'unknown'; reason: string }
 
 /**
  * Send one scheduled or missed post now, by hand.
@@ -146,20 +154,36 @@ export async function sendNow(id: string): Promise<SendOutcome> {
   const post = rows.find((r) => r.id === id)
   if (!post) return { outcome: 'gone' }
   if (!(await claim(id))) return { outcome: 'taken' }
-  if (await send(post)) return { outcome: 'sent' }
 
-  // `send` has already written the platform's own words to the row. Read them
-  // back rather than inventing a message here: the row is the report, and the
-  // person needs to know it was the token and not a click that went astray.
-  const after = (await posts({ limit: 200 })).find((r) => r.id === id)
-  return { outcome: 'refused', reason: after?.error ?? 'The platform refused this post.' }
+  // The same message `send` wrote to the row, taken from `send` rather than
+  // read back out of the table: it is the report either way, and re-reading two
+  // hundred rows to find a string we were just handed is a query for nothing.
+  const r = await send(post)
+  if (r.ok) return { outcome: 'sent' }
+  return { outcome: r.refused ? 'refused' : 'unknown', reason: r.message }
 }
 
-/** One scheduled post, already rendered and uploaded. Never throws. */
-async function send(post: Post): Promise<boolean> {
+/** How one attempt ended, and whether the platform actually answered. */
+type Sent = { ok: true } | { ok: false; refused: boolean; message: string }
+
+/**
+ * One scheduled post, already rendered and uploaded. Never throws.
+ *
+ * `refused` separates two opposite facts. `InstagramError` is thrown only where
+ * Meta ANSWERED — a socket reset or dropped Wi-Fi comes out of `fetch` as a
+ * plain TypeError, and by then Meta may well have processed the request and the
+ * post may be public right now. Writing "the platform refused it" on that row is
+ * what makes somebody send it again and post the same poster twice, which is the
+ * uncertainty `abandon()` already writes down for the crash version of it.
+ */
+async function send(post: Post): Promise<Sent> {
+  // Flipped the moment the token is in hand: nothing above this line can put
+  // bytes on the wire, so a failure there is a certainty rather than a mystery.
+  let attempted = false
   try {
     const token = await tokenFor(post.account_id)
     if (!token) throw new Error('That account is no longer connected.')
+    attempted = true
 
     const published = await publishToInstagram({
       igUserId: post.account_id.split(':')[1] ?? '',
@@ -170,13 +194,18 @@ async function send(post: Post): Promise<boolean> {
       imageUrls: post.image_urls,
     })
     await succeeded(post.id, published.platformPostId, published.permalinkUrl || undefined)
-    return true
+    return { ok: true }
   } catch (e) {
     // The message is already scrubbed of the token where the response became an
     // Error. Nothing here logs it: a scheduled post fails while nobody is
     // watching, so the row IS the report.
-    await failed(post.id, e instanceof Error ? e.message : 'The platform refused this post.')
-    return false
+    const said = e instanceof Error ? e.message : 'The platform refused this post.'
+    const refused = !attempted || e instanceof InstagramError
+    // The cause is kept in brackets: "fetch failed" is the difference between a
+    // dead Wi-Fi and a dead machine, and the row is the only place it survives.
+    const message = refused ? said : `${MAYBE_SENT} (${said})`
+    await failed(post.id, message)
+    return { ok: false, refused, message }
   }
 }
 
@@ -207,9 +236,4 @@ export function startSweeping(): void {
   // Never hold the process open for a timer. Without this a script that imported
   // this module would refuse to exit.
   timer.unref?.()
-}
-
-export function stopSweeping(): void {
-  if (timer) clearInterval(timer)
-  timer = null
 }

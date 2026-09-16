@@ -38,6 +38,17 @@ export async function POST(req: Request) {
   const { id } = (await readJson(req)) as { id?: string }
   if (!id) return NextResponse.json({ error: 'Which post?' }, { status: 400 })
 
+  // The same guard GET and DELETE already have, and the same reason: `upcoming()`
+  // swallows a down database and returns [], `.find` misses, and the outcome is
+  // `gone` — which this route renders as "it has already gone out". A stopped
+  // Postgres told the person their post was published.
+  if (!(await reachable())) {
+    return NextResponse.json(
+      { error: 'Postgres is not answering. Run: npm run db:up' },
+      { status: 503 },
+    )
+  }
+
   try {
     const r = await sendNow(String(id))
 
@@ -52,6 +63,12 @@ export async function POST(req: Request) {
         { ok: false, refused: true, error: `Instagram refused it: ${r.reason}` },
         { status: 502 },
       )
+    }
+    // Not a refusal, and it must not borrow that sentence: the connection died
+    // while the request was in flight, so the post may be public right now. The
+    // reason already carries what to do about it — see MAYBE_SENT.
+    if (r.outcome === 'unknown') {
+      return NextResponse.json({ ok: false, error: r.reason }, { status: 502 })
     }
     if (r.outcome === 'taken') {
       return NextResponse.json(

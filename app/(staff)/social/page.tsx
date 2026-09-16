@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CurrentCampaign } from '../current-campaign'
 import { readPicked, writePicked } from '../picked'
 
@@ -58,6 +58,16 @@ export default function Social() {
   // has a Connect button that will work.
   const [accounts, setAccounts] = useState<Account[] | null>(null)
   const [apiDown, setApiDown] = useState(false)
+  /**
+   * How the last connection attempt ended, if this load is the one it came back to.
+   *
+   * The callback route decides every outcome — cancelled, an expired state, a
+   * missing app id, a database that would not take the row — and redirects here
+   * with it in the query string. Nothing read those, so pressing Cancel on Meta's
+   * dialog landed on an identical Connect panel that said nothing at all, and so
+   * did every real failure.
+   */
+  const [connectMsg, setConnectMsg] = useState<{ text: string; bad: boolean } | null>(null)
 
   const [products, setProducts] = useState<Product[]>([])
   const [picked, setPicked] = useState<string[]>([])
@@ -128,6 +138,25 @@ export default function Social() {
 
   useEffect(() => { void loadQueue() }, [loadQueue])
 
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const said = q.get('error') ?? ''
+    // A cancel is not an error and does not get Meta's words for it
+    // ("Permissions error." is what it actually sends), but it still gets a line
+    // — an unchanged screen is indistinguishable from a press that did nothing.
+    const text = q.get('cancelled') === '1'
+      ? 'Connection cancelled — nothing was connected.'
+      : said || (q.get('connected') === '1' ? `Connected ${q.get('names') ?? ''}`.trim() + '.' : '')
+    if (!text) return
+    setConnectMsg({ text, bad: q.get('connected') !== '1' })
+    // Off the URL once it has been read: a refresh must not re-announce an
+    // outcome from ten minutes ago. Everything else in the query string stays —
+    // ?sku is read by the effect below.
+    for (const one of ['error', 'cancelled', 'connected', 'names']) q.delete(one)
+    const rest = q.toString()
+    window.history.replaceState(null, '', window.location.pathname + (rest ? `?${rest}` : ''))
+  }, [])
+
   const loadAccounts = useCallback(async () => {
     try {
       const res = await fetch('/api/social/accounts')
@@ -161,8 +190,24 @@ export default function Social() {
 
   // Every connected account is ticked to start with, because posting to both is
   // the ordinary case and the confirmation step names them before anything
-  // leaves. Re-run after a disconnect so a removed account cannot stay ticked.
-  useEffect(() => { if (accounts) setChosen(new Set(accounts.map((a) => a.id))) }, [accounts])
+  // leaves. ONCE, though: this re-ticked everything on every accounts reload, so
+  // disconnecting a third account silently re-selected one somebody had
+  // deliberately unticked — on the control that decides where something public
+  // goes. Afterwards a reload only prunes, because an id that is no longer
+  // connected is still sent by `publish()` and comes back as a failed line.
+  const firstAccounts = useRef(true)
+  useEffect(() => {
+    if (!accounts) return
+    const live = new Set(accounts.map((a) => a.id))
+    // Read into a local BEFORE the updater is handed over. React calls that
+    // function during the next render, not here — reading the ref inside it saw
+    // the `false` written on the line below and took the pruning branch on the
+    // very first load, so nothing was ticked and the button said "nothing
+    // ticked" next to a connected account.
+    const first = firstAccounts.current
+    firstAccounts.current = false
+    setChosen((was) => (first ? live : new Set([...was].filter((id) => live.has(id)))))
+  }, [accounts])
 
   useEffect(() => {
     // The products picked on Designs, exactly as the studio reads them: somebody
@@ -528,6 +573,11 @@ export default function Social() {
       <h1>Publish</h1>
       <CurrentCampaign verb="Everything posted here is stamped" />
 
+      {connectMsg && (
+        <div className={connectMsg.bad ? 'err' : 'notice'} style={{ marginTop: 14 }}>
+          {connectMsg.text}
+        </div>
+      )}
 
       {apiDown && (
         <div className="err">
@@ -675,11 +725,16 @@ export default function Social() {
                     {products.find((x) => x.sku === r.sku)?.name ?? r.sku}
                     {' — scheduled for ' + r.scheduled + ' of ' + r.accounts + ', '}
                     {r.at ? when(r.at) : 'later'}. Nothing is public yet.
+                    {r.error && <span style={{ display: 'block', marginTop: 3 }}>{r.error}</span>}
                   </div>
                 ) : r.posted > 0 ? (
                   <div key={r.sku} className="notice" style={{ marginTop: 8 }}>
                     {products.find((x) => x.sku === r.sku)?.name ?? r.sku}
                     {' — posted to ' + r.posted + ' of ' + r.accounts + '.'}
+                    {/* "posted to 1 of 2" and nothing else: the reason the other
+                        account failed was computed and then dropped on the floor
+                        by this branch. Same line as the single-post path below. */}
+                    {r.error && <span style={{ display: 'block', marginTop: 3 }}>{r.error}</span>}
                   </div>
                 ) : (
                   <div key={r.sku} className="issue error" style={{ marginTop: 8 }}>

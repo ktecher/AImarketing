@@ -323,6 +323,20 @@ export async function unschedule(id: string): Promise<string[] | null> {
 }
 
 /**
+ * What a row says when nobody can know whether the post went out.
+ *
+ * A crash mid-publish is one way to arrive here and a dropped connection is the
+ * other — see `abandon()` below and `send()` in `lib/social/scheduler.ts`. Both
+ * are the same fact and get the same sentence, because the thing a person must
+ * do about it is the same: go and look at the account before pressing anything
+ * again. This is the opposite of "the platform refused it", which means the post
+ * is definitely not public.
+ */
+export const MAYBE_SENT =
+  'Interrupted while publishing, so nobody knows whether it went out. ' +
+  'Check the account before trying again — sending it a second time could post it twice.'
+
+/**
  * Retire rows abandoned mid-publish, so a crash cannot strand one forever.
  *
  * `startPost` writes `publishing` before the request leaves and `claim` writes
@@ -347,7 +361,7 @@ export async function abandon(afterMs: number): Promise<number> {
     const rows = await query<{ id: string }>(
       `update social_posts
           set status = 'failed',
-              error = 'Interrupted while publishing, so nobody knows whether it went out. Check the account before trying again — sending it a second time could post it twice.'
+              error = $2
         where status = 'publishing'
           -- publishing_at, NEVER created_at: a post scheduled for next week is
           -- created today, so created_at is already days old when the sweep
@@ -357,7 +371,7 @@ export async function abandon(afterMs: number): Promise<number> {
           -- very fix meant to free it.
           and coalesce(publishing_at, created_at) < now() - ($1 || ' milliseconds')::interval
       returning id`,
-      [String(afterMs)],
+      [String(afterMs), MAYBE_SENT],
     )
     return rows.length
   } catch {
