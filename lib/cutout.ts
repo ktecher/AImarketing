@@ -42,28 +42,47 @@ export const haveModel = () => existsSync(modelPath())
 /**
  * The session, kept once it exists.
  *
- * ponytail: one resident session, ~400MB while a cutout runs and rather less
- * between. Loading takes ~850ms, so reloading per image would dominate a batch.
- * If a demo ever runs short of memory — CLAUDE.md budgets 12-15GB with Ollama
- * already resident — `release()` exists and the honest fix is calling it when
- * the screen that uses this closes, not making this cleverer.
+ * The PROMISE is cached, not the resolved session. Caching the result means two
+ * simultaneous first cutouts both see `null`, both call `create()`, and the
+ * loser is assigned over and leaked for the life of the process — ~224MB of
+ * weights nothing can reach. `??=` on a promise makes the second caller wait
+ * for the first load instead of starting another.
+ *
+ * ponytail: one resident session. Measured RSS for an end-to-end cutout is
+ * ~3.8GB at peak, an order of magnitude above what a 224MB model suggests —
+ * the 1024x1024 float32 tensors and sharp's own buffers dominate, and ORT's
+ * arenas do not hand it all back. That matters against the 12-15GB CLAUDE.md
+ * budgets with Ollama already resident, so `release()` is the fix and it is
+ * worth calling before a demo rather than after one goes wrong.
  */
-let session: ort.InferenceSession | null = null
+let session: Promise<ort.InferenceSession> | null = null
 
-async function loaded(): Promise<ort.InferenceSession> {
-  if (session) return session
+function loaded(): Promise<ort.InferenceSession> {
   if (!haveModel()) {
-    throw new Error(
+    return Promise.reject(new Error(
       'The background-removal model is not on this machine. Run: npm run cutout:model',
-    )
+    ))
   }
-  session = await ort.InferenceSession.create(modelPath(), { executionProviders: ['cpu'] })
+  // A rejected load must not be cached, or one failure makes every later call
+  // fail with the same stale error.
+  session ??= ort.InferenceSession.create(modelPath(), { executionProviders: ['cpu'] })
+    .catch((e) => { session = null; throw e })
   return session
 }
 
-/** Let the model go. Nothing calls this yet; it exists so the ceiling has a fix. */
-export function release(): void {
+/**
+ * Let the model go, for real.
+ *
+ * `session = null` alone frees NOTHING: it drops a JS handle while the native
+ * ORT session and its weights stay alive until the wrapper is finalised, which
+ * is not something you can schedule. Measured: dropping the reference and
+ * forcing GC twice recovered 0 bytes; awaiting the session's own `release()`
+ * recovered ~257MB. The native call is the whole function.
+ */
+export async function release(): Promise<void> {
+  const pending = session
   session = null
+  try { await (await pending)?.release() } catch { /* already gone is fine */ }
 }
 
 /** BiRefNet emits logits, so the mask needs squashing into 0..1. */

@@ -219,6 +219,13 @@ export default function Products() {
 
   /* ── the image panel ──────────────────────────────────────────────────── */
 
+  /* Read through a ref, not through `imageFor`: a handler closes over the value
+     `imageFor` had when it started, so comparing against it compares a value to
+     itself and never fires. */
+  const openSku = useRef<string | null>(null)
+  const stale = (sku: string) => openSku.current !== sku
+
+
   /* The panel is rendered INSIDE the table, in a row under the product it is
      about, rather than above the whole page. On page 3 of a 62-row catalogue a
      panel at the top is a panel you have to go and find, and by the time you
@@ -307,19 +314,34 @@ export default function Products() {
 
 
   /** Open the panel for one product and read what is actually stored for it. */
+  /* Every one of these awaits, and the panel can be pointed at a different
+     product before the answer comes back. Without the `mine` check, A's reply
+     lands in B's open panel: the right-hand pane shows A's image under B's SKU,
+     and "Use this one" then writes A's photo onto B. Nothing on screen would
+     say so. The panel's SKU is the identity, so each answer is dropped unless
+     the panel is still about the product that asked. */
   async function openImage(sku: string) {
+    openSku.current = sku
+    // `imgBusy` is cleared HERE as well as in each handler's finally. A handler
+    // that finds itself stale deliberately does not clear it — that would wipe
+    // the busy state of whatever the panel moved on to, mid-request — so the
+    // panel it abandoned would otherwise open stuck on "Fetching…" forever.
+    // Opening a panel is the moment that state is known to be meaningless.
+    setImgBusy('')
     setImageFor(sku); setFacts(null); setCandidate(null); setUrlDraft(''); setImgError('')
     try {
       const res = await fetch(`/api/products/photo?sku=${encodeURIComponent(sku)}`)
       const d = await res.json().catch(() => ({}))
+      if (stale(sku)) return
       if (!res.ok) { setImgError(d.error ?? 'Could not read that photo.'); return }
       setFacts(d)
-    } catch { setImgError('Could not read that photo.') }
+    } catch { if (!stale(sku)) setImgError('Could not read that photo.') }
   }
 
   /** Fetch a candidate. Nothing is stored — this only comes back to the screen. */
   async function findImage() {
     if (!imageFor || !urlDraft.trim()) return
+    const mine = imageFor
     setImgBusy('find'); setImgError(''); setCandidate(null)
     try {
       const res = await fetch('/api/products/photo', {
@@ -328,17 +350,19 @@ export default function Products() {
         body: JSON.stringify({ sku: imageFor, url: urlDraft.trim() }),
       })
       const d = await res.json().catch(() => ({}))
+      if (stale(mine)) return
       if (!res.ok) { setImgError(d.error ?? `Could not fetch that image (${res.status}).`); return }
       setCandidate(d)
     } catch {
-      setImgError('Could not reach the app to fetch that image.')
-    } finally { setImgBusy('') }
+      if (!stale(mine)) setImgError('Could not reach the app to fetch that image.')
+    } finally { if (!stale(mine)) setImgBusy('') }
   }
 
   /** Remove the background — from the candidate if there is one, else from the
       stored photo. Produces another candidate; it stores nothing by itself. */
   async function removeBackground() {
     if (!imageFor) return
+    const mine = imageFor
     setImgBusy('cut'); setImgError('')
     try {
       const res = await fetch('/api/products/photo', {
@@ -347,16 +371,18 @@ export default function Products() {
         body: JSON.stringify({ sku: imageFor, cut: true, dataUrl: candidate?.dataUrl }),
       })
       const d = await res.json().catch(() => ({}))
+      if (stale(mine)) return
       if (!res.ok) { setImgError(d.error ?? `Could not remove the background (${res.status}).`); return }
       setCandidate(d)
     } catch {
-      setImgError('Could not reach the app to remove the background.')
-    } finally { setImgBusy('') }
+      if (!stale(mine)) setImgError('Could not reach the app to remove the background.')
+    } finally { if (!stale(mine)) setImgBusy('') }
   }
 
   /** Accept: the bytes on screen are the bytes stored, never a second fetch. */
   async function acceptImage() {
     if (!imageFor || !candidate) return
+    const mine = imageFor
     setImgBusy('save'); setImgError('')
     try {
       const res = await fetch('/api/products/photo', {
@@ -365,13 +391,14 @@ export default function Products() {
         body: JSON.stringify({ sku: imageFor, dataUrl: candidate.dataUrl }),
       })
       const d = await res.json().catch(() => ({}))
+      if (stale(mine)) return
       if (!res.ok) { setImgError(d.error ?? `Could not save that image (${res.status}).`); return }
       setFacts(d); setCandidate(null); setUrlDraft('')
       setNotice('Photo saved. Designs already made with the old one are now out of date.')
       await load()
     } catch {
-      setImgError('Could not reach the app to save that image.')
-    } finally { setImgBusy('') }
+      if (!stale(mine)) setImgError('Could not reach the app to save that image.')
+    } finally { if (!stale(mine)) setImgBusy('') }
   }
 
   async function replacePhoto(file: File) {

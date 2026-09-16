@@ -126,6 +126,23 @@ try {
 }
 ok('the test cleans up after itself', !existsSync(photo))
 
+console.log('\n--- a rotated photo is stored the way it previewed ---')
+// A browser honours EXIF orientation in the preview; sharp does not; PNG has no
+// EXIF to carry it. Untreated, a phone photo previews upright and is stored on
+// its side, and the route's one promise — approved is what is stored — breaks.
+const TALL = await sharp({ create: { width: 800, height: 1200, channels: 3, background: { r: 9, g: 9, b: 9 } } })
+  .jpeg().withMetadata({ orientation: 6 }).toBuffer()
+served = { status: 200, type: 'image/jpeg', body: TALL }
+;[status, d] = await json(await post({ sku: 'TEST-1', url: 'http://example.test/tall.jpg' }))
+ok('the rotated candidate is accepted', status === 200, d.error ?? String(status))
+// Orientation 6 means "rotate 90 clockwise to view": 800x1200 displays as 1200x800.
+ok('its dimensions are what a viewer sees', d.width === 1200 && d.height === 800, `${d.width}×${d.height}`)
+const backOut = await sharp(Buffer.from(d.dataUrl.slice(d.dataUrl.indexOf(',') + 1), 'base64')).metadata()
+ok('and the bytes handed to the screen are already upright',
+   backOut.width === 1200 && backOut.height === 800, `${backOut.width}×${backOut.height}`)
+ok('with no orientation tag left to apply twice',
+   !backOut.orientation || backOut.orientation === 1, String(backOut.orientation))
+
 console.log('\n--- a cut request is not a save request ---')
 // Both carry a dataUrl. Whichever branch is written first wins, and if saving
 // wins, asking to remove a background silently stores the untouched image.
@@ -136,6 +153,21 @@ const routeSrc = readFileSync(join(process.cwd(), 'app/api/products/photo/route.
 ok('the route checks cut before dataUrl',
    routeSrc.indexOf('if (body.cut)') < routeSrc.indexOf('if (body.dataUrl)'),
    `${routeSrc.indexOf('if (body.cut)')} < ${routeSrc.indexOf('if (body.dataUrl)')}`)
+
+console.log('\n--- a late answer cannot land on another product ---')
+// Open A, fetch, click view on B while it is in flight: A's reply used to land
+// in B's panel, and "Use this one" then wrote A's photo onto B. Every handler
+// that awaits must drop its answer if the panel moved on. Asserted against the
+// source because the race needs a DOM to reproduce and the guard is the thing
+// that must not be quietly deleted.
+const page = readFileSync(join(process.cwd(), 'app/(staff)/products/page.tsx'), 'utf8')
+for (const fn of ['openImage', 'findImage', 'removeBackground', 'acceptImage']) {
+  const at = page.indexOf(`function ${fn}(`)
+  const body = page.slice(at, page.indexOf('\n  }', at))
+  ok(`${fn} drops a late answer`, at > 0 && /stale\(/.test(body))
+}
+ok('the guard reads a ref, not the closed-over state',
+   /openSku = useRef/.test(page) && /openSku\.current !== sku/.test(page))
 
 console.log(failed ? `\n${failed} failed` : '\nproduct photo route: the guards hold')
 process.exit(failed ? 1 : 0)

@@ -75,6 +75,26 @@ function unreachableReason(u: URL): string | null {
   return local ? 'That address is on this machine or this network, not the web.' : null
 }
 
+/**
+ * Bake an EXIF orientation into the pixels, once, where the bytes arrive.
+ *
+ * A browser honours the orientation tag when it renders `<img src=dataUrl>`;
+ * sharp does not; and PNG carries no EXIF at all, so `writePhoto` stores the
+ * unrotated pixels and nothing downstream can recover the tag. The result is a
+ * photo that previewed upright and is stored on its side, and a `describe()`
+ * that reports dimensions disagreeing with what the person is looking at —
+ * which breaks this route's one real promise, that what was approved is what
+ * gets stored. Measured on a synthetic 800x1200 JPEG tagged orientation 6.
+ *
+ * Only re-encoded when there is something to bake in: `.rotate()` is not free,
+ * and orientation 1 is almost every image.
+ */
+async function upright(bytes: Buffer): Promise<Buffer<ArrayBufferLike>> {
+  const { orientation } = await sharp(bytes).metadata()
+  if (!orientation || orientation === 1) return bytes
+  return await sharp(bytes).rotate().toBuffer()
+}
+
 /** What the screen needs to say about an image, from the bytes themselves. */
 async function describe(bytes: Buffer) {
   // From the decoder, never from a header or an API's claimed dimensions —
@@ -176,11 +196,14 @@ export async function POST(req: Request) {
     return bad(`That address served ${type || 'no image type'}, not a photograph.`)
   }
 
-  const bytes = Buffer.from(await res.arrayBuffer())
+  let bytes: Buffer<ArrayBufferLike> = Buffer.from(await res.arrayBuffer())
   if (bytes.byteLength > MAX_BYTES) return bad('That file is too big to be a product photo.')
 
   let facts: Awaited<ReturnType<typeof describe>>
-  try { facts = await describe(bytes) } catch { return bad('That file could not be read as an image.') }
+  try {
+    bytes = await upright(bytes)
+    facts = await describe(bytes)
+  } catch { return bad('That file could not be read as an image.') }
 
   if (Math.min(facts.width, facts.height) < MIN_EDGE) {
     return bad(
