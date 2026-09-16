@@ -12,6 +12,16 @@ export const runtime = 'nodejs'
 
 const dir = () => join(process.cwd(), 'data/templates')
 
+/**
+ * Ids are filenames. Next fully percent-decodes a dynamic segment before the
+ * handler sees it, so `..%2F..%2Fdata%2Ftemplates%2Fflyer` arrives as a real
+ * `../` and escapes data/templates — reading a template that was not asked for,
+ * overwriting any .json the process can write, and deleting .svg/.json/
+ * .overrides.json anywhere. Same guard as lib/chat/store.ts and the sku check
+ * in app/api/products/route.ts.
+ */
+const safe = (id: string) => /^[A-Za-z0-9_-]{1,64}$/.test(id)
+
 /** The artwork href, pulled back out of the template so a save can re-emit it. */
 function artworkOf(svg: string): string {
   const m = /<image[^>]*id="artwork"[^>]*(?:xlink:)?href="([^"]+)"/.exec(svg)
@@ -26,6 +36,7 @@ function sizeOf(svg: string): { width: number; height: number } {
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   // Next 16: route params are async.
   const { id } = await ctx.params
+  if (!safe(id)) return Response.json({ error: 'Template not found.' }, { status: 404 })
   const t = loadTemplate(id)
   if (!t) return Response.json({ error: 'Template not found.' }, { status: 404 })
 
@@ -59,6 +70,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 /** Saves geometry into the SVG and policy into the manifest — the D13 split. */
 export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
+  if (!safe(id)) return Response.json({ error: 'Template not found.' }, { status: 404 })
   const { boxes, manifest, sku, reset } = (await readJson(req)) as {
     boxes: { id: string; x: number; y: number; width: number; height: number }[]
     manifest: Manifest
@@ -103,6 +115,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
 /** Live preview: render the current, unsaved layout against sample values. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
+  if (!safe(id)) return Response.json({ error: 'Template not found.' }, { status: 404 })
   const { boxes, manifest, values } = (await readJson(req)) as {
     boxes: { id: string; x: number; y: number; width: number; height: number }[]
     manifest: Manifest
@@ -144,6 +157,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 /** Removes a template. Its per-product exceptions go with it. */
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params
+  if (!safe(id)) return Response.json({ error: 'Template not found.' }, { status: 404 })
   const svg = join(dir(), `${id}.svg`)
   if (!existsSync(svg)) return Response.json({ error: 'Template not found.' }, { status: 404 })
 

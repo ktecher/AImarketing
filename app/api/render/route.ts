@@ -2,14 +2,20 @@ import { Resvg } from '@resvg/resvg-js'
 import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
 import { productsFor } from '@/lib/template/columns'
-import { readJson } from '@/lib/http'
+import { isResponse, readJsonStrict } from '@/lib/http'
 import { reachable } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
 export async function POST(req: Request) {
-  const { templateId, products, skus, format, width, limit, offset } = await readJson(req)
+  // Same trap as /api/export: junk parsed to {}, so `products` and `skus` were
+  // both undefined, and that reads as "render the imported sheet" — 62 rasterised
+  // PNGs off a typo. Nothing is written here, so it cost time rather than data.
+  const body = await readJsonStrict(req)
+  if (isResponse(body)) return body
+
+  const { templateId, products, skus, format, width, limit, offset } = body
 
   const template = loadTemplate(String(templateId ?? 'brand-poster'))
   if (!template) return Response.json({ error: 'Template not found.' }, { status: 404 })

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
 import { answer, AskSchema } from '@/lib/chat/answer'
@@ -9,7 +10,18 @@ export const runtime = 'nodejs'
 // of the day while the model loads.
 export const maxDuration = 300
 
-/** A conversation, for the widget resuming or a rep reading it. */
+/** Ids are filenames. The same guard lib/chat/store.ts applies to the path. */
+const safe = (id: string) => /^[A-Za-z0-9_-]{1,64}$/.test(id)
+
+/**
+ * A conversation, for the widget resuming or a rep reading it.
+ *
+ * No ownership check, because this app has no user identity to check against.
+ * The id IS the credential, so it has to be unguessable — see the mint in POST.
+ * The conversations already on disk keep their old clock-derived ids and stay
+ * enumerable; renaming a file a rep is waiting on in the Inbox costs more than
+ * it buys.
+ */
 export async function GET(req: Request) {
   const id = new URL(req.url).searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Which conversation?' }, { status: 400 })
@@ -25,7 +37,18 @@ export async function POST(req: Request) {
   }
   const { question, conversationId } = parsed.data
 
-  const id = conversationId ?? `c${Date.now().toString(36)}`
+  // Same guard lib/chat/store.ts applies to the filename, hoisted to the route.
+  // Below it, an id that fails safe() still ran the retrieval and the model —
+  // 300 seconds of work — before save() threw and the request 500'd.
+  if (conversationId && !safe(conversationId)) {
+    return NextResponse.json({ error: 'No such conversation.' }, { status: 404 })
+  }
+
+  // Unguessable, because possession of the id is the only thing standing
+  // between a visitor and someone else's transcript. This used to be a base36
+  // stamp of the wall clock: increment it and GET above handed you the next
+  // customer's chat, escalation state and all.
+  const id = conversationId ?? randomUUID()
   // Stamped once, when the conversation begins, and never revisited — a customer
   // who started under one campaign belongs to that campaign even if a new one is
   // created mid-chat. `current()` swallows a database that is down: an unstamped

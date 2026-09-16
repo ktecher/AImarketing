@@ -41,3 +41,33 @@ export async function readForm(req: Request): Promise<FormData | NextResponse> {
 }
 
 export const isResponse = (v: unknown): v is NextResponse => v instanceof NextResponse
+
+/**
+ * Parsed body, or a ready-made 400 — for a route where "the body was junk" and
+ * "the body was fine and left the field out" mean DIFFERENT things.
+ *
+ * `readJson` cannot tell them apart: both come back as `{}`. Four routes read
+ * an absent `skus` as "then do the whole catalogue", so `curl --data 'not json'`
+ * against `/api/export` rendered all 62 designs, wrote 62 `assets` rows, and
+ * answered 200. A typo is not a request to do everything.
+ *
+ * Same shape as `readForm`, so the same `isResponse` check: an unparseable body
+ * never reaches the route's own logic, and a valid one keeps every default it
+ * had — the Designs page really does omit `skus` to mean the whole sheet.
+ */
+export async function readJsonStrict<T extends object = Record<string, unknown>>(
+  req: Request,
+): Promise<Partial<T> | NextResponse> {
+  try {
+    const body = await req.json()
+    // A bare string, number or array parses but has no fields to read, so it is
+    // junk to every caller of this — not an empty object.
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object')
+    return body as Partial<T>
+  } catch {
+    return NextResponse.json(
+      { error: 'That request body was not readable JSON. Send a JSON object, or nothing at all.' },
+      { status: 400 },
+    )
+  }
+}

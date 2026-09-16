@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { readJson } from '@/lib/http'
+import { isResponse, readJsonStrict } from '@/lib/http'
 import { reachable } from '@/lib/db'
 import { campaignProducts, displayNames, saveDisplayNames } from '@/lib/template/columns'
 import { checkName, nameBlockers, suggestNames, POSTER_MAX } from '@/lib/content/names'
@@ -67,7 +67,14 @@ export async function GET() {
 
 /** Propose short names. Nothing is saved — the response is a draft to review. */
 export async function POST(req: Request) {
-  const { skus } = (await readJson(req)) as { skus?: string[] }
+  // No `skus` means "the ones over POSTER_MAX", which is roughly eight model
+  // calls — and the Designs page really does POST `{}` to ask for exactly that.
+  // But junk parsed to {} as well, so `curl --data 'not json'` started that
+  // batch too, and the client gave up long before it finished.
+  const body = await readJsonStrict(req)
+  if (isResponse(body)) return body
+
+  const { skus } = body as { skus?: string[] }
   const products = await campaignProducts()
   const wanted = skus?.length
     ? products.filter((p) => skus.includes(String(p.sku)))
@@ -100,7 +107,10 @@ export async function POST(req: Request) {
  * again. The refused ones come back so they stay in the box being edited.
  */
 export async function PUT(req: Request) {
-  const { edits } = (await readJson(req)) as { edits?: Record<string, string> }
+  const body = await readJsonStrict(req)
+  if (isResponse(body)) return body
+
+  const { edits } = body as { edits?: Record<string, string> }
   if (!edits || !Object.keys(edits).length) return NextResponse.json({ products: await rows(), saved: 0, refused: [] })
 
   const checked = await rows(edits)

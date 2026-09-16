@@ -3,7 +3,7 @@ import { renderProduct, type ProductValues } from '@/lib/template/render'
 import { fonts, fontDir, layoutFor, loadOverrides, loadTemplate, productImage, templateShape } from '@/lib/template/store'
 import { productsFor } from '@/lib/template/columns'
 import { renderPng, safeName, toJpg, toPdf, type Format } from '@/lib/template/export'
-import { readJson } from '@/lib/http'
+import { isResponse, readJsonStrict } from '@/lib/http'
 import { reachable } from '@/lib/db'
 import { recordExport } from '@/lib/assets'
 import { current } from '@/lib/campaigns'
@@ -12,7 +12,18 @@ export const runtime = 'nodejs'
 export const maxDuration = 600
 
 export async function POST(req: Request) {
-  const { templateId, formats, width, skus } = (await readJson(req)) as {
+  // An unparseable body is not a request to export the whole catalogue.
+  // `readJson` answered {} for junk, so `skus` came out undefined, and undefined
+  // means "every product" at the `productsFor()` call below: `curl --data
+  // 'not json'` rendered all 62 designs, stamped all 62 `assets` rows with a
+  // fresh `exported_at`, and returned a cheerful 200.
+  //
+  // A VALID body that omits `skus` still means the whole sheet — that is exactly
+  // what the Designs page sends when nothing is picked, and it keeps working.
+  const body = await readJsonStrict(req)
+  if (isResponse(body)) return body
+
+  const { templateId, formats, width, skus } = body as {
     templateId?: string
     formats?: Format[]
     width?: number

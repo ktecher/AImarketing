@@ -1,15 +1,12 @@
 import { readdirSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadFont } from '@/lib/template/layout'
+import { familyOf } from '@/lib/template/store'
 import { readForm, isResponse } from '@/lib/http'
 
 export const runtime = 'nodejs'
 
 const dir = () => join(process.cwd(), 'data/fonts')
-
-/** The family name a template binds, derived from the filename. */
-const familyOf = (file: string) =>
-  file.replace(/\.(ttf|otf)$/i, '').replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim()
 
 export async function GET() {
   mkdirSync(dir(), { recursive: true })
