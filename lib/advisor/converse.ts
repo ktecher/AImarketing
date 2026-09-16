@@ -75,6 +75,16 @@ function missing(draft: string, r: Review, opts: { channel?: string; pinned: boo
       'single price or spec — only the wording.',
     )
   }
+  // A price two products could both own is a question, not a blocker. Two Apple
+  // Pencils sit two thousandths of relevance apart and the cheaper one holds the
+  // figure the draft quotes; the honest answer is which Pencil is this, not
+  // "that price is wrong".
+  if (r.ambiguous.length && r.matched) {
+    out.push(
+      `Which product is this for — ${[r.matched, ...r.ambiguous].map((a) => a.name).join(', or ')}? ` +
+      'They do not share a price, so I will not guess which one the figure in this draft belongs to.',
+    )
+  }
   if (!opts.channel) {
     out.push('Where is this going — Instagram, Snapchat or TikTok? The advice is different for each.')
   }

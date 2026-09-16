@@ -183,6 +183,33 @@ ok('a wrong price cannot be blessed by another product',
    priceDrift('Apple Pencil for 34.900 KD.', ROW).length === 1)
 ok('priceDrift takes a row, not a neighbourhood', priceDrift.length === 2, String(priceDrift.length))
 
+console.log('\n--- a price a rival product holds is a question, not a fabrication ---')
+// Measured on this catalogue, money stripped from the query: the 2nd generation
+// Pencil scores 0.530 and the 1st generation 0.528, and the 1st is the one that
+// holds the 19.900 this draft quotes. Two thousandths of relevance, at the
+// weakest match tier there is, decided that the shop's own approved price was a
+// fabrication. A guard that fires on legitimate input is a bug in the guard.
+const rival = await review('Best deal in Kuwait! Apple Pencil now only 19.900 KD, guaranteed cheapest.')
+ok('a price the catalogue holds is never a blocker',
+   !rival.blockers.some((b) => b.criterion.startsWith('the price')),
+   JSON.stringify(rival.blockers.map((b) => [b.quote, b.criterion])))
+ok('the facts verdict is honest, not a problem',
+   rival.verdicts['facts against the catalogue'] === 'needs work',
+   rival.verdicts['facts against the catalogue'])
+ok('the other Pencil is offered, so the advisor can ask',
+   rival.ambiguous.some((a) => a.sku === '502037'), JSON.stringify(rival.ambiguous))
+ok('and the superlative still blocks', rival.blockers.some((b) => b.quote === 'Best'))
+ok('and the guarantee still blocks',   rival.blockers.some((b) => b.quote === 'guaranteed'))
+
+// The true positive, same sentence: no Pencil holds 25.000, so no rival can
+// bless it and declining to judge would be the opposite failure.
+const invented = await review('Best deal in Kuwait! Apple Pencil now only 25.000 KD, guaranteed cheapest.')
+ok('a figure no product holds is still a blocker',
+   invented.blockers.some((b) => b.quote === '25.000 KD' && b.criterion.startsWith('the price')),
+   JSON.stringify(invented.blockers.map((b) => [b.quote, b.criterion])))
+ok('nothing is offered to ask about',  invented.ambiguous.length === 0)
+ok('and the facts verdict is problem', invented.verdicts['facts against the catalogue'] === 'problem')
+
 console.log('\n--- rule 4: no score, rating or grade anywhere ---')
 const src = await import('node:fs').then((fs) =>
   ['lib/advisor/review.ts', 'lib/advisor/converse.ts', 'app/(staff)/advisor/page.tsx']

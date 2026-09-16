@@ -1,6 +1,6 @@
 // The campaign brief: seven answers composed into the one field there is.
 // Pure — no database, no model — so unlike the campaigns suite it always runs.
-const { composeContext, OFFER_MECHANICS } = await import('../lib/brief.ts')
+const { composeContext, OFFER_MECHANICS, pushingFrom } = await import('../lib/brief.ts')
 const { whereInTheYear } = await import('../lib/campaigns.ts')
 
 let failed = 0
@@ -82,6 +82,30 @@ console.log('\n--- an empty meeting field omits the line, no blank label ---')
 const blankMeeting = composeContext({ ...FULL, objective: '', spend: '', measure: '' })
 ok('no meeting labels appear at all', !/^(Objective|Spend|Measure):/m.test(blankMeeting), blankMeeting)
 
+
+console.log('\n--- reading the Pushing line back out ---')
+// Without the split the Designs screen designs the whole catalogue: "sixty-two
+// posters nobody asked for", which is the failure this function's own docstring
+// names.
+ok('an English list splits',
+   pushingFrom('Pushing: laptops, tablets, headphones').length === 3,
+   JSON.stringify(pushingFrom('Pushing: laptops, tablets, headphones')))
+ok('the Oxford comma leaves no "and"',
+   pushingFrom('Pushing: laptops, keyboards, and backpacks')[2] === 'backpacks',
+   JSON.stringify(pushingFrom('Pushing: laptops, keyboards, and backpacks')))
+
+// Arabic writes its comma as ، (U+060C). Split on the ASCII comma alone, this
+// line came back as ONE twenty-four-character term matching no product — and a
+// single term is a perfectly ordinary answer, so nothing looked wrong.
+const AR = 'Pushing: لابتوبات، تابلت، سماعات'
+ok('an Arabic list splits on the Arabic comma',
+   pushingFrom(AR).length === 3, JSON.stringify(pushingFrom(AR)))
+ok('and each term is the word, not the whole line',
+   pushingFrom(AR)[0] === 'لابتوبات', JSON.stringify(pushingFrom(AR)[0]))
+ok('a mixed list splits on both',
+   pushingFrom('Pushing: laptops، tablets, سماعات').length === 3,
+   JSON.stringify(pushingFrom('Pushing: laptops، tablets, سماعات')))
+ok('no Pushing line is no terms', pushingFrom('For: students') .length === 0)
 
 console.log('\n--- the retail calendar is read in Kuwait time ---')
 // This read UTC while the date printed beside it in the prompt was local, so

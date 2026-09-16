@@ -36,6 +36,14 @@ export type Review = {
   not_assessed: string[]
   /** The row the draft was checked against, so a human can disagree with it. */
   matched: { sku: string; name: string; confidence: 'sku' | 'category' | 'lexical' | 'meaning' } | null
+  /**
+   * Other rows that hold a price this draft quotes, when the retriever's first
+   * choice was not the only plausible one. Empty in the ordinary case.
+   *
+   * A question, not a finding: `missing()` in converse.ts turns it into "which
+   * of these is it?", because a figure the catalogue holds is never invented.
+   */
+  ambiguous: { sku: string; name: string }[]
 }
 
 export type ReviewOptions = {
@@ -171,7 +179,9 @@ const FACT_CHECKS = new Set([
  * thing that is missing rather than the capability, so it doubles as the list
  * of what to go and get.
  */
-function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false, arabic = false): string[] {
+function notAssessed(
+  lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false, arabic = false, contested: string[] = [],
+): string[] {
   const out = [
     'trend fit — nothing offline knows what is trending this week',
     // True of the CHECKS, which is what this function is. When the model layer
@@ -189,6 +199,12 @@ function notAssessed(lang: 'en' | 'ar', hasHistory: boolean, manyPrices = false,
     out.push(
       'the prices — this draft carries more than one, and each belongs to a different product. ' +
         'Review one product at a time to have them checked.',
+    )
+  }
+  if (contested.length) {
+    out.push(
+      `the price — the catalogue holds it for ${contested.join(' and ')}, which is not the row ` +
+        'this draft matched. Say which product it is for and the price gets checked against that one.',
     )
   }
   if (lang === 'ar') {
@@ -227,7 +243,7 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
 
   if (!body) {
     return {
-      verdicts: {}, blockers: [], fixes: [], matched: null,
+      verdicts: {}, blockers: [], fixes: [], matched: null, ambiguous: [],
       not_assessed: ['nothing to review — paste a caption, a script, or a slogan'],
     }
   }
@@ -281,7 +297,33 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
   const prices = row
     ? scanPrices(body, row)
     : { drift: [], verified: [] as string[], unjudged: [] as string[] }
-  blockers.push(...prices.drift)
+
+  // The other rows the retriever thought plausible. Not folded into the prices
+  // this draft is checked against — D32 records why that was wrong — but used
+  // for one question only: does anybody else hold the figure being called
+  // invented? Measured, money stripped from the query first:
+  //   "Best deal in Kuwait! Apple Pencil now only ..."  meaning 0.530  2nd gen, 39.900
+  //                                                     meaning 0.528  1st gen, 19.900
+  // Two thousandths of relevance picked which Pencil the shop's own correct
+  // 19.900 was declared a fabrication against, at the weakest match tier there
+  // is. A figure the catalogue holds is never an invented figure; it is an
+  // unanswered question about which product this is, and `missing()` in
+  // converse.ts asks it. An exact SKU and a row a person pinned settle that
+  // question themselves, so neither has rivals.
+  const rivals = hit && hit.why !== 'sku'
+    ? hits.filter((h) => h.sku !== hit.sku && h.relevance >= FLOOR[h.why])
+    : []
+  const holds = (r: Row, v: number) =>
+    [Number(r.price_now), Number(r.price_was)].some((k) => Number.isFinite(k) && Math.abs(k - v) < 0.0005)
+  const contested = prices.drift.filter((b) => {
+    const v = Number(moneyFigures(b.quote)[0])
+    return Number.isFinite(v) && rivals.some((h) => holds(h.row, v))
+  })
+  const alternatives = rivals.filter((h) =>
+    contested.some((b) => holds(h.row, Number(moneyFigures(b.quote)[0]))),
+  )
+
+  blockers.push(...prices.drift.filter((b) => !contested.includes(b)))
 
   // Scrubbed, not filtered. `bareDigits` reports the FIRST offending span and
   // nothing else, so filtering the result afterwards meant a correct price
@@ -289,7 +331,7 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
   // free case" came back green, and so did "that is 51% off". Removing the
   // verified figures from the text first leaves the rest to be caught. The
   // spans are literal substrings of `body`, so removing them is safe.
-  const scrubbed = [...prices.verified, ...prices.unjudged]
+  const scrubbed = [...prices.verified, ...prices.unjudged, ...contested.map((b) => b.quote)]
     .reduce((t, span) => t.split(span).join(' '), body)
 
   // Claim safety, reusing the checks the studio approves copy with — one
@@ -318,7 +360,7 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     // verifies a was/now pair belonging to this row, and re-deriving "more than
     // one price" here said "needs work" on a draft it had just checked.
     'facts against the catalogue': factProblem ? 'problem'
-      : !row || prices.unjudged.length ? 'needs work' : 'ok',
+      : !row || prices.unjudged.length || contested.length ? 'needs work' : 'ok',
     'claims and compliance': claimProblem ? 'problem' : 'ok',
   }
 
@@ -339,7 +381,11 @@ export async function review(text: string, opts: ReviewOptions = {}): Promise<Re
     verdicts,
     blockers,
     fixes,
-    not_assessed: notAssessed(lang, false, prices.unjudged.length > 0, hasArabic(body)),
+    not_assessed: notAssessed(
+      lang, false, prices.unjudged.length > 0, hasArabic(body),
+      alternatives.map((h) => String(h.row.name_en ?? h.sku)),
+    ),
     matched: hit ? { sku: hit.sku, name: String(hit.row.name_en ?? hit.sku), confidence: hit.why } : null,
+    ambiguous: alternatives.map((h) => ({ sku: h.sku, name: String(h.row.name_en ?? h.sku) })),
   }
 }

@@ -161,13 +161,19 @@ export function composeContext(b: Brief): string {
  * Earphones" is three searches; asking for it as one phrase matches nothing.
  * Capped at six for the same reason the campaign screen caps its own count:
  * beyond that somebody has written a paragraph, not a list.
+ *
+ * BOTH commas. Arabic writes its comma as ، (U+060C), so a Pushing line reading
+ * «لابتوبات، تابلت، سماعات» split on the ASCII comma alone came back as ONE
+ * twenty-four-character term that matches no product — which is precisely the
+ * "sixty-two posters nobody asked for" this function exists to prevent, back
+ * again and invisible, because a single term is a perfectly ordinary answer.
  */
 export function pushingFrom(context: string): string[] {
   const line = context.split('\n').find((l) => /^\s*pushing\s*:/i.test(l))
   if (!line) return []
   return line
     .slice(line.indexOf(':') + 1)
-    .split(',')
+    .split(/[,،]/)
     // "laptops, keyboards, and backpacks" — the Oxford comma leaves the last
     // term as "and backpacks", which matches nothing in the catalogue.
     .map((t) => t.trim().replace(/^and\s+/i, '').trim())

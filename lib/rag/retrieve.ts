@@ -79,6 +79,84 @@ function terms(q: string): string[] {
   return norm(q).split(' ').filter((w) => w.length > 2 || /\d/.test(w))
 }
 
+/**
+ * What a row IS, without the marketing prose.
+ *
+ * `description_en` is in `rowText` because a customer's phrasing genuinely
+ * lands there, and it is excluded here because it is where the noise lives.
+ * Measured on this catalogue: `retrieve('the Pura 20')` returned two Anker
+ * cables at 0.667 — "the" matched "the exterior of bio based cables" and "20"
+ * matched "90 20 000 bend lifespan", both inside the description, while the one
+ * word that made the question a question, "pura", is in no row at all. A term
+ * that only ever hits prose cannot be the term that identifies a product.
+ */
+function identityText(p: Row): string {
+  return norm(
+    [...SEARCHABLE.filter((k) => k !== 'description_en').map((k) => String(p[k] ?? '')), categoryPath(p)]
+      .filter(Boolean)
+      .join(' · '),
+  )
+}
+
+/**
+ * Does this text carry this term?
+ *
+ * A bare number has to BE one of the numbers in the text, not appear inside
+ * one. `includes('20')` is true of "2024", "256GB" and "16GB", which is how six
+ * unrelated rows tied at exactly 0.500 for the query "Pura 20" — every one of
+ * them scored on a "20" nobody wrote.
+ *
+ * The same trap and the same fix as `isProductIdentity` in lib/content/guard.ts
+ * ("includes('4') is true of 14-inch, 512GB and M4 Max"), and digit RUNS rather
+ * than whole tokens for the reason that one is: "512" must still find "512GB
+ * SSD", which is one token and three digits.
+ */
+const DIGITS = /\p{Nd}+/gu
+function carries(hay: string, term: string): boolean {
+  if (!/^\p{Nd}+$/u.test(term)) return hay.includes(term)
+  // Annotated: `?? []` infers never[], and the union's includes() then takes never.
+  const runs: string[] = hay.match(DIGITS) ?? []
+  return runs.includes(term)
+}
+
+/**
+ * The one word in the question that makes it specific — the rarest.
+ *
+ * Without this, `hits / want.length` scores on noise: six rows tied at exactly
+ * 0.500 for "Pura 20" because "20" is a substring of 2024, 256GB and 16GB, and
+ * a query for a product the shop has never heard of came back looking like a
+ * match. A miss was indistinguishable from a hit, which is the defect the whole
+ * gate exists to close.
+ *
+ * Rarest across the catalogue's IDENTITY text, longest breaking a tie. When the
+ * rarest term is in no row at all — "pura", "huawei" — no row can contain it,
+ * every lexical score is zero, and the miss is a miss. Asides are dropped
+ * first, so "the" and "do you have" cannot become the distinguishing word on a
+ * question that names nothing else.
+ *
+ * ponytail: document frequency counted per question over sixty rows. A term
+ * index if the catalogue reaches thousands, which is also when pgvector lands.
+ */
+function keyTerm(q: string, identities: string[]): string | null {
+  const want = terms(q).filter((w) => !ASIDES.has(stem(w)))
+  let key: string | null = null
+  let rarest = Infinity
+  for (const w of want) {
+    const df = identities.reduce((n, t) => n + (t.includes(w) ? 1 : 0), 0)
+    if (df < rarest || (df === rarest && key !== null && w.length > key.length)) {
+      key = w
+      rarest = df
+    }
+  }
+  return key
+}
+
+/**
+ * How much of the question this row's text carries.
+ *
+ * The description still counts towards the score — it is only barred from
+ * CARRYING one, which `keyTerm` and the identity check in `retrieve` enforce.
+ */
 function lexicalMatch(q: string, p: Row): number {
   const hay = norm(rowText(p))
   const want = terms(q)
@@ -218,8 +296,19 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
     return exact.slice(0, limit).map((p) => ({ sku: String(p.sku), row: p, relevance: 1, why: 'sku' as const }))
   }
 
+  // A row scores lexically only if it carries the question's own rarest word,
+  // in its identity rather than in its prose. Everything else was scoring on
+  // "the" and on a "20" inside "2024", and a question about a product nobody
+  // stocks came back with four confident rows.
+  const identities = products.map(identityText)
+  const key = keyTerm(question, identities)
   const lex = products
-    .map((p) => ({ sku: String(p.sku), row: p as Row, relevance: lexicalMatch(question, p), why: 'lexical' as const }))
+    .map((p, i) => ({
+      sku: String(p.sku),
+      row: p as Row,
+      relevance: key !== null && identities[i].includes(key) ? lexicalMatch(question, p) : 0,
+      why: 'lexical' as const,
+    }))
     .filter((h) => h.relevance > 0)
     .sort((a, b) => b.relevance - a.relevance)
 
@@ -271,8 +360,19 @@ export async function retrieve(question: string, limit = 4): Promise<Hit[]> {
     if (!prev || h.relevance > prev.relevance) best.set(h.sku, h)
   }
 
+  // The floor, and it sat BELOW this catalogue's own noise level. At 0.35 a
+  // question about no product at all — "zzzqqq nonexistent widget" — came back
+  // with an Apple Magic Keyboard at 0.402 and nothing said it was a miss.
+  //
+  // 0.47 is not a new number: `review()` in lib/advisor/review.ts measured it on
+  // this exact catalogue and named it CONFIDENT — "text about no product at all
+  // tops out around 0.43, a real product mention runs 0.50-0.58". The advisor
+  // had already worked around this floor with its own; the floor was the bug.
+  // ponytail: one threshold tuned on one catalogue — revisit if the sheet
+  // changes shape, and revisit it in both places at once.
+  const CONFIDENT = 0.47
   return [...best.values()]
     .sort((a, b) => b.relevance - a.relevance)
-    .filter((h) => h.relevance >= 0.35)
+    .filter((h) => h.relevance >= CONFIDENT)
     .slice(0, limit)
 }
