@@ -9,7 +9,7 @@
 import { load } from 'cheerio'
 import { requiredHeight, type LoadedFont } from './layout'
 import { readSlots, type Manifest, type Slot } from './svg'
-import { renderText, type TextMode } from './render-text'
+import { esc, renderText, type TextMode } from './render-text'
 import { formatKwd, FORBIDDEN_PRICE_FIELDS } from '../money'
 
 export type ProductValues = Record<string, string | number | undefined>
@@ -69,9 +69,6 @@ export function formatValue(value: string | number | undefined, slot: Slot): str
   if (slot.format === 'kwd') return formatKwd(value) || String(value)
   return String(value)
 }
-
-const esc = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 export function renderProduct(
   templateSvg: string,

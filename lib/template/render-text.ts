@@ -9,7 +9,7 @@ import { fitText, measure, outlinePath, hasArabic, type Box } from './layout'
 export type TextMode = 'live' | 'outline' | 'auto'
 export type Align = 'start' | 'center' | 'end'
 
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 /**

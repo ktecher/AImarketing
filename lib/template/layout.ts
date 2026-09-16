@@ -280,14 +280,25 @@ export function fitText(text: string, f: LoadedFont, box: Box): Fitted {
     ? { lines: atFloor.lines, size: minSize, widest: atFloor.widest }
     : null
   if (!best) {
-    const lines = wrapAt(clean, f, minSize, box.width).slice(0, maxLines)
-    if (lines.length) {
+    const wrapped = wrapAt(clean, f, minSize, box.width)
+    const lines = wrapped.slice(0, maxLines)
+    // Cutting characters can only fix a WIDTH or a line-count overflow. A box
+    // that is merely too SHORT — requiredHeight exceeds box.height even at the
+    // floor size — is not helped by an ellipsis: the text still overflows
+    // vertically and a character has been thrown away for nothing. That is how
+    // 62 of 62 posters shipped a price reading "19.900 KD…" while the figure
+    // itself was 36 points narrower than its box. The short box is already
+    // reported as a template fault; the value is left whole at the floor size.
+    const cut =
+      lines.length < wrapped.length ||
+      (lines.length > 0 && measure(lines[lines.length - 1], f, minSize) > box.width)
+    if (cut) {
       let last = lines[lines.length - 1]
       while (last.length > 1 && measure(`${last}…`, f, minSize) > box.width) last = last.slice(0, -1)
       lines[lines.length - 1] = `${last}…`
     }
     const widest = Math.max(0, ...lines.map((l) => measure(l, f, minSize)))
-    return { lines, size: minSize, truncated: true, widest, direction }
+    return { lines, size: minSize, truncated: cut, widest, direction }
   }
 
   let lo = minSize

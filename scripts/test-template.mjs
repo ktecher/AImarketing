@@ -74,3 +74,61 @@ for (const f of list('data/templates').filter((f) => f.endsWith('.json') && !f.i
 const script = read('scripts/make-template-svg.mjs', 'utf8')
 ok('the rebuild script binds display_name too', /bind:\s*'display_name'/.test(script))
 ok('the rebuild script binds no price_kwd', !/bind:\s*'price_kwd'/.test(script))
+
+// --- The price must never be cut (CLAUDE.md rule 2) ---
+//
+// 62 of 62 brand-poster designs shipped a price reading "19.900 KD…" and every
+// assertion in this suite was green. The fault was the box HEIGHT, not the
+// width: the price slot was 23px tall for a 32pt single line needing 50, so
+// fitText reached its floor with the box still too short and ellipsised a
+// figure that was 36 points NARROWER than its own box. An ellipsis on a price
+// is a number the shop is not charging, which is the whole of rule 2.
+const { loadFont, requiredHeight } = await import('../lib/template/layout.ts')
+const { renderProduct } = await import('../lib/template/render.ts')
+const { readSlots } = await import('../lib/template/svg.ts')
+
+const FONT = 'data/fonts/Cairo-Variable.ttf'
+if (!has(FONT)) {
+  console.error(`\nMissing ${FONT}. Font files are not committed — ` +
+    `see data/fonts/LICENCE-NOTES.md for which families to download.\n`)
+  process.exit(1)
+}
+const cairo = { Cairo: loadFont(read(FONT)) }
+
+// Sized for the widest figure the catalogue actually holds, not for the one
+// product somebody happened to open:
+//   select max(price_now), max(price_was) from products  ->  899.900 / 1129.900
+const PRICED = [
+  { sku: '502037', display_name: 'Apple Pencil 1st generation', name_ar: 'قلم آبل الجيل الأول',
+    price_now: 19.9, price_was: 40.5 },
+  { sku: 'WIDEST', display_name: 'Widest price in the catalogue', name_ar: 'أغلى سعر في الكتالوج',
+    price_now: 1129.9, price_was: 1199.9 },
+]
+
+for (const file of list('data/templates').filter((f) => f.endsWith('.json') && !f.includes('.overrides.'))) {
+  const id = file.replace(/\.json$/, '')
+  if (!has(`data/templates/${id}.svg`)) continue
+  const m = JSON.parse(read(`data/templates/${id}.json`, 'utf8'))
+  const svg = read(`data/templates/${id}.svg`, 'utf8')
+  const boxes = new Map(readSlots(svg).map((b) => [b.id, b]))
+
+  // A box shorter than its own line count can never hold its value at any size
+  // the fitter can reach, so every long one is cut while the short sample in
+  // front of you looks fine. Derived from the helper, never typed.
+  for (const s of m.slots.filter((s) => s.type === 'text')) {
+    const box = boxes.get(s.id)
+    if (!box) continue
+    const need = requiredHeight(s.size ?? 32, s.maxLines ?? 1, s.lineHeight)
+    ok(`${id}: the ${s.id} box holds ${s.size ?? 32}pt (needs ${need}, has ${box.height})`,
+       box.height >= need)
+  }
+
+  for (const p of PRICED) {
+    const { report } = renderProduct(svg, m, p, cairo, { mode: 'auto', images: {} })
+    const cut = report.filter((r) => r.truncated).map((r) => r.slot)
+    ok(`${id}: ${p.price_now.toFixed(3)} KD prints in full, uncut`,
+       !cut.includes('price'))
+    ok(`${id}: nothing else is cut either at ${p.price_now.toFixed(3)} KD`,
+       cut.length === 0)
+  }
+}
