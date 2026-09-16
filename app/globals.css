@@ -760,6 +760,13 @@ th, table.catalogue th {
 }
 td, table.catalogue td { padding: var(--rowpad) 16px; font-size: 13.5px; }
 table.catalogue tbody tr:hover { background: var(--tint); }
+
+/* The image panel sits in a row under the product it is about. The cell is a
+   container, not data, so it drops the row padding and the hover tint — a panel
+   that lights up when the pointer crosses it reads as something clickable. */
+table.catalogue tbody tr.image-row:hover { background: none; }
+table.catalogue tr.image-row td { padding: 0 0 12px; border-bottom: 0; }
+table.catalogue tr.image-row .panel { margin-bottom: 0; }
 .sortable { font-size: 11px; letter-spacing: .06em; }
 .sortable:hover { color: var(--accent); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }

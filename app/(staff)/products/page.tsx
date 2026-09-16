@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CATALOGUE_TABS, Tabs } from '../tabs'
 import { formatKwd } from '@/lib/money'
 
@@ -219,6 +219,93 @@ export default function Products() {
 
   /* ── the image panel ──────────────────────────────────────────────────── */
 
+  /* The panel is rendered INSIDE the table, in a row under the product it is
+     about, rather than above the whole page. On page 3 of a 62-row catalogue a
+     panel at the top is a panel you have to go and find, and by the time you
+     have scrolled to it you can no longer see which row you clicked. */
+  function imagePanel() {
+    // Narrows `imageFor` for everything below; the caller only renders this for
+    // the row whose SKU it holds, so this branch is unreachable in practice.
+    if (!imageFor) return null
+    return (
+    <div className="panel">
+              <div className="panel-head">
+                <b>{imageFor}</b>
+                <button className="linkish" onClick={() => { setImageFor(null); setCandidate(null) }}>
+                  close
+                </button>
+              </div>
+
+              {imgError && <p className="err" role="alert">{imgError}</p>}
+
+              <div className="grid2">
+                <div>
+                  <p className="hint" style={{ marginTop: 0 }}>
+                    {facts === null
+                      ? 'Reading…'
+                      : facts.exists
+                        ? `Stored now — ${facts.width}×${facts.height}, ${Math.round((facts.bytes ?? 0) / 1024)} KB`
+                        : 'No photo yet. The poster prints a dashed placeholder for this product.'}
+                  </p>
+                  {facts?.exists
+                    /* Cache-busted by the byte count so an accepted image replaces
+                       the old one on screen instead of showing the browser's copy. */
+                    ? <img className="live" alt={`Photo for ${imageFor}`}
+                           src={`/api/products/photo?sku=${encodeURIComponent(imageFor)}&raw=1&v=${facts.bytes}`} />
+                    : <div className="live placeholder"><span>Nothing stored</span></div>}
+                </div>
+
+                <div>
+                  <p className="hint" style={{ marginTop: 0 }}>
+                    {candidate
+                      ? `From ${candidate.from} — ${candidate.width}×${candidate.height}${candidate.hq ? '' : ', below 1200px'}`
+                      : 'Paste the address of an image to see it here before anything is saved.'}
+                  </p>
+                  {candidate
+                    ? <img className={`live${candidate.alpha ? ' alpha' : ''}`}
+                           alt="Image found, not yet saved" src={candidate.dataUrl} />
+                    : <div className="live placeholder"><span>Nothing fetched</span></div>}
+                </div>
+              </div>
+
+              <form className="row" style={{ marginTop: 14, alignItems: 'flex-end' }}
+                    onSubmit={(e) => { e.preventDefault(); void findImage() }}>
+                <label className="fld" style={{ flex: '1 1 320px', marginBottom: 0 }}>
+                  <span>Image address</span>
+                  <input type="url" placeholder="Paste the address of an image" value={urlDraft}
+                         onChange={(e) => setUrlDraft(e.target.value)} disabled={Boolean(imgBusy)} />
+                </label>
+                <button className="btn" type="submit" disabled={Boolean(imgBusy) || !urlDraft.trim()}>
+                  {imgBusy === 'find' ? 'Fetching…' : 'Fetch'}
+                </button>
+                {/* Works on the candidate when there is one and on the stored photo
+                    otherwise, so a background can be removed without fetching
+                    anything at all. */}
+                <button className="chip" type="button" onClick={() => void removeBackground()}
+                        disabled={Boolean(imgBusy) || (!candidate && !facts?.exists)}>
+                  {imgBusy === 'cut' ? 'Removing…' : 'Remove background'}
+                </button>
+              </form>
+
+              {candidate && (
+                <p className="row" style={{ marginTop: 12 }}>
+                  <button className="btn" onClick={() => void acceptImage()} disabled={Boolean(imgBusy)}>
+                    {imgBusy === 'save' ? 'Saving…' : 'Use this one'}
+                  </button>
+                  <button className="chip" onClick={() => setCandidate(null)} disabled={Boolean(imgBusy)}>
+                    Discard
+                  </button>
+                  <span className="hint">
+                    Saved at 600×600, which is what the poster uses.
+                  </span>
+                </p>
+              )}
+            </div>
+    )
+  }
+
+
+
   /** Open the panel for one product and read what is actually stored for it. */
   async function openImage(sku: string) {
     setImageFor(sku); setFacts(null); setCandidate(null); setUrlDraft(''); setImgError('')
@@ -426,82 +513,6 @@ export default function Products() {
 
       {adding && <AddProduct categories={categories} onDone={() => { setAdding(false); void load() }} onError={setError} />}
 
-      {imageFor && (
-        <div className="panel">
-          <div className="panel-head">
-            <b>{imageFor}</b>
-            <button className="linkish" onClick={() => { setImageFor(null); setCandidate(null) }}>
-              close
-            </button>
-          </div>
-
-          {imgError && <p className="err" role="alert">{imgError}</p>}
-
-          <div className="grid2">
-            <div>
-              <p className="hint" style={{ marginTop: 0 }}>
-                {facts === null
-                  ? 'Reading…'
-                  : facts.exists
-                    ? `Stored now — ${facts.width}×${facts.height}, ${Math.round((facts.bytes ?? 0) / 1024)} KB`
-                    : 'No photo yet. The poster prints a dashed placeholder for this product.'}
-              </p>
-              {facts?.exists
-                /* Cache-busted by the byte count so an accepted image replaces
-                   the old one on screen instead of showing the browser's copy. */
-                ? <img className="live" alt={`Photo for ${imageFor}`}
-                       src={`/api/products/photo?sku=${encodeURIComponent(imageFor)}&raw=1&v=${facts.bytes}`} />
-                : <div className="live placeholder"><span>Nothing stored</span></div>}
-            </div>
-
-            <div>
-              <p className="hint" style={{ marginTop: 0 }}>
-                {candidate
-                  ? `From ${candidate.from} — ${candidate.width}×${candidate.height}${candidate.hq ? '' : ', below 1200px'}`
-                  : 'Paste the address of an image to see it here before anything is saved.'}
-              </p>
-              {candidate
-                ? <img className={`live${candidate.alpha ? ' alpha' : ''}`}
-                       alt="Image found, not yet saved" src={candidate.dataUrl} />
-                : <div className="live placeholder"><span>Nothing fetched</span></div>}
-            </div>
-          </div>
-
-          <form className="row" style={{ marginTop: 14, alignItems: 'flex-end' }}
-                onSubmit={(e) => { e.preventDefault(); void findImage() }}>
-            <label className="fld" style={{ flex: '1 1 320px', marginBottom: 0 }}>
-              <span>Image address</span>
-              <input type="url" placeholder="Paste the address of an image" value={urlDraft}
-                     onChange={(e) => setUrlDraft(e.target.value)} disabled={Boolean(imgBusy)} />
-            </label>
-            <button className="btn" type="submit" disabled={Boolean(imgBusy) || !urlDraft.trim()}>
-              {imgBusy === 'find' ? 'Fetching…' : 'Fetch'}
-            </button>
-            {/* Works on the candidate when there is one and on the stored photo
-                otherwise, so a background can be removed without fetching
-                anything at all. */}
-            <button className="chip" type="button" onClick={() => void removeBackground()}
-                    disabled={Boolean(imgBusy) || (!candidate && !facts?.exists)}>
-              {imgBusy === 'cut' ? 'Removing…' : 'Remove background'}
-            </button>
-          </form>
-
-          {candidate && (
-            <p className="row" style={{ marginTop: 12 }}>
-              <button className="btn" onClick={() => void acceptImage()} disabled={Boolean(imgBusy)}>
-                {imgBusy === 'save' ? 'Saving…' : 'Use this one'}
-              </button>
-              <button className="chip" onClick={() => setCandidate(null)} disabled={Boolean(imgBusy)}>
-                Discard
-              </button>
-              <span className="hint">
-                Saved at 600×600, which is what the poster uses.
-              </span>
-            </p>
-          )}
-        </div>
-      )}
-
       {notice && <p className="ok-note">{notice}</p>}
       {error && <p className="note bad">{error}</p>}
 
@@ -615,7 +626,8 @@ export default function Products() {
                 const wasEdited = (f: string) => r.edited?.includes(f)
                 const sheetSaid = (f: string) => r.sheet_values?.[f]
                 return (
-                  <tr key={r.sku} className={r.in_stock ? '' : 'out'}>
+                  <Fragment key={r.sku}>
+                  <tr className={r.in_stock ? '' : 'out'}>
                     <td className="tick">
                       <input type="checkbox" checked={picked.has(r.sku)}
                         aria-label={`Select ${r.name_en ?? r.sku}`}
@@ -673,6 +685,14 @@ export default function Products() {
                         onClick={() => void remove(r.sku, r.name_en ?? '')}>delete</button>
                     </td>
                   </tr>
+                  {/* Under the row it belongs to, spanning every column, so the
+                      rows below are pushed down rather than the page jumping. */}
+                  {imageFor === r.sku && (
+                    <tr className="image-row">
+                      <td colSpan={9}>{imagePanel()}</td>
+                    </tr>
+                  )}
+                  </Fragment>
                 )
               })}
             </tbody>
