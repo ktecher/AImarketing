@@ -258,14 +258,6 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .side-foot { margin: 0 0 0 auto; border: 0; flex-direction: row; align-items: center; padding: 0; }
 
 }
-.starter {
-  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 10px; margin-bottom: 16px;
-}
-.starter div { flex: 1 1 320px; }
-.starter b { display: block; margin-bottom: 3px; }
-.starter span { color: var(--muted); font-size: 13px; }
 .btn {
   display: inline-block; text-decoration: none; white-space: nowrap;
 }
@@ -621,19 +613,18 @@ button, a, .card, .convo, .render, .chip, .fmt, .btn {
 
 /* ── Panels, cards, figures ───────────────────────────────────────────────── */
 
-.panel, .scroll, .starter, .piece, .verdict, .convo, .export,
+.panel, .scroll, .piece, .verdict, .convo, .export,
 .notice, .card, .render img, .live, .stage {
   border-radius: var(--r);
 }
 
-.panel, .starter, .piece, .verdict, .export, .scroll {
+.panel, .piece, .verdict, .export, .scroll {
   background: var(--panel);
   backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
   border: 1px solid var(--line);
   box-shadow: var(--shadow), var(--gloss);
   padding: var(--pad);
 }
-.starter { padding: 18px 22px; }
 .piece   { padding: 16px 18px; }
 .verdict { padding: 13px 16px; }
 .panel.compact { padding: 18px 20px; }
@@ -751,7 +742,14 @@ input.cell.dirty { border-color: var(--warn); background: var(--warn-bg); }
 /* The catalogue has eight columns; below ~840px they used to clip. The wrapper
    scrolls instead. */
 .scroll { overflow-x: auto; overflow-y: hidden; padding: 0; }
-.scroll table, table.catalogue { min-width: 840px; }
+/* The floor is the Products table's eight columns, so it belongs to that table
+   and not to every table that happens to sit in a scroller. It used to apply to
+   both, and the two-column product picker inherited it: on a narrow window the
+   840px pushed the "add" button past the clip, behind an overlay scrollbar macOS
+   does not draw until you scroll. The rows looked complete and nothing could be
+   chosen. `.knowledge table.catalogue` below undoes the same floor for the same
+   reason. */
+table.catalogue { min-width: 840px; }
 
 th, td, table.catalogue td { border-bottom: 1px solid var(--line); }
 th, table.catalogue th {

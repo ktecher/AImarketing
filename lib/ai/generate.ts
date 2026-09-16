@@ -59,13 +59,13 @@ type Options = {
   system?: string
 }
 
-async function call(prompt: string, opts: Options & { format?: unknown }) {
+function bodyFor(prompt: string, opts: Options & { format?: unknown }, stream: boolean) {
   const model = opts.model ?? MODELS.english
 
   const body: Record<string, unknown> = {
     model,
     prompt,
-    stream: false,
+    stream,
     options: {
       // Ollama's default is 2048-4096 and it SILENTLY TRUNCATES. Left unset,
       // retrieved catalogue rows fall out of the window and the result looks
@@ -83,6 +83,11 @@ async function call(prompt: string, opts: Options & { format?: unknown }) {
   // budget went to reasoning. Same call with think:false takes 4.2s. See D16.
   if (THINKS.test(model)) body.think = false
 
+  return { model, body }
+}
+
+async function post(prompt: string, opts: Options & { format?: unknown }, stream: boolean) {
+  const { model, body } = bodyFor(prompt, opts, stream)
   const res = await fetch(`${BASE}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -91,7 +96,63 @@ async function call(prompt: string, opts: Options & { format?: unknown }) {
   if (!res.ok) {
     throw new Error(`Ollama ${res.status} for ${model}: ${await res.text()}`)
   }
+  return res
+}
+
+async function call(prompt: string, opts: Options & { format?: unknown }) {
+  const res = await post(prompt, opts, false)
   return (await res.json()) as { response: string; eval_count?: number }
+}
+
+/**
+ * The same call, delivered as it is written.
+ *
+ * Ollama streams NDJSON — one object per line, `response` carrying the next few
+ * characters. Nothing about the RESULT differs from `generate`: the string is
+ * assembled here and returned whole, and a caller that ignores `onDelta` gets
+ * what it always got. What changes is that a person can watch a twenty-second
+ * turn happen rather than watch the word "Thinking".
+ *
+ * Deliberately not the default. Every other call in this project is awaited by
+ * something that has no screen to put a half-written sentence on, and a stream
+ * read to completion is strictly more code than a JSON body for the same answer.
+ */
+export async function generateStream(
+  prompt: string,
+  opts: Options,
+  onDelta: (text: string) => void,
+): Promise<string> {
+  const res = await post(prompt, opts, true)
+  if (!res.body) throw new Error('Ollama returned no body to stream.')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let out = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    // A network chunk ends wherever it ends, which is usually mid-line. The
+    // tail stays in the buffer until the newline that completes it arrives —
+    // parsing it early is a JSON error on perfectly good output.
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      const chunk = JSON.parse(line) as { response?: string; error?: string }
+      // Ollama reports a mid-stream failure in the body, with a 200 already
+      // sent. Swallowing it would end the turn with a half-written sentence
+      // and no sign anything went wrong.
+      if (chunk.error) throw new Error(`Ollama: ${chunk.error}`)
+      if (chunk.response) {
+        out += chunk.response
+        onDelta(chunk.response)
+      }
+    }
+  }
+  return out.trim()
 }
 
 /** Free-form generation. Use for prose; do not constrain it — see below. */

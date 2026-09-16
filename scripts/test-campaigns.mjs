@@ -20,7 +20,7 @@ if (!(await query(`select to_regclass('campaigns') as t`))[0].t) {
   process.exit(0)
 }
 
-const { create, current, get, list, report, setContext } = await import('../lib/campaigns.ts')
+const { create, current, get, list, report, setContext, shelf } = await import('../lib/campaigns.ts')
 const chat = await import('../lib/chat/store.ts')
 const studio = await import('../lib/content/studio.ts')
 
@@ -147,6 +147,60 @@ try {
        r.unpromoted[0].name === other.name, r.unpromoted[0].name)
     ok('the promoted product stays promoted', r.promoted.length === 1 && r.promoted[0].sku === SKU)
   }
+
+  console.log('\n--- a miss is a miss, and it says so out loud ---')
+  // The defect the maintainer reported. Told "I want to run a campaign about
+  // the Pura 20" — a phone this shop has never stocked — retrieval returned
+  // four confident rows (two Anker cables at 0.667, scored on "the" matching
+  // "the exterior of bio based cables" and "20" matching "90 20 000 bend
+  // lifespan"), the empty branch was unreachable, and an empty shelf printed as
+  // an ABSENT LINE anyway. The planner, told nothing, wrote a complete 3000 KD
+  // three-way split for "Pura 20 Night Vision" and flagged none of it.
+  //
+  // Runs offline: with no embedder, retrieve() falls back to the lexical pass,
+  // which is the half that was scoring on noise.
+  const missed = await shelf('the Pura 20')
+  ok('a product we do not stock does not match', missed.matched === false)
+  ok('and the model is TOLD nothing matched, not handed a blank',
+     /NOTHING IN THE CATALOGUE MATCHES/.test(missed.text), missed.text.slice(0, 60))
+  ok('with an instruction not to plan around it',
+     /do not plan|do not invent/i.test(missed.text))
+  ok('nonsense matches nothing either', (await shelf('zzzqqq nonexistent widget')).matched === false)
+  ok('and a brand we do not carry',      (await shelf('Huawei phone')).matched === false)
+
+  // The other half, and the half that made it feel unhelpful for products we DO
+  // stock: a real product must still come back, named, so the planner can
+  // answer "which models do we have".
+  const real = (await query(`select sku, coalesce(display_name, name_en) as name from products
+                             where name_en is not null limit 1`))[0]
+  if (!real) {
+    console.log('    (catalogue is empty — the matching assertions need a product)')
+  } else {
+    const hit = await shelf(real.name)
+    ok('a product we DO stock matches', hit.matched === true, real.name)
+    ok('and is named in the block the model reads', hit.text.includes(real.name), hit.text.slice(0, 120))
+    ok('under a header that tells the planner to name it',
+       /Name them/.test(hit.text), hit.text.split('\n')[1])
+    // Names and categories only — a figure the model has seen is a figure it
+    // paraphrases into advice, and advice gets pasted into captions.
+    const priced = (await query(`select price_now from products where sku = $1`, [real.sku]))[0]
+    ok('and no price reaches the model',
+       !priced?.price_now || !hit.text.includes(String(priced.price_now)), String(priced?.price_now))
+  }
+
+  // Several queries, one shelf: the meeting passes the opening idea AND the
+  // newest turn, so a product named in turn three is searched for at all. The
+  // opener is never dropped, which is what keeps the shelf from swinging.
+  if (real) {
+    const both = await shelf('the Pura 20', real.name)
+    ok('a later turn can put a product on a shelf the opener missed',
+       both.matched === true && both.text.includes(real.name), both.text.slice(0, 80))
+  }
+  // And an answer that names no product contributes nothing rather than noise —
+  // the reason merging is safe. This was the whole argument for freezing the
+  // query to turn one.
+  ok('answering the budget question adds nothing to the shelf',
+     (await shelf('3000 KD')).matched === false)
 
   console.log('\n--- an id nobody made ---')
   ok('no campaign, no report', (await report('zztest-no-such-campaign')) === null)

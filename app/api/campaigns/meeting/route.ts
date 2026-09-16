@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import { readJson } from '@/lib/http'
-import { contextFrom, load, mergeSave, plan, remove, reply, start, type Meeting } from '@/lib/meeting'
+import { contextFrom, load, mergeSave, plan, remove, reply, start, type Meeting, type Step } from '@/lib/meeting'
 import { create as createCampaign } from '@/lib/campaigns'
 
 export const runtime = 'nodejs'
@@ -112,13 +112,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Say roughly what the campaign is about.' }, { status: 400 })
   }
 
-  try {
-    // `reply` saves the transcript itself, including on the offline path — what
-    // a person typed must not be lost because the model was not running.
-    return NextResponse.json(await reply(meeting, said))
-  } catch (e) {
-    return NextResponse.json({ error: failed(e) }, { status: 500 })
-  }
+  /**
+   * A turn is server-sent events, not JSON, and there is no JSON fallback.
+   *
+   * The screen is the only caller — nothing in `scripts/` posts a turn — so a
+   * second response shape would be a second thing to keep working with nobody
+   * exercising it. Every step of the turn goes down the same pipe: what the
+   * catalogue matched, what was written down, what it decided to ask, then the
+   * reply as it is written, then the whole `Reply` object the screen already
+   * knew how to render.
+   *
+   * `reply` saves the transcript itself, including on the offline path — what a
+   * person typed must not be lost because the model was not running. That still
+   * happens inside the stream, so a closed tab loses the rendering, never the
+   * turn.
+   */
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+      try {
+        const out = await reply(meeting, said, (step: Step) => send({ step }))
+        send({ done: out })
+      } catch (e) {
+        // A 200 is already on the wire by the time anything in here can fail,
+        // so the error travels as an event. The screen reads this the same way
+        // it used to read a 500 body.
+        send({ error: failed(e) })
+      }
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  })
 }
 
 /**

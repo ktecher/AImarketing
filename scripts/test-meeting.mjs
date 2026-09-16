@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all, remove, figuresIn, mergeSave } =
+const { nextSlot, budgetOf, SLOTS, OBJECTIVES, suggestionsFor, start, save, load, all, remove, figuresIn, mergeSave, craft, LOYALTY_ONLY } =
   await import('../lib/meeting.ts')
 
 let failed = 0
@@ -48,6 +48,17 @@ ok('inside a sentence',        budgetOf({ budget: 'about 2000 dinar I think' }) 
 
 // Returning a default here would be a budget nobody set, split into line items
 // that look exactly as authoritative as a real one.
+// Arabic-Indic numerals. `\d` is ASCII-only in JavaScript, so this returned
+// null, plan() got total=null, and the screen said "No budget figure was given,
+// so there is nothing to split" about a budget two panels away — the whole
+// spend feature vanishing, silently, for anyone typing in Arabic.
+ok('an Arabic-Indic budget',   budgetOf({ budget: '٣٠٠٠ د.ك' }) === 3000, String(budgetOf({ budget: '٣٠٠٠ د.ك' })))
+ok('with the Arabic decimal mark',
+   budgetOf({ budget: '٧٥٠٫٥٠٠' }) === 750.5, String(budgetOf({ budget: '٧٥٠٫٥٠٠' })))
+ok('inside an Arabic sentence',
+   budgetOf({ budget: 'الميزانية ٢٠٠٠ دينار' }) === 2000, String(budgetOf({ budget: 'الميزانية ٢٠٠٠ دينار' })))
+ok('Arabic words with no figure is still null', budgetOf({ budget: 'لا أعرف بعد' }) === null)
+
 ok('nothing typed is null',    budgetOf({}) === null)
 ok('words only is null',       budgetOf({ budget: 'not sure yet' }) === null)
 ok('zero is null',             budgetOf({ budget: '0' }) === null)
@@ -112,6 +123,51 @@ ok('nor is an invented 30',
    figuresIn('Spend 30 on influencers.', CATALOGUE, 'budget is 3000 KD').includes('30'))
 ok('but their exact figure is still theirs',
    figuresIn('your 3000 KD', CATALOGUE, 'we have 3000 KD to spend').length === 0)
+
+// A digit inside a product name WE handed the planner. Once the prompt started
+// telling it to name the rows, one honest answer listing four laptops reported
+// 24, 14, 13.3 and 15.6 as figures nobody gave it — out of "24 GB", "14 inch
+// OLED", "13.3”" and "15.6"". Four false positives in a turn is how a reader
+// learns to skip the real one.
+const SHELF = 'Laptops: HP OmniBook 3 Laptop, AMD Ryzen AI 7 350, 24 GB, 1TB SSD, 14 inch OLED\n' +
+              'Laptops: Asus Vivobook 15 Laptop, Intel Core 7, 15.6", 512GB SSD, 16GB RAM'
+ok('a spec figure copied out of a shelf row is not invented',
+   figuresIn('lead with the HP OmniBook 3, 24 GB and a 14 inch OLED screen', CATALOGUE, '', SHELF).length === 0,
+   JSON.stringify(figuresIn('lead with the HP OmniBook 3, 24 GB and a 14 inch OLED screen', CATALOGUE, '', SHELF)))
+ok('and one with an odd screen size too',
+   figuresIn('the Asus Vivobook 15 Laptop, Intel Core 7, 15.6", 512GB SSD', CATALOGUE, '', SHELF).length === 0,
+   JSON.stringify(figuresIn('the Asus Vivobook 15 Laptop, Intel Core 7, 15.6", 512GB SSD', CATALOGUE, '', SHELF)))
+// The exemption is a BIGRAM against the shelf, not a bag of its numbers. "14"
+// is all over those rows, and "run it for 14 days" is still a figure nobody set.
+ok('but an invented duration built from the same digit is caught',
+   figuresIn('run it for 14 days', CATALOGUE, '', SHELF).includes('14'),
+   JSON.stringify(figuresIn('run it for 14 days', CATALOGUE, '', SHELF)))
+ok('and an invented price is caught beside a copied spec',
+   figuresIn('the Asus Vivobook 15 Laptop with 24 GB at 199 KD', CATALOGUE, '', SHELF).join() === '199',
+   JSON.stringify(figuresIn('the Asus Vivobook 15 Laptop with 24 GB at 199 KD', CATALOGUE, '', SHELF)))
+ok('with no shelf, nothing is excused by it',
+   figuresIn('a 14 inch OLED screen', CATALOGUE, '').includes('14'))
+
+// Arabic is the majority case in this shop's copy, and `\d` never saw it. A
+// planner writing «خصم ٥٠٪ على الفئة» — fifty percent off, invented — got no
+// banner at all, because /\d/.test('٥٠٪') is false where /\p{Nd}/u.test is true.
+ok('an Arabic-Indic percentage is caught',
+   figuresIn('خصم ٥٠٪ على الفئة', CATALOGUE, '').includes('٥٠٪'),
+   JSON.stringify(figuresIn('خصم ٥٠٪ على الفئة', CATALOGUE, '')))
+ok('and an Arabic-Indic price',
+   figuresIn('السعر ١٢٩ د.ك', CATALOGUE, '').includes('١٢٩'),
+   JSON.stringify(figuresIn('السعر ١٢٩ د.ك', CATALOGUE, '')))
+ok('an Arabic figure the person typed is theirs',
+   figuresIn('ميزانيتك ٣٠٠٠ تكفي', CATALOGUE, 'الميزانية ٣٠٠٠ د.ك').length === 0,
+   JSON.stringify(figuresIn('ميزانيتك ٣٠٠٠ تكفي', CATALOGUE, 'الميزانية ٣٠٠٠ د.ك')))
+// The same number in the other script is the same number. Reporting it as
+// invented is the warning crying wolf, which is the failure the exemption is for.
+ok('their ASCII figure excuses the model writing it in Arabic',
+   figuresIn('نضع ٣٠٠٠ على سناب شات', CATALOGUE, 'budget is 3000 KD').length === 0,
+   JSON.stringify(figuresIn('نضع ٣٠٠٠ على سناب شات', CATALOGUE, 'budget is 3000 KD')))
+ok('and an invented Arabic figure is still caught beside it',
+   figuresIn('نضع ٣٠٠ على التصوير', CATALOGUE, 'budget is 3000 KD').includes('٣٠٠'),
+   JSON.stringify(figuresIn('نضع ٣٠٠ على التصوير', CATALOGUE, 'budget is 3000 KD')))
 
 console.log('\n--- the transcript survives the tab being closed ---')
 const HOME = process.cwd()
@@ -183,6 +239,34 @@ try {
   process.chdir(HOME)
   rmSync(box, { recursive: true, force: true })
 }
+
+console.log('\n--- an audience of people who already buy here is noticed ---')
+// Fires the one craft lesson that has to land on a turn rather than sit in the
+// background. A guard that fires on a legitimate answer is worse than no guard,
+// so the negatives matter more than the positives here.
+for (const yes of ['loyal customers', 'our loyal customers', 'Existing customers',
+                   'repeat buyers', 'our customers', 'existing customer base']) {
+  ok(`fires on "${yes}"`, LOYALTY_ONLY.test(yes))
+}
+for (const no of ['loyal customers and students', 'students starting the year',
+                  'parents buying for a first laptop', 'customers who have never bought a laptop',
+                  'young professionals', '']) {
+  ok(`stays quiet on "${no}"`, !LOYALTY_ONLY.test(no))
+}
+
+console.log('\n--- the craft file reaches the prompt, and its figures do not ---')
+// craft() slices knowledge/kuwait/evergreen/campaign-craft.md at two string
+// markers: the first section heading, and `## Provenance`. Rename either and the
+// slice silently becomes empty or silently grows to include the evidence half —
+// which is where the numbers live, and rule 2 says the planner never writes one.
+// So both directions are asserted, because a string marker is exactly the kind of
+// thing a later edit moves without noticing.
+const CRAFT = craft()
+ok('the craft knowledge is not empty', CRAFT.length > 500, `${CRAFT.length} chars`)
+ok('it carries the buying-situation lesson', /buying situation/i.test(CRAFT))
+ok('and it stops before the provenance', !/Provenance|alexmurrell/i.test(CRAFT))
+const digits = CRAFT.match(/\d/g)
+ok('no digit reaches the prompt', digits === null, digits ? digits.join('') : '')
 
 console.log(failed ? `\n${failed} failed\n` : '\nmeeting: the half that needs no model holds\n')
 process.exit(failed ? 1 : 0)

@@ -38,6 +38,10 @@ const SECTIONS = [
   { file: 'evergreen/pricing-and-offers.md' },
   { file: 'evergreen/channels-and-platforms.md' },
   { file: 'evergreen/tone-and-dialect.md' },
+  // Last, because it is the only panel that is not about Kuwait: it is the
+  // outside evidence the campaign planner is given, and a person reading the
+  // planner's advice should be able to read the same page it read.
+  { file: 'evergreen/campaign-craft.md' },
 ]
 
 const read = (rel: string): string => {

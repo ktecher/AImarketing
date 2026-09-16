@@ -2534,3 +2534,157 @@ suite's own assertion count, the build's route count and `information_schema`,
 and diffs them against what the markdown claims. At that point this becomes a
 test rather than a decision, and the audit stops needing to be remembered.
 
+## D94 — The planner shows its working, and the working is the prompt itself
+
+**2026-09-06.** The campaign meeting answers in prose and gives no way to ask why.
+When it says the catalogue has nothing like what you named, or asks a question you
+thought you had already answered, the only recourse was to disagree with it in the
+thread. Two folds now sit under the reply and inside the plan.
+
+**What is shown.** For a turn: the prompt verbatim — the season, the shelf or the
+absence of one, the trends file, the last campaign, the whole transcript it
+re-reads every turn — with whether the catalogue matched and how long the two
+calls took. For the plan: the `reasoning` from the free call, which was already
+generated on every plan and then discarded once the constrained call had read it.
+That paragraph is the only place the argument behind the plan exists; the fields
+are its conclusions.
+
+**Verbatim, not summarised.** A summary of a prompt is a second thing to keep
+true, and it would be written by hand against a string that changes whenever a
+prompt line changes. The prose call takes the composed string from a variable now
+so the screen cannot show a prompt that was not the one sent.
+
+**Not persisted.** The trace belongs to the turn on screen, exactly as `invented`
+and `caution` already do, and a reload has none. A transcript file carrying a copy
+of every prompt would be mostly prompt, and `data/state/meeting/*.json` is read by
+`contextFrom` on the way to `campaigns.context`. `reasoning` is the exception: it
+is written once with the plan, which is already saved for the same reason — a
+minute of somebody's afternoon went into it.
+
+**`reasoning` is deliberately NOT run through `figuresIn`.** Every other piece of
+free text the model writes here is, and the rule that says so is rule 2. This is
+working-out, not copy: it reaches no caption, no design and no `campaigns.context`,
+and the warning that fires on the checked fields tells you to "replace or delete
+them" — which nobody can do to a paragraph the model wrote about its own thinking.
+A warning that names an unreachable fix is how a real one gets scrolled past. The
+fold is labelled as thinking so it is not read as plan.
+
+**Reverses if.** Anything starts copying out of the reasoning paragraph, or the
+plan gains an edit step. Either makes it copy, and copy gets checked.
+
+## D95 — The turn is a stream, and the planner is told to stop repeating itself
+
+**2026-09-06.** Two things about the meeting, found by using it rather than by
+reading it.
+
+**A turn is fifteen to twenty seconds of the word "Thinking".** Three of the four
+things that happen in that time are settled before the model writes a word: the
+catalogue is searched, what the person said is written down by the note-taker,
+and the next question is chosen in TypeScript by `nextSlot`. All three were
+invisible, and the fourth — the reply — arrived all at once at the end. The turn
+now streams: `reply()` takes an `on(step)` callback, `POST /api/campaigns/meeting`
+answers a turn with server-sent events instead of JSON, and the screen shows what
+was found, what was noted, what it is about to ask, and then the reply as it is
+written. `generateStream` in `lib/ai/generate.ts` is the only new capability —
+the same call with `stream: true`, assembled and returned whole, so a caller that
+ignores the deltas gets exactly what `generate` gave it.
+
+**No JSON fallback for a turn.** Nothing in `scripts/` posts one; the screen is
+the only caller. A second response shape kept alive for nobody is a second thing
+that breaks quietly.
+
+**This replaces the prompt fold from D94.** Watching the turn happen is what
+people wanted from it, and an eight-thousand-character prompt sent down the wire
+on every turn to sit inside a fold nobody opened is not worth keeping for the one
+time somebody wants to audit a prompt. `Trace` is gone. The plan's `reasoning`
+fold, the other half of D94, stays — it is the argument behind the plan and there
+is nowhere else to see it.
+
+**The planner repeated itself, and it was the prompt's fault.** A real meeting:
+turn one recommended was/now pricing, a bundle with the keyboard or the case, and
+Snapchat. Turn two, after the person answered a question, recommended was/now, a
+bundle with the keyboard or the case, and Snapchat. So did turn three. Each was
+reasonable and the second and third were worthless — the person answered and was
+told what they had already been told. Nothing in the prompt asked it to move on,
+and its own earlier advice was the most relevant thing in its context. Step 2 of
+the prose prompt now says so explicitly, and only from the second turn onwards:
+what you have already recommended is settled, say something new or say what their
+answer CHANGES, and if it changes nothing say that in one sentence. Four turns of
+the same meeting afterwards produced four different pieces of advice — retargeting
+cadence, then the split of jobs between the two platforms, then a tiered content
+calendar — each one built on the last rather than restating it.
+
+**Reverses if.** The instruction starts costing advice rather than repetition —
+a planner straining not to repeat itself will eventually reach for something
+novel over something right. The tell is advice that gets less relevant as the
+meeting goes on, and the fix is to let it repeat when the answer really has not
+changed, which the "say so in one short sentence" clause already permits.
+
+## D96 — The planner is given the evidence about campaigns, and none of its numbers
+
+The campaign planner knew this market — the calendar, the channels, the offer
+mechanics, the catalogue — and knew nothing about what a campaign *is*. That gap
+showed in ordinary ways: asked who a campaign was for it answered with an age
+bracket; asked to split a budget it put everything behind the offer; told the
+audience was "our loyal customers" it agreed and planned for them. Each of those
+is the median advice of a decade of agency blog posts, which is what a general
+model has read, and each is contradicted by the largest body of campaign
+effectiveness evidence that exists.
+
+So `knowledge/kuwait/evergreen/campaign-craft.md` now carries that evidence —
+acquisition beats loyalty, broad audience with a narrow message, buying
+situations rather than demographic brackets, activation versus brand-building,
+fame and feeling over argument, a run rather than a day, concentration on a small
+budget, and consistency of look. `craft()` in `lib/meeting.ts` pastes it into
+every planner turn, framed as evidence about campaigns in general that licenses
+no claim about Kuwait, this shop, or any product.
+
+**The file has a fence and only one half crosses it.** Everything from the first
+section heading down to `## Provenance` is written without a single digit,
+because rule 2 forbids this model emitting a number and a prompt containing
+"60:40" is a prompt teaching it to write figures. The sources, their figures and
+their caveats live below the fence, for people. `scripts/test-meeting.mjs`
+asserts both directions — that the slice is not empty, and that it holds no digit
+— because the fence is a string match, and a renamed heading would otherwise
+either drop the knowledge silently or carry the numbers into the prompt.
+
+**Why a knowledge file and not prompt text.** Everything else the planner knows
+about this market is a file under `knowledge/kuwait/` with a source and a date,
+rendered on the Kuwait screen where a person can read exactly what the model was
+given. Outside evidence earns less trust than that, not more. It is the last
+panel on that screen, and the only one that is not about Kuwait.
+
+**What the sources are, and what is wrong with them.** Binet and Field's IPA
+Databank work is award entries, self-selected, agency-submitted, overwhelmingly
+UK, newest from 2010 — before Snapchat existed. The category-entry-point framework
+was read at a marketing-AI vendor's library page rather than at Ehrenberg-Bass,
+whose own material is largely behind sponsorship. Both are recorded in
+`knowledge/kuwait/SOURCES.md` with those objections attached. Meta's and
+Snapchat's official creative guidance could not be fetched at all — they return
+JavaScript shells — so nothing here comes from them, and the channel format
+conventions keep the sources they already had.
+
+**Reverses if.** The planner starts reciting the craft rather than using it —
+advice that reads like a marketing textbook instead of an answer about laptops in
+Kuwait. The tell is a turn that could have been written without the catalogue.
+The fix is to cut sections from the file rather than to add instructions about
+it: it is prompt weight, and it is competing with the shelf, the trends and the
+transcript for the same context window.
+
+**One lesson had to be fired, not read.** The first live turn after the file was
+wired in proved the rest of it: told "push laptops to our loyal customers", the
+planner read that back approvingly as "our existing loyal customer base", picked
+two laptops and moved on — with the acquisition evidence sitting in its own
+prompt at the time. A rule competing with eight other blocks loses to the thing
+the person just said. So `LOYALTY_ONLY` in `lib/meeting.ts` decides when it is
+said, the way `nextSlot` decides which question comes next: on the turn the
+audience slot goes from empty to an answer naming only existing customers, and on
+that turn only. The next run said it, named a situation instead of a bracket —
+"a student starting a new term whose current device just failed" — and still
+asked the one prescribed question.
+
+The regex is anchored and matches only answers that are *entirely* about existing
+customers. "Loyal customers and students" already contains somebody new, and
+pushing back on it would be a guard firing on a correct answer, which is how
+every warning after it gets ignored. The tests assert the negatives as carefully
+as the positives.

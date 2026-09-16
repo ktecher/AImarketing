@@ -33,12 +33,15 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { generate, generateJson, MODELS } from '@/lib/ai/generate'
-import { blockers, check, isProductIdentity } from '@/lib/content/guard'
+import { generate, generateJson, generateStream, MODELS } from '@/lib/ai/generate'
+import { blockers, check, isProductIdentity, normaliseArabic } from '@/lib/content/guard'
 import { retrieve } from '@/lib/rag/retrieve'
 import { campaignProducts } from '@/lib/template/columns'
 import { composeContext, OBJECTIVES, OFFER_MECHANICS, SLOTS, type Slot } from '@/lib/brief'
-import { WEEKEND, guardrails, list as listCampaigns, report, whereInTheYear } from '@/lib/campaigns'
+// `shelf` lives in lib/campaigns.ts because `suggest()` there had the identical
+// function and the identical bug — an empty shelf printed as an ABSENT line, so
+// the planner was told nothing rather than told nothing matched. One copy now.
+import { WEEKEND, guardrails, list as listCampaigns, report, shelf, whereInTheYear } from '@/lib/campaigns'
 import { readKnowledge } from '@/lib/kuwait'
 import { LINE_ITEMS, WEIGHTS, split, type PlanLine, type SpendLine } from '@/lib/spend'
 import type { Check } from '@/lib/content/guard'
@@ -116,6 +119,21 @@ export type Plan = {
   invented: string[]
   /** Checks the planner's own prose failed. Shown, never swallowed. */
   caution: Check[]
+  /**
+   * The planner thinking out loud, from the free call that the constrained call
+   * is then written against.
+   *
+   * This was generated and thrown away. It is the only place the reasoning
+   * behind the plan exists — the fields below are its conclusions — so it is
+   * kept and shown folded. Optional because plans written before this existed
+   * are still on disk.
+   *
+   * NOT run through `figuresIn`. It is working-out, not copy: it never reaches
+   * a caption, a design, or `campaigns.context`, and warning about a figure in
+   * a paragraph nobody can edit would be a warning that teaches people to
+   * ignore the next one. The screen says as much where it renders it.
+   */
+  reasoning?: string
   model: string
   prompt_version: string
 }
@@ -201,27 +219,6 @@ export function all(): Meeting[] {
 /* ── Grounding ───────────────────────────────────────────────────────────── */
 
 /**
- * The products this meeting is actually about, grouped by category.
- *
- * Names and categories only. No price, no sale price, no specs — the model has
- * no use for a figure it may not write, and a figure it has seen is a figure it
- * paraphrases into advice, and advice gets pasted into captions. Same reasoning
- * as the studio's fact sheet and `identity()` in the advisor.
- */
-async function shelf(idea: string): Promise<string> {
-  const hits = await retrieve(idea, 15).catch(() => [])
-  if (!hits.length) return ''
-  const byCategory = new Map<string, string[]>()
-  for (const h of hits) {
-    const cat = String(h.row.category ?? 'Other').trim() || 'Other'
-    const name = String(h.row.display_name ?? h.row.name_en ?? '').trim()
-    if (!name) continue
-    byCategory.set(cat, [...(byCategory.get(cat) ?? []), name])
-  }
-  return [...byCategory].map(([cat, names]) => `${cat}: ${names.join(', ')}`).join('\n')
-}
-
-/**
  * What Kuwait was searching for, WITH THE DATE IT WAS SEARCHED.
  *
  * knowledge/kuwait/timely/README.md is explicit that `last_verified` is
@@ -252,6 +249,45 @@ function trends(): { text: string; asOf: string | null } {
       note.text.slice(0, 2000),
     ].join('\n'),
   }
+}
+
+/**
+ * How campaigns are known to work, from knowledge/kuwait/evergreen/campaign-craft.md.
+ *
+ * The planner already knew this market's calendar, its channels and its offer
+ * mechanics, and none of that tells it what a campaign IS. Asked who a campaign
+ * was for it wrote an age bracket; asked to split a budget it put everything
+ * behind the offer; and told the audience was "our loyal customers" it agreed.
+ * All three are the ordinary advice a model has read a decade of, and all three
+ * are contradicted by the largest body of effectiveness evidence there is — see
+ * the provenance section of that file.
+ *
+ * TWO HALVES, AND ONLY ONE IS PASTED HERE. Everything from the first section
+ * heading to `## Provenance` is written without a digit, because rule 2 forbids
+ * this model emitting a number and a prompt containing "60:40" is a prompt
+ * teaching it to write figures. The evidence with its numbers, its caveats and
+ * its URLs sits below that fence and is for people.
+ *
+ * The fence is a string match, which is the kind of thing that starts silently
+ * skipping the moment somebody renames a heading — so `scripts/test-meeting.mjs`
+ * asserts this returns something, and asserts what it returns holds no digit.
+ * Both halves of that check matter: an empty return would drop the knowledge
+ * with no error, and a moved fence would carry the figures into the prompt.
+ */
+export function craft(): string {
+  const note = readKnowledge('evergreen/campaign-craft.md')
+  if (!note) return ''
+
+  const from = note.text.indexOf('\n## ')
+  const to = note.text.indexOf('\n## Provenance')
+  if (from < 0 || to < 0 || to <= from) return ''
+
+  return [
+    'HOW CAMPAIGNS ARE KNOWN TO WORK. This is evidence about campaigns in general, not a fact',
+    'about Kuwait, this shop or any product. Use it to ask better questions and to argue for a',
+    'shape. It licenses no claim about reach, cost or what will work here.',
+    note.text.slice(from, to).trim(),
+  ].join('\n')
 }
 
 /**
@@ -312,22 +348,55 @@ async function catalogueIdentity(): Promise<Record<string, unknown>> {
  * joined identity text of sixty products contains most small integers by
  * accident, so exempting those would exempt everything.
  */
-export function figuresIn(text: string, identity: Record<string, unknown>, said: string): string[] {
+export function figuresIn(
+  text: string,
+  identity: Record<string, unknown>,
+  said: string,
+  /**
+   * The shelf block the planner was given, if any. A digit inside a product
+   * name WE handed it is not a figure it invented — the same principle as the
+   * person's own words below, and it became load-bearing the moment the planner
+   * was told to name the rows: asked for laptops it correctly listed four, and
+   * the banner reported 24, 14, 13.3 and 15.6 as figures nobody gave it, out of
+   * "24 GB", "14 inch OLED", "13.3”" and "15.6"". Four false positives in one
+   * turn is how a reader learns to skip the real one.
+   */
+  rows = '',
+): string[] {
   const catalogue = String(identity.name_en ?? '')
   const words = text.split(/\s+/)
   const out: string[] = []
 
+  // Punctuation flattened to spaces so a bigram survives the comma and the
+  // inch mark a spec sheet is full of. `.` is kept — 13.3 is one number.
+  const flat = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}.]+/gu, ' ').replace(/\s+/g, ' ').trim()
+  const shelf = flat(rows)
+
+  // A DIGIT IN EITHER SCRIPT. `\d` is ASCII-only in JavaScript, so
+  // `/\d/.test('٥٠٪')` is false and a planner writing «خصم ٥٠٪ على الفئة» got no
+  // invented-figure banner at all — the guard rule 2 leans on was blind to
+  // exactly the language most of this shop's copy is written in.
+  // `/\p{Nd}/u.test('٥٠٪')` is true.
+  const digit = /\p{Nd}/u
+  // ٪ (U+066A) is the Arabic percent sign and belongs to the token the same way
+  // % does; without it the trailing trim quietly drops it from what is quoted
+  // back to the person.
+  const token = (raw: string) => raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%٪]+$/gu, '')
+
   // The person's own figures, tokenised exactly as the model's are below, so
   // the comparison is token-to-token rather than a substring of the transcript.
+  //
+  // Both sides normalised, so ٣٠٠٠ and 3000 are one figure. A person typing
+  // their budget in Arabic numerals and a planner echoing it back in ASCII is
+  // the same number twice, and reporting it as invented is the warning crying
+  // wolf — the failure this exemption exists to prevent.
   const mine = new Set(
-    said.split(/\s+/)
-      .map((raw) => raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%]+$/gu, ''))
-      .filter((w) => w && /\d/.test(w)),
+    normaliseArabic(said).split(/\s+/).map(token).filter((w) => w && digit.test(w)),
   )
 
   words.forEach((raw, i) => {
-    const w = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}%]+$/gu, '')
-    if (!w || !/\d/.test(w)) return
+    const w = token(raw)
+    if (!w || !digit.test(w)) return
 
     // A token carrying a LETTER that the catalogue's own identity text holds —
     // "M4", "S26". That is what the product is called, not a figure.
@@ -344,6 +413,15 @@ export function figuresIn(text: string, identity: Record<string, unknown>, said:
     const before = words[i - 1]?.replace(/[^\p{L}\p{N}]/gu, '')
     if (before && catalogue.toLowerCase().includes(`${before} ${w}`.toLowerCase())) return
 
+    // The same trick against the shelf, and BOTH sides of the token — a spec
+    // number is followed by its unit far more often than it is preceded by
+    // anything distinguishing. "24 GB" and "13.3 Windows" are in a name we
+    // supplied; "14 days" and "for 14" are not, so a made-up duration is still
+    // caught in the middle of a sentence full of copied model numbers.
+    const after = words[i + 1]?.replace(/[^\p{L}\p{N}]/gu, '')
+    if (shelf && before && shelf.includes(flat(`${before} ${w}`))) return
+    if (shelf && after && shelf.includes(flat(`${w} ${after}`))) return
+
     // A figure the PERSON typed, repeated back. `converse.ts` learned the same
     // thing about prices quoted out of a draft: warning somebody that nobody
     // verified their own words is the check crying wolf, and a warning that
@@ -358,13 +436,28 @@ export function figuresIn(text: string, identity: Record<string, unknown>, said:
     // "Put 300 KD into photography and 50 into print", and only the 50 was
     // reported. The guard the UI's warning is built on had a hole shaped like
     // its own most important slot.
-    if (mine.has(w)) return
+    if (mine.has(normaliseArabic(w))) return
 
+    // Reported exactly as the model wrote it, Arabic numerals and all — the
+    // banner quotes this straight back to the person.
     out.push(w)
   })
 
   return [...new Set(out)]
 }
+
+/**
+ * An audience answer that names only people who already buy here.
+ *
+ * Deliberately narrow. It matches "our loyal customers", "existing shoppers",
+ * "repeat buyers" — the phrasings that mean the campaign has been aimed at the
+ * people who were coming in anyway. It does NOT match "loyal customers and
+ * students", because that answer already contains somebody new, and pushing back
+ * on it would be pushing back on a correct answer. A guard that fires on
+ * legitimate input teaches the reader to ignore it.
+ */
+export const LOYALTY_ONLY =
+  /^(?:(?:our|the)\s+)?(?:(?:loyal|existing|current|repeat|regular|returning|previous|past)\s+)+(?:customers?|clients?|shoppers?|buyers?|users?)(?:\s+base)?$|^our\s+(?:customers?|clients?|shoppers?|buyers?)(?:\s+base)?$/i
 
 /** Everything established so far, as labelled lines the model can read. */
 function established(known: Partial<Record<Slot, string>>): string {
@@ -372,15 +465,34 @@ function established(known: Partial<Record<Slot, string>>): string {
   return lines.length ? `WHAT YOU HAVE ALREADY ESTABLISHED — do not ask about these again:\n${lines.join('\n')}` : ''
 }
 
-/** The preamble every call in this module shares. */
-async function preamble(m: Meeting, idea: string): Promise<{ text: string; asOf: string | null }> {
-  const rows = await shelf(idea)
+/**
+ * The preamble every call in this module shares.
+ *
+ * `ideas` is the opening idea and, on a turn, the newest thing said — see the
+ * comment on `shelf()`. Both are searched and the rows merged.
+ */
+async function preamble(
+  m: Meeting,
+  ...ideas: string[]
+): Promise<{ text: string; asOf: string | null; matched: boolean; rows: string }> {
+  const rows = await shelf(...ideas)
   const season = whereInTheYear()
   const t = trends()
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
   return {
     asOf: t.asOf,
+    // Handed back so the caller's OWN instructions can branch on it. The first
+    // version of this did not, and `reply()` went on telling the planner to
+    // "list the matching products from the shelf above by name" on a turn where
+    // the shelf was the sentence "nothing matches" — so it listed a Huawei Nova
+    // 12 and a P60 Pro, neither of which this shop has ever stocked. An
+    // instruction to speak from the shelf is a licence to invent one when there
+    // is no shelf.
+    matched: rows.matched,
+    // Handed back for `figuresIn`: a digit in a product name we supplied is not
+    // a figure the model made up.
+    rows: rows.matched ? rows.text : '',
     text: [
       'You are a senior campaign planner for a consumer electronics retailer in Kuwait,',
       'sitting in a meeting with a colleague who has an idea. You know this market well.',
@@ -391,7 +503,17 @@ async function preamble(m: Meeting, idea: string): Promise<{ text: string; asOf:
       'Ramadan and the two Eids move about eleven days earlier each year. Never state a date for',
       'them and never assume one is near — a person confirms those.',
       '',
-      rows ? `WHAT IS ACTUALLY ON THE SHELF, matching the idea — name only these kinds of thing:\n${rows}` : '',
+      rows.text,
+      // Said as an instruction rather than left for the model to infer. Asked
+      // about a phone the shop has never heard of, the planner produced a
+      // finished three-way budget split and flagged nothing — the shelf being
+      // empty was invisible to it, and now it is the loudest line in the
+      // prompt.
+      rows.matched
+        ? ''
+        : 'YOUR FIRST SENTENCE must tell them plainly that we do not carry the thing they named,\n' +
+          'naming it. Then ask what it is called in our catalogue, or which of our products they\n' +
+          'meant. Ask nothing else this turn and write no plan for it.',
       '',
       t.text,
       '',
@@ -411,6 +533,8 @@ async function preamble(m: Meeting, idea: string): Promise<{ text: string; asOf:
       'site, an audience size, a cost, or claim any of it is worth it here. If offline matters,',
       'ASK what they already have access to and plan around their answer.',
       '',
+      craft(),
+      '',
       established(m.known),
       m.turns.length ? `\nTHE MEETING SO FAR:\n${m.turns.map((x) => `${x.role}: ${x.text}`).join('\n')}` : '',
       '',
@@ -418,7 +542,25 @@ async function preamble(m: Meeting, idea: string): Promise<{ text: string; asOf:
       '',
       'NEVER WRITE A NUMBER — no price, no percentage, no budget figure, no date, no quantity,',
       'no audience size. Describe things in words and let the person supply the figure.',
-      'Invent no product, no brand and no partnership that is not in the rows above.',
+      // Without this the rule reads as forbidding "MacBook Pro M4" and "iPad
+      // Pro 2024", and it was taken that way: shown three real MacBook Pro M4
+      // rows and asked point blank which ones we stock, the planner named none
+      // of them and asked a question its own prompt had already answered. A
+      // product's name is not a figure — `figuresIn` already knows this and
+      // exempts a digit the catalogue's own identity text holds.
+      rows.matched
+        ? 'A PRODUCT NAME IS NOT A NUMBER. Copy a name from the shelf above exactly as written, digits\n' +
+          'and all — "Apple MacBook Pro, M4 Max Chip, 14-inch" is what the thing is CALLED. If they\n' +
+          'ask what we have, answer with those names. Never say you cannot see the catalogue.\n' +
+          'Invent no product, no brand and no partnership that is not in the rows above.'
+        // Stated as an absence rather than as a prohibition to weigh. "Invent
+        // no product that is not in the rows above" is a rule the model has to
+        // check itself against, and on a miss it read the empty shelf as
+        // permission to supply one.
+        : 'THERE ARE NO PRODUCT ROWS ABOVE — the catalogue matched nothing. Any product name or\n' +
+          'brand you write would therefore be one you made up, including as a suggestion, an\n' +
+          'alternative or an example. Write NONE. Talk about the campaign in kinds and categories\n' +
+          'until they tell you a product we actually sell.',
       'Nothing religious or political, as a topic or as an angle.',
     ].filter(Boolean).join('\n'),
   }
@@ -492,6 +634,25 @@ export async function suggestionsFor(slot: Slot, idea: string): Promise<string[]
   return []
 }
 
+/**
+ * What the planner is doing, while it is doing it.
+ *
+ * A turn is fifteen to twenty seconds of a person watching the word "Thinking",
+ * and three of the four things that happen in it are decided before the model
+ * writes a word: the catalogue is searched, what they said is written down, and
+ * the next question is chosen in TypeScript. Those are the interesting parts and
+ * they were invisible. The fourth is the reply, which now arrives as it is
+ * written.
+ *
+ * Nothing here is saved. It describes a turn in flight, and once the turn lands
+ * the reply itself is the record.
+ */
+export type Step =
+  | { at: 'shelf'; matched: boolean }
+  | { at: 'noted'; known: Partial<Record<Slot, string>> }
+  | { at: 'asking'; slot: Slot | null }
+  | { at: 'writing'; delta: string }
+
 export type Reply = {
   meeting: Meeting
   say: string
@@ -542,18 +703,32 @@ export function mergeSave(base: Meeting, patch: Partial<Meeting>): Meeting {
   return merged
 }
 
-export async function reply(m: Meeting, said: string): Promise<Reply> {
+export async function reply(
+  m: Meeting,
+  said: string,
+  /**
+   * Called as the turn progresses. Defaulted to a noop so `reply` is still one
+   * function with one behaviour — a caller with no screen simply hears nothing.
+   */
+  on: (step: Step) => void = () => {},
+): Promise<Reply> {
   const text = said.trim()
   if (!text) throw new Error('Say something first.')
 
   const now = new Date().toISOString()
   const withYou: Meeting = { ...m, turns: [...m.turns, { role: 'you', text, at: now }] }
 
-  // The idea is the first thing the person said, and it stays the retrieval
-  // query for the whole meeting. Re-querying on the latest turn would swing the
-  // shelf around every time somebody answered a question about the budget.
+  // The opening idea stays a retrieval query for the whole meeting, and the
+  // newest turn is searched TOO rather than instead. Replacing it swung the
+  // shelf around every time somebody answered a question about the budget,
+  // which is why this was frozen to turn one — but frozen meant a product named
+  // in turn three was never searched for at all. Merging keeps both: the shelf
+  // only ever grows, and an answer that names no product now contributes
+  // nothing rather than noise, because retrieval finally reports a miss as a
+  // miss. Verified: `retrieve('3000 KD')` returns zero rows.
   const idea = withYou.turns.find((t) => t.role === 'you')?.text ?? text
-  const { text: base } = await preamble(withYou, idea)
+  const { text: base, matched, rows } = await preamble(withYou, idea, text)
+  on({ at: 'shelf', matched })
 
   // Extraction first, and DELIBERATELY NOT against `base`.
   //
@@ -588,6 +763,28 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
         'WHAT EACH FIELD IS:',
         ...SLOTS.map((slot) => `- ${slot}: ${QUESTION_FOR[slot]}`),
         '',
+        // D92 fixed this for the PLAN call and left the EXTRACTION call
+        // undescribed. `.max()` under a constrained decode TRUNCATES rather
+        // than rejecting — Ollama masks the token that would exceed the limit,
+        // so an over-long answer arrives cut off mid-word and then passes Zod
+        // cleanly, because by the time Zod sees it it is within the limit. Here
+        // that is worse than in the plan: rule 2 of this prompt carries the
+        // slot forward every turn afterwards, and `contextFrom` writes it
+        // permanently into `campaigns.context`. A three-hundred-character
+        // answer to "what is genuinely different about it" would be a truncated
+        // sentence stamped on every design and caption made under the campaign.
+        // The caps below are the backstop; these lines are the actual limit.
+        'HOW LONG EACH ANSWER MAY BE. Going over does not fail — it gets CUT OFF MID-WORD and',
+        'kept, so stay well inside these. Summarise what they said; do not quote them at length.',
+        '- pushing: a few plain words, like "laptops and tablets". Under fifteen words.',
+        '- special: one sentence, under thirty words. The reason, not the whole spec sheet.',
+        '- audience: one short phrase, under twenty-five words.',
+        '- budget: THEIR figure and its currency, nothing else. A handful of characters.',
+        '- channels: the channels only, comma-separated. Under twenty words.',
+        '- when: a short phrase, under twelve words.',
+        '- constraints: one sentence, under thirty words.',
+        '- objective and offer: exactly one value from the list, or empty.',
+        '',
         'Rules, in order of importance:',
         '1. An empty string is the CORRECT answer for anything they have not said. Most fields',
         '   are empty early on and that is expected. Never fill a field with what a campaign',
@@ -612,50 +809,114 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
     known = withYou.known
   }
 
+  on({ at: 'noted', known })
+
   const slot = nextSlot(known)
+  on({ at: 'asking', slot })
   const suggestions = slot ? await suggestionsFor(slot, idea) : []
   const identity = await catalogueIdentity()
   // Everything the PERSON has said, for the guards below. Their own figures are
   // theirs to state — rule 2 forbids the MODEL emitting one.
   const mine = withYou.turns.filter((t) => t.role === 'you').map((t) => t.text).join('\n')
 
+  // Composed into a variable rather than passed inline: this exact string is
+  // handed back in the trace, and a prompt the screen shows has to be the one
+  // that was sent, not a second copy that drifts from it.
+  const prompt = [
+    base,
+    '',
+    `THEY JUST SAID: ${text}`,
+    '',
+    // The planner was shown three real MacBook Pro M4 rows, asked "which
+    // models do we actually have in stock?", named none of them, and asked
+    // a question its own prompt had already answered. The shelf was
+    // present, correct, and treated as scenery.
+    //
+    // Branched on whether there IS a shelf. Unbranched, this same
+    // instruction on a turn where nothing matched produced a "Huawei Nova
+    // 12 series or the Huawei P60 Pro" — told to list products and given
+    // none, it listed some.
+    matched
+      ? 'IF WHAT THEY JUST SAID IS A QUESTION ABOUT WHAT WE STOCK, answer it first and answer\n' +
+        'it properly: list the matching products from the shelf above by name. That is what the\n' +
+        'shelf is for. Then carry on below. Never tell them to go and look it up.'
+      : 'IF WHAT THEY JUST SAID IS A QUESTION ABOUT WHAT WE STOCK, the honest answer is the only\n' +
+        'one you have: nothing in our catalogue matches what they described. Say that, ask them\n' +
+        'for a kind of product instead, and name no product and no brand of your own. Do NOT\n' +
+        'say you cannot see the catalogue — you can, and it has nothing like this in it.',
+    '',
+    'Reply in under 110 words, talking to them, not about them. In this order:',
+    '1. One or two sentences reading back what you now understand. If you are unsure, say so.',
+    '2. What you would do with what you know so far — a real opinion about the angle, the',
+    '   channel or the offer, not a summary of what they told you. This is the half they',
+    '   came for. Say it even when you are still missing things.',
+    // Three turns of a real meeting produced the same paragraph three times:
+    // was/now, bundle it with the keyboard or the case, lead on Snapchat. Each
+    // was reasonable and the second and third were worthless — the person had
+    // answered a question and been told what they had already been told. The
+    // model was not being stupid: nothing asked it to move on, and its own
+    // earlier advice sat in the transcript being the most relevant thing in
+    // its context.
+    ...(m.turns.some((t) => t.role === 'planner')
+      ? [
+          '   YOU HAVE ALREADY GIVEN ADVICE IN THIS MEETING. Read your own earlier turns above.',
+          '   Anything you have already recommended is SETTLED — do not recommend it again, in',
+          '   the same words or in new ones. Say something you have not said yet, or say what',
+          '   their newest answer CHANGES about what you already suggested. If it changes',
+          '   nothing and you have nothing to add, say so in one short sentence and go to the',
+          '   question. A repeated recommendation is worse than no advice: it tells them you',
+          '   did not read what they just said.',
+        ]
+      : []),
+    // The one piece of the craft file that has to fire on a specific turn
+    // rather than sit in the background being read.
+    //
+    // "Push laptops to our loyal customers" is the most ordinary sentence in
+    // retail and the planner agreed with it — it read back "our existing loyal
+    // customer base", picked two laptops and moved on. The craft knowledge says
+    // plainly that acquisition campaigns beat loyalty ones, and it was in the
+    // prompt at the time; a rule competing with eight other blocks loses to the
+    // thing the person just said.
+    //
+    // So TypeScript decides WHEN it is said, the same way `nextSlot` decides
+    // which question comes next. Fired on the turn the audience slot goes from
+    // empty to loyalty-shaped, and on that turn only: it is a thing to say once,
+    // and a planner repeating it every turn is the D95 failure with a new line.
+    ...(!m.known.audience?.trim() && LOYALTY_ONLY.test(known.audience ?? '')
+      ? [
+          '   THEY HAVE JUST DESCRIBED THE AUDIENCE AS PEOPLE WHO ALREADY BUY FROM US. In step 2,',
+          '   in one sentence and without lecturing, say that campaigns aimed at people who do',
+          '   NOT buy from us yet do better, and name the situation somebody would be in who',
+          '   might buy this and has never bought from us. Do not ask them about it — step 3 is',
+          '   still the only question this turn. Do not refuse the campaign.',
+        ]
+      : []),
+    // The question is prescribed, not chosen. Left to itself the planner
+    // asked "How many units are we aiming to sell this month?" on a turn
+    // whose answers on screen were Sell it / Launch it / Clear it — two
+    // different questions in one place, and the person answers whichever
+    // they read first. Rephrasing is allowed; changing what is asked for is
+    // not, and the available answers are shown so it cannot ask something
+    // they cannot answer.
+    slot
+      ? [
+          `3. End with ONE question, on its own line, asking for exactly this: ${QUESTION_FOR[slot]}`,
+          '   Put it in your own words so it sounds like you, but do NOT ask for anything',
+          '   other than that — not a number, not a second thing, not a variation on it.',
+          suggestions.length
+            ? `   They will answer with one of: ${suggestions.join(' | ')} — so it must be a question those answer.`
+            : '',
+        ].filter(Boolean).join('\n')
+      : '3. Tell them you have enough to write the plan whenever they are ready. Ask nothing.',
+    '',
+    'No lists, no headings, no preamble, no bullet points. Plain sentences.',
+  ].join('\n')
+
   let prose: string
   try {
-    prose = await generate(
-      [
-        base,
-        '',
-        `THEY JUST SAID: ${text}`,
-        '',
-        'Reply in under 110 words, talking to them, not about them. In this order:',
-        '1. One or two sentences reading back what you now understand. If you are unsure, say so.',
-        '2. What you would do with what you know so far — a real opinion about the angle, the',
-        '   channel or the offer, not a summary of what they told you. This is the half they',
-        '   came for. Say it even when you are still missing things.',
-        // The question is prescribed, not chosen. Left to itself the planner
-        // asked "How many units are we aiming to sell this month?" on a turn
-        // whose answers on screen were Sell it / Launch it / Clear it — two
-        // different questions in one place, and the person answers whichever
-        // they read first. Rephrasing is allowed; changing what is asked for is
-        // not, and the available answers are shown so it cannot ask something
-        // they cannot answer.
-        slot
-          ? [
-              `3. End with ONE question, on its own line, asking for exactly this: ${QUESTION_FOR[slot]}`,
-              '   Put it in your own words so it sounds like you, but do NOT ask for anything',
-              '   other than that — not a number, not a second thing, not a variation on it.',
-              suggestions.length
-                ? `   They will answer with one of: ${suggestions.join(' | ')} — so it must be a question those answer.`
-                : '',
-            ].filter(Boolean).join('\n')
-          : '3. Tell them you have enough to write the plan whenever they are ready. Ask nothing.',
-        '',
-        'No lists, no headings, no preamble, no bullet points. Plain sentences.',
-      ].join('\n'),
-      // A planner that answers at 0 gives the same three sentences to every idea,
-      // which reads as a template and stops being read. This is judgement, not fact.
-      { temperature: 0.6 },
-    )
+    // A planner that answers at 0 gives the same three sentences to every idea,
+    // which reads as a template and stops being read. This is judgement, not fact.
+    prose = await generateStream(prompt, { temperature: 0.6 }, (delta) => on({ at: 'writing', delta }))
   } catch (e) {
     const msg = e instanceof Error ? e.message : ''
     // Merged, not written whole: a plan finishing while this turn was in flight
@@ -686,7 +947,7 @@ export async function reply(m: Meeting, said: string): Promise<Reply> {
     enough: slot === null,
     // Held to the same rule as the copy written under it. A figure in planning
     // advice is a figure that reaches a caption wearing a person's authority.
-    invented: figuresIn(prose, identity, mine),
+    invented: figuresIn(prose, identity, mine, rows),
     caution: blockers(check(prose, identity))
       .filter((c) => c.name !== 'every placeholder is a real field' && c.name !== 'every placeholder has a value')
       // Same exemption as `invented`: a check that fires on the person's own
@@ -802,7 +1063,14 @@ export function contextFrom(m: Meeting, p: Plan): string {
  * authoritative as a real one.
  */
 export function budgetOf(known: Partial<Record<Slot, string>>): number | null {
-  const raw = (known.budget ?? '').replace(/,/g, '')
+  // Arabic-Indic digits FIRST. JS `\d` is ASCII-only, so `budgetOf({ budget:
+  // '٣٠٠٠ د.ك' })` returned null, `plan()` got total=null, and the screen
+  // printed "No budget figure was given, so there is nothing to split" about a
+  // budget sitting two panels away. The whole spend feature disappeared for
+  // anyone typing Arabic numerals — silently, because null is also the honest
+  // answer for somebody who never named one. `normaliseArabic` already folds
+  // ٠-٩, the Arabic decimal separator ٫ and the thousands mark ٬.
+  const raw = normaliseArabic(known.budget ?? '').replace(/,/g, '')
   const m = raw.match(/\d+(?:\.\d+)?/)
   if (!m) return null
   const n = Number(m[0])
@@ -832,7 +1100,10 @@ export function budgetOf(known: Partial<Record<Slot, string>>): number | null {
  */
 export async function plan(m: Meeting): Promise<Plan> {
   const idea = m.turns.find((t) => t.role === 'you')?.text ?? ''
-  const { text: base, asOf } = await preamble(m, idea)
+  // The opener, plus whatever the person settled on as the thing being pushed.
+  // Same reasoning as `reply()`: a product named after turn one was otherwise
+  // never on the shelf the plan is written from.
+  const { text: base, asOf, rows } = await preamble(m, idea, m.known.pushing ?? '')
   const total = budgetOf(m.known)
 
   const reasoning = await generate(
@@ -923,7 +1194,8 @@ export async function plan(m: Meeting): Promise<Plan> {
     shape: out.shape,
     measure: out.measure,
     kuwait_context_as_of: asOf,
-    invented: figuresIn(prose, identity, mine),
+    reasoning,
+    invented: figuresIn(prose, identity, mine, rows),
     caution: blockers(check(prose, identity))
       .filter((c) => c.name !== 'every placeholder is a real field' && c.name !== 'every placeholder has a value')
       .filter((c) => !(c.span && mine.includes(c.span))),

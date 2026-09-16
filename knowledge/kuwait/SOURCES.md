@@ -45,6 +45,43 @@ Self-host the files. Hotlinking Google Fonts is an external request and breaks t
 
 ---
 
+## Verified 2026-09-07
+
+**Campaign effectiveness evidence** — the eight findings behind
+`evergreen/campaign-craft.md`: acquisition over loyalty, broad reach over tight
+targeting, emotion over argument, fame, campaign length, share of voice, salience,
+and the 60:40 brand-building / sales-activation split. Les Binet and Peter Field,
+*The Long and the Short of It* (IPA, 2013), over the IPA Databank of 996 campaigns
+entered into the IPA Effectiveness Awards 1980-2010. Read as summarised by Alex
+Murrell; the book itself was not read here.
+https://www.alexmurrell.co.uk/summaries/les-binet-and-peter-field-the-long-and-the-short-of-it
+
+*Limits, recorded because the figures travel further than they should:* award
+entries, self-selected and agency-submitted, overwhelmingly UK, newest from 2010 —
+before Snapchat existed. Directions have held up in later work; the numbers are
+long-run averages across categories and are not constants. 60:40 is quoted in
+`campaign-craft.md` as an argument for keeping budget off the offer, never as an
+allocation to obey, and no figure from it reaches the planner's prompt.
+
+**Category entry points, and the seven Ws** (why, when, where, with whom, with
+what, feeling what, while doing what) — Jenni Romaniuk and Byron Sharp, *How
+Brands Grow Part 2* (2015); mental availability from Byron Sharp, *How Brands
+Grow* (2010). Read at a secondary source, cited for the framework's shape only:
+https://www.selfstorming.com/tools/libraries/marketing-laws/category-entry-points
+
+*Conflict of interest on the secondary source:* that page is a marketing-AI
+vendor's own knowledge library, not the Ehrenberg-Bass Institute. Nothing
+quantitative was taken from it. The institute's own material is largely behind
+sponsorship (https://marketingscience.info), so the books remain the primary
+citation and neither was read directly here.
+
+**Platform creative guidance was NOT obtained.** Meta's and Snapchat's official
+best-practice pages return no readable text to a plain HTTP fetch (JavaScript
+shells). Nothing in `campaign-craft.md` comes from them; the format conventions in
+`evergreen/channels-and-platforms.md` keep their existing sources.
+
+---
+
 ## Explicitly unverified
 
 Recorded so nobody mistakes absence of a source for absence of doubt.

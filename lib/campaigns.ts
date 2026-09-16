@@ -335,7 +335,8 @@ export async function report(id: string): Promise<Report | null> {
  */
 
 /**
- * The products this idea is actually about, grouped by category.
+ * The products an idea is actually about, grouped by category — or a plain
+ * statement that the catalogue holds nothing like it.
  *
  * This replaced a comma-list of twenty category names, and it is the change
  * that makes the assist say something the person did not type: "Standard
@@ -347,18 +348,66 @@ export async function report(id: string): Promise<Report | null> {
  * no use for a figure it may not write, and a figure it has seen is a figure it
  * paraphrases. The count the marketer actually wants comes from SQL, beside the
  * Pushing input, and never through the model.
+ *
+ * **An empty shelf used to be an ABSENT LINE, and that is the defect this
+ * function exists to carry.** `suggest()` and the campaign meeting both did
+ * `rows ? header + rows : ''` and then filtered the blanks out, so a question
+ * about a product the shop has never heard of reached the model as silence —
+ * indistinguishable from never having been given a catalogue. Told "I want to
+ * run a campaign about the Pura 20", the planner wrote a complete three-way
+ * budget split for a phone that does not exist, flagged nothing, and named it
+ * "Pura 20 Night Vision". The prompt's own "invent no product that is not in
+ * the rows above" did not save it: a prohibition the model has to evaluate by
+ * inspection is not a guard, which is what `nextSlot()` and `figuresIn()` each
+ * learned the hard way. So the miss is now SAID, in the same place the hit
+ * would have been.
+ *
+ * One function, two callers, because they were byte-identical — `shelf()` in
+ * lib/meeting.ts was a copy of this down to the variable names, and the bug was
+ * in both.
+ *
+ * Several queries, one shelf. The meeting passes the opening idea AND the
+ * newest turn: the opener alone froze the shelf to turn one, so a product named
+ * in turn three was never searched for at all. Merging rather than replacing is
+ * what keeps the original concern satisfied — the shelf can only GROW as the
+ * meeting goes on, it never swings away from what the meeting is about. A turn
+ * that names no product contributes nothing, which is now true rather than
+ * hoped for: `retrieve('3000 KD')` returns zero rows.
  */
-async function matchingRows(idea: string): Promise<string> {
-  const hits = await retrieve(idea, 15).catch(() => [])
-  if (!hits.length) return ''
+export async function shelf(...ideas: string[]): Promise<{ text: string; matched: boolean }> {
   const byCategory = new Map<string, string[]>()
-  for (const h of hits) {
-    const cat = String(h.row.category ?? 'Other').trim() || 'Other'
-    const name = String(h.row.display_name ?? h.row.name_en ?? '').trim()
-    if (!name) continue
-    byCategory.set(cat, [...(byCategory.get(cat) ?? []), name])
+  const seen = new Set<string>()
+  for (const idea of ideas.filter((i) => i?.trim())) {
+    for (const h of await retrieve(idea, 15).catch(() => [])) {
+      const name = String(h.row.display_name ?? h.row.name_en ?? '').trim()
+      if (!name || seen.has(h.sku) || seen.size >= 15) continue
+      seen.add(h.sku)
+      const cat = String(h.row.category ?? 'Other').trim() || 'Other'
+      byCategory.set(cat, [...(byCategory.get(cat) ?? []), name])
+    }
   }
-  return [...byCategory].map(([cat, names]) => `${cat}: ${names.join(', ')}`).join('\n')
+
+  if (!byCategory.size) {
+    return {
+      matched: false,
+      text: [
+        'NOTHING IN THE CATALOGUE MATCHES THIS IDEA. We do not stock it, or we file it under a',
+        'name that is nothing like the one they used. Treat that as a fact you have been told.',
+        'Do NOT name it as a product we sell, do not invent a substitute for it, and do not plan',
+        'around it as though it existed. Say plainly that we do not carry it.',
+      ].join('\n'),
+    }
+  }
+
+  return {
+    matched: true,
+    text: [
+      'WHAT IS ACTUALLY ON THE SHELF, matching the idea. These are real products we stock, named',
+      'exactly as the catalogue names them. Name them — when the person asks what we have, this',
+      'is the answer, and reading these names back is not inventing anything:',
+      [...byCategory].map(([cat, names]) => `${cat}: ${names.join(', ')}`).join('\n'),
+    ].join('\n'),
+  }
 }
 
 /**
@@ -487,7 +536,7 @@ async function catalogueIdentity(): Promise<Record<string, unknown>> {
  * thing entirely and is allowed.
  */
 export async function suggest(idea: string): Promise<Suggestion> {
-  const rows = await matchingRows(idea)
+  const rows = await shelf(idea)
   const season = whereInTheYear()
   const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   // What this team already said. Two, not ten: the point is continuity of
@@ -512,9 +561,12 @@ export async function suggest(idea: string): Promise<Suggestion> {
       'Ramadan and the two Eids move about eleven days earlier each year. Never state a date for',
       'them and never assume one is near — a person confirms those.',
       '',
-      rows
-        ? `PRODUCTS IN THE CATALOGUE THAT MATCH THE IDEA — name only these kinds of thing:\n${rows}`
-        : '',
+      rows.text,
+      rows.matched
+        ? ''
+        : 'Because nothing matched, `pushing` must NOT be the thing they named. Answer with the ' +
+          'nearest kind of thing this shop genuinely sells, or leave the idea as they wrote it — ' +
+          'never dress an unstocked product up as one of ours.',
       '',
       `OFFER MECHANICS THAT EXIST IN THIS MARKET — pick the closest ONE, spelled exactly:\n${OFFER_MECHANICS.join(' | ')}`,
       'Was/now pairs are the strongest performer in electronics here. Instalment framing is',

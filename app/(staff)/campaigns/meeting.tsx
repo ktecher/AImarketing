@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SLOTS } from '@/lib/brief'
-import type { Ask, Meeting, Plan } from '@/lib/meeting'
+import type { Ask, Meeting, Plan, Step } from '@/lib/meeting'
 import type { Slot } from '@/lib/brief'
 import type { Check } from '@/lib/content/guard'
 
@@ -26,6 +26,33 @@ const SLOT_LABEL: Record<Slot, string> = {
 /** Ids are filenames in lib/meeting.ts. Generated once per meeting, never reused. */
 const newId = () => `m-${crypto.randomUUID().slice(0, 8)}`
 
+/** The same shape lib/meeting.ts and the route both insist on. */
+const safeId = (id: string) => /^[A-Za-z0-9_-]{1,64}$/.test(id)
+
+/**
+ * The meeting this tab is in, from the URL.
+ *
+ * `useState(newId)` minted a fresh id on every mount and wrote it nowhere, so a
+ * meeting became unreachable the instant this component unmounted: pressing
+ * "Or fill the brief in yourself" and then "← Talk it through instead" lost six
+ * turns, and so did a refresh. The transcripts sat in data/state/meeting/*.json
+ * forever, unlisted and undeletable. The query string is the whole fix — GET
+ * /api/campaigns/meeting already existed for exactly this and nothing called it.
+ */
+const idFromUrl = () => {
+  if (typeof window === 'undefined') return newId()
+  const from = new URLSearchParams(window.location.search).get('meeting')
+  return from && safeId(from) ? from : newId()
+}
+
+/** A turn in flight. Every field is null until the step that fills it. */
+type Live = {
+  matched: boolean | null
+  noted: Partial<Record<Slot, string>> | null
+  slot: Slot | null
+  text: string
+}
+
 type Props = {
   /**
    * Called once the meeting actually becomes a campaign — the orchestrator's
@@ -40,7 +67,7 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
   // Settable, because "start over" is a new meeting in the same component
   // rather than a remount — the parent has no reason to know a conversation was
   // abandoned.
-  const [id, setId] = useState(newId)
+  const [id, setId] = useState(idFromUrl)
   // Two states rather than a window.confirm: the confirmation has to say how
   // much is being thrown away, and a native dialog cannot. Same pattern the
   // campaign delete already uses.
@@ -57,6 +84,15 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
   // about the meeting as a whole. An older turn's caution is not re-shown.
   const [invented, setInvented] = useState<string[]>([])
   const [caution, setCaution] = useState<Check[]>([])
+  /**
+   * The turn happening right now: what it found, what it wrote down, what it
+   * decided to ask, and the reply as it arrives.
+   *
+   * Cleared when the turn lands, because the reply itself is then on screen and
+   * this would be a second copy of it. Nothing about it is saved anywhere — a
+   * turn in flight is the only thing it describes.
+   */
+  const [live, setLive] = useState<Live | null>(null)
 
   const [plan, setPlan] = useState<Plan | null>(null)
   const [planBusy, setPlanBusy] = useState(false)
@@ -69,34 +105,119 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
+  /**
+   * Put the id in the URL, and pull back whatever is already under it.
+   *
+   * Both halves of the same fix. The id in the query string survives a refresh
+   * and a remount; the GET is what makes arriving with one mean anything. A 404
+   * is the ordinary case — a brand new meeting has no file yet — so it leaves
+   * the screen exactly as it found it rather than reporting an error.
+   *
+   * `ask` is deliberately not restored: it is not stored on the meeting, and
+   * the last planner turn already ends with the question in its own words. The
+   * chips come back on the next turn.
+   */
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('meeting') !== id) {
+      url.searchParams.set('meeting', id)
+      window.history.replaceState(null, '', url)
+    }
+    let live = true
+    void fetch(`/api/campaigns/meeting?id=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const back: Meeting | undefined = d?.meeting
+        if (!live || !back) return
+        setMeeting(back)
+        setPlan(back.plan ?? null)
+        setCampaignId(back.campaign_id ?? null)
+        // Whether anything is still missing is a fact about the slots, the same
+        // fact `nextSlot()` computes on the server. Read here rather than
+        // imported: lib/meeting.ts reaches Postgres, and importing one function
+        // from it puts a database driver in the browser bundle — the trap
+        // lib/brief.ts documents and this file already sidesteps for SLOTS.
+        setEnough(SLOTS.filter((s) => s !== 'constraints').every((s) => back.known[s]?.trim()))
+      })
+      .catch(() => {})
+    return () => { live = false }
+  }, [id])
+
   const foot = useRef<HTMLDivElement>(null)
   // The newest turn is the one being read — same reasoning as the advisor's
   // thread. A twenty-second reply that lands below the fold reads as nothing
   // happened.
   useEffect(() => { foot.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [meeting])
 
+  /**
+   * One turn, read as it happens.
+   *
+   * The route sends events rather than a body: three about what the planner is
+   * doing, then the reply a few characters at a time, then the finished `Reply`
+   * — which is the same object this used to get from `res.json()`, so
+   * everything below the last line of this function is unchanged.
+   *
+   * Read with a reader rather than an `EventSource`, which can only GET. Events
+   * are separated by a blank line and a network chunk ends wherever it ends, so
+   * a partial event stays in the buffer until the rest of it arrives.
+   */
   const send = useCallback(async (text: string) => {
     const say = text.trim()
     if (!say || busy) return
     setBusy(true); setError(''); setOffline(''); setSaid('')
+    setLive({ matched: null, noted: null, slot: null, text: '' })
     try {
       const res = await fetch('/api/campaigns/meeting', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, said: say }),
       })
-      const d = await res.json()
-      if (!res.ok) { setError(d.error ?? 'The planner could not answer.') } else {
-        setMeeting(d.meeting)
-        setAsk(d.ask ?? null)
-        setEnough(Boolean(d.enough))
-        setInvented(d.invented ?? [])
-        setCaution(d.caution ?? [])
-        if (d.offline) setOffline(d.offline)
+      if (!res.ok || !res.body) {
+        setError('The planner could not answer.')
+      } else {
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const events = buffer.split('\n\n')
+          buffer = events.pop() ?? ''
+          for (const event of events) {
+            const line = event.replace(/^data: /, '').trim()
+            if (!line) continue
+            const d = JSON.parse(line) as { step?: Step; done?: Record<string, unknown>; error?: string }
+            if (d.error) { setError(d.error); continue }
+            if (d.step) {
+              const step = d.step
+              setLive((was) => {
+                const now = was ?? { matched: null, noted: null, slot: null, text: '' }
+                if (step.at === 'shelf') return { ...now, matched: step.matched }
+                if (step.at === 'noted') return { ...now, noted: step.known }
+                if (step.at === 'asking') return { ...now, slot: step.slot }
+                return { ...now, text: now.text + step.delta }
+              })
+            }
+            if (d.done) {
+              const out = d.done as {
+                meeting: Meeting; ask?: Ask | null; enough?: boolean
+                invented?: string[]; caution?: Check[]; offline?: string
+              }
+              setMeeting(out.meeting)
+              setAsk(out.ask ?? null)
+              setEnough(Boolean(out.enough))
+              setInvented(out.invented ?? [])
+              setCaution(out.caution ?? [])
+              if (out.offline) setOffline(out.offline)
+            }
+          }
+        }
       }
     } catch {
       setError('Ollama is not answering on localhost.')
     }
+    setLive(null)
     setBusy(false)
   }, [id, busy])
 
@@ -162,7 +283,7 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
     }
     setId(newId())
     setMeeting(null); setSaid(''); setAsk(null); setEnough(false)
-    setInvented([]); setCaution([]); setError(''); setOffline('')
+    setInvented([]); setCaution([]); setLive(null); setError(''); setOffline('')
     setPlan(null); setPlanError(''); setCreateError(''); setCampaignId(null)
     setScrapping(false)
   }, [id, campaignId])
@@ -185,7 +306,26 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
           )
         ))}
 
-        {busy && <div className="turn advisor-turn"><p className="hint">Thinking…</p></div>}
+        {/* What "Thinking…" used to be. Every line here is something that
+            actually happened, in the order it happened: three of the four steps
+            of a turn are settled before the model writes a word, and they were
+            invisible for the fifteen seconds somebody spent waiting on them. */}
+        {busy && live && (
+          <div className="turn advisor-turn">
+            <p className="hint">
+              {live.matched === null
+                ? 'Searching the catalogue…'
+                : live.matched
+                  ? 'Found matching products in the catalogue.'
+                  : 'Nothing in the catalogue matches this.'}
+              {live.matched !== null && !live.noted && ' Reading back what you said…'}
+              {live.noted && ` Noted ${SLOTS.filter((x) => live.noted?.[x]?.trim()).map((x) => SLOT_LABEL[x].toLowerCase()).join(', ') || 'nothing yet'}.`}
+              {live.noted && live.slot !== null && ` Asking about ${SLOT_LABEL[live.slot].toLowerCase()} next.`}
+              {live.noted && !live.text && ' Writing…'}
+            </p>
+            {live.text && <p className="said">{live.text}</p>}
+          </div>
+        )}
 
         {offline && <p className="notice warn-notice">{offline}</p>}
         {error && <p className="note bad">{error}</p>}
@@ -389,6 +529,17 @@ export default function CampaignMeeting({ onCreated }: Props = {}) {
                   hidden assumption. */}
               {plan.kuwait_context_as_of && (
                 <p className="hint">Kuwait context as of {plan.kuwait_context_as_of}.</p>
+              )}
+
+              {/* The working-out behind everything above it, which used to be
+                  generated and dropped. Labelled as thinking, not as plan: it
+                  is not checked by the guards the fields are, and nothing here
+                  reaches a caption or the campaign's context. */}
+              {plan.reasoning && (
+                <details className="last-said" style={{ marginTop: 14 }}>
+                  <summary>How it thought about this</summary>
+                  <pre>{plan.reasoning}</pre>
+                </details>
               )}
 
               {plan.invented.length > 0 && (
