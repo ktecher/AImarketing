@@ -313,6 +313,92 @@ ok('the message is what surfaces',
 ok('it is an InstagramError', denied?.name === 'InstagramError', denied?.name)
 
 // ---------------------------------------------------------------------------
+// Meta could not fetch the image
+//
+// The error it sends for this names the wrong thing: `message` reads "Only photo
+// or video can be accepted as media type." while `error_user_msg` says the URI
+// could not be fetched. Measured against the live API on 2026-09-16 — the same
+// URL was accepted and then refused minutes apart, both with
+// `is_transient: false`, which is why this is retried and why the real reason
+// has to survive as far as the screen.
+// ---------------------------------------------------------------------------
+
+const FETCH_FAILED = {
+  ok: false,
+  status: 400,
+  body: {
+    error: {
+      message: 'Only photo or video can be accepted as media type.',
+      type: 'OAuthException',
+      code: 9004,
+      error_subcode: 2207052,
+      is_transient: false,
+      error_user_msg: 'Could not retrieve media from this URI: https://res.cloudinary.test/x.png.',
+    },
+  },
+}
+
+console.log('\n--- the reason Meta actually gave survives to the message ---')
+calls = []
+respond = () => FETCH_FAILED
+const fetchFail = await threw(() =>
+  publishToInstagram({ igUserId: 'IG', token: TOKEN, caption: 'x', imageUrls: [IMG(1)] }))
+// Without this, the screen says "media type" and the next person spends the
+// afternoon re-encoding a PNG that was never the problem.
+ok('the real cause is in it',
+   /could not retrieve media/i.test(fetchFail?.message ?? ''), fetchFail?.message)
+ok('Meta’s own wording is kept too',
+   /only photo or video/i.test(fetchFail?.message ?? ''))
+ok('and the subcode, which is greppable',
+   /9004\/2207052/.test(fetchFail?.message ?? ''))
+ok('the codes are on the error, not only in prose',
+   fetchFail?.code === 9004 && fetchFail?.subcode === 2207052,
+   `${fetchFail?.code}/${fetchFail?.subcode}`)
+ok('no token rides along',
+   !(fetchFail?.message ?? '').includes(TOKEN))
+
+console.log('\n--- a failed fetch is retried, a refusal is not ---')
+calls = []
+respond = () => FETCH_FAILED
+await threw(() =>
+  publishToInstagram({ igUserId: 'IG', token: TOKEN, caption: 'x', imageUrls: [IMG(1)] }))
+const creates = calls.filter((c) => c.path.endsWith('/media') && c.method === 'POST')
+ok('the container is attempted three times', creates.length === 3, `${creates.length}`)
+ok('and every attempt carries the same image', creates.every((c) => c.params.image_url === IMG(1)))
+
+calls = []
+let attempt = 0
+// Meta refused once, then fetched it. This is the case the retry exists for, and
+// the post must go out rather than be reported as failed.
+respond = (c) => {
+  if (c.path.endsWith('/media') && c.method === 'POST') {
+    attempt++
+    return attempt === 1 ? FETCH_FAILED : { body: { id: 'container-1' } }
+  }
+  if (c.path.endsWith('/media_publish')) return { body: { id: 'post-1' } }
+  if (c.params.fields === 'status_code') return { body: { status_code: 'FINISHED' } }
+  return { body: { permalink: 'https://www.instagram.com/p/abc/' } }
+}
+const recovered = await publishToInstagram({
+  igUserId: 'IG', token: TOKEN, caption: 'x', imageUrls: [IMG(1)],
+})
+ok('a second attempt publishes', recovered?.platformPostId === 'post-1', recovered?.platformPostId)
+ok('after exactly two container attempts',
+   calls.filter((c) => c.path.endsWith('/media') && c.method === 'POST').length === 2)
+
+calls = []
+// A revoked permission fails the same way three times over, and three times the
+// wait before anybody is told. Only the fetch failure is worth repeating.
+respond = () => ({
+  ok: false, status: 403,
+  body: { error: { message: '(#200) The user lacks instagram_business_content_publish.', code: 200 } },
+})
+await threw(() =>
+  publishToInstagram({ igUserId: 'IG', token: TOKEN, caption: 'x', imageUrls: [IMG(1)] }))
+ok('a permission error is attempted once, not three times',
+   calls.filter((c) => c.path.endsWith('/media') && c.method === 'POST').length === 1)
+
+// ---------------------------------------------------------------------------
 // Cloudinary — the public image host Instagram fetches from
 // ---------------------------------------------------------------------------
 

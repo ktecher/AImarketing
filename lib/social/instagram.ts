@@ -91,11 +91,27 @@ const AUTHORIZE = 'https://www.instagram.com/oauth/authorize'
 
 /** An Instagram failure, carrying a message that has been scrubbed of the token. */
 export class InstagramError extends Error {
-  constructor(message: string) {
+  /** Meta's own `error.code` / `error.error_subcode`, when it sent them. */
+  readonly code?: number
+  readonly subcode?: number
+
+  constructor(message: string, codes: { code?: number; subcode?: number } = {}) {
     super(message)
     this.name = 'InstagramError'
+    this.code = codes.code
+    this.subcode = codes.subcode
   }
 }
+
+/**
+ * Meta could not download the image from the URL we gave it.
+ *
+ * Worth naming, because Meta reports it under `error.message` "Only photo or
+ * video can be accepted as media type." — which describes a completely
+ * different fault. The truth is in `error_user_msg`: "Could not retrieve media
+ * from this URI." A whole afternoon went into that discrepancy once.
+ */
+const MEDIA_FETCH_FAILED = 2207052
 
 export type PublishResult = {
   platformPostId: string
@@ -127,18 +143,34 @@ const withoutToken = (message: string, ...secrets: (string | undefined)[]) =>
  * with `{error: {message}}`; api.instagram.com answers the token exchange with a
  * flat `{error_message}`. Reading only the first turns a wrong client secret
  * into "request failed (400)".
+ *
+ * `error_user_msg` is carried too, and it is not decoration. Meta's `message`
+ * for a failed image download reads "Only photo or video can be accepted as
+ * media type.", which names the wrong cause and sends the reader after the
+ * image's format; `error_user_msg` says plainly that the URI could not be
+ * fetched. Keeping only the first field cost four agents and an afternoon. The
+ * numbers come too, because a subcode is greppable and a sentence is not — and
+ * because `error_user_msg` arrives in whatever language the token's account is
+ * set to, which here is Arabic.
  */
 function failure(
-  json: { error?: { message?: string }; error_message?: string } | null,
+  json: {
+    error?: { message?: string; error_user_msg?: string; code?: number; error_subcode?: number }
+    error_message?: string
+  } | null,
   status: number,
   ...secrets: (string | undefined)[]
 ) {
-  return new InstagramError(
-    withoutToken(
-      json?.error?.message ?? json?.error_message ?? `Instagram request failed (${status}).`,
-      ...secrets,
-    ),
-  )
+  const e = json?.error
+  const base = e?.message ?? json?.error_message ?? `Instagram request failed (${status}).`
+  // Only when it says something the message did not. Meta sometimes repeats
+  // itself, and a sentence printed twice reads as a bug in us.
+  const detail = e?.error_user_msg && e.error_user_msg !== base ? ` — ${e.error_user_msg}` : ''
+  const codes = e?.code ? ` (Meta ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ''})` : ''
+  return new InstagramError(withoutToken(`${base}${detail}${codes}`, ...secrets), {
+    code: e?.code,
+    subcode: e?.error_subcode,
+  })
 }
 
 /** POST form-encoded params to an absolute URL and parse the JSON response. */
@@ -348,6 +380,36 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * will never finish is a request that hangs until something else times out, and
  * "the publish button did nothing" is the least diagnosable failure there is.
  */
+/**
+ * Create one image container, retrying only when Meta could not fetch the image.
+ *
+ * Measured on 2026-09-16, minutes apart, same account and same parameters: one
+ * Cloudinary URL was accepted, then the identical call for it was refused with
+ * 9004/2207052, while a second URL that had been refused an hour earlier was
+ * accepted first time. Meta sends `is_transient: false` on all of them, and it
+ * is not true — the fetch simply fails sometimes.
+ *
+ * Narrow on purpose. Only this subcode is retried: a genuinely malformed
+ * request or a revoked token fails the same way three times, and three times
+ * the wait before the person is told.
+ */
+async function imageContainer(
+  igUserId: string,
+  params: Record<string, string>,
+  { attempts = 3, delayMs = 2000 }: { attempts?: number; delayMs?: number } = {},
+): Promise<string> {
+  for (let i = 1; ; i++) {
+    try {
+      const { id } = await postForm<{ id: string }>(`${GRAPH_VERSIONED}/${igUserId}/media`, params)
+      return id
+    } catch (e) {
+      const retryable = e instanceof InstagramError && e.subcode === MEDIA_FETCH_FAILED
+      if (!retryable || i >= attempts) throw e
+      await sleep(delayMs * i)
+    }
+  }
+}
+
 async function waitForContainerReady(
   containerId: string,
   token: string,
@@ -427,12 +489,11 @@ export async function publishToInstagram({
 
   let creationId: string
   if (imageUrls.length === 1) {
-    const container = await postForm<{ id: string }>(`${GRAPH_VERSIONED}/${igUserId}/media`, {
+    creationId = await imageContainer(igUserId, {
       image_url: imageUrls[0],
       caption,
       access_token: token,
     })
-    creationId = container.id
   } else {
     // Each child is waited for before the parent is built. A child that is still
     // fetching its image is accepted into `children` and then fails the whole
@@ -443,13 +504,13 @@ export async function publishToInstagram({
     // arranged the images in is the order the customer sees them in.
     const childIds: string[] = []
     for (const url of imageUrls) {
-      const child = await postForm<{ id: string }>(`${GRAPH_VERSIONED}/${igUserId}/media`, {
+      const childId = await imageContainer(igUserId, {
         image_url: url,
         is_carousel_item: 'true',
         access_token: token,
       })
-      await waitForContainerReady(child.id, token)
-      childIds.push(child.id)
+      await waitForContainerReady(childId, token)
+      childIds.push(childId)
     }
     // The caption belongs to the parent. A caption on a carousel item is silently
     // discarded, so a post published that way loses its copy entirely.

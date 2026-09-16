@@ -2729,3 +2729,42 @@ meeting. Fix by threading `route.modelLabel('campaigns')` through `start()`'s
 two callers when that day comes.
 
 See `docs/superpowers/specs/2026-09-13-cloud-ai-provider-design.md`.
+
+## D98 — Meta names the wrong cause, and a failed fetch is worth asking twice
+
+**2026-09-16.** A post failed with `Only photo or video can be accepted as media
+type.` Four agents spent an afternoon on the image: the PNG was valid, the
+render was correct, Cloudinary served the same bytes to `facebookexternalhit`
+as to a browser, the aspect ratio was inside Instagram's 4:5 floor, the token
+was sixteen days into a sixty-day life, and `lib/social/instagram.ts` had not
+changed since the day it was written.
+
+**What Meta actually said.** The full body carries `code: 9004`,
+`error_subcode: 2207052` and `error_user_msg`: *"Could not retrieve media from
+this URI."* The download failed. `message` describes a fault that did not
+happen, and `failure()` kept only `message`.
+
+**And it is not deterministic.** Measured against the live API, minutes apart,
+same account and same parameters: the image that failed in the morning was
+accepted, and the image that had published successfully on 2026-09-08 was
+refused — then accepted, then refused again. Every one of them arrived with
+`is_transient: false`, which is not true.
+
+**So two changes.** `failure()` carries `error_user_msg` and the numbers into
+the message, and `InstagramError` carries `code` and `subcode` as fields —
+prose is for the person, a subcode is what the next retry rule can branch on.
+And `imageContainer()` retries container creation up to three times, on
+subcode 2207052 alone. Narrow deliberately: a revoked permission or a malformed
+request fails identically three times over, and three times the wait before
+anybody is told.
+
+**What was NOT done.** The posters are still PNG, though Meta documents
+*"JPEG is the only image format supported."* It is not the cause here — Meta
+accepted these same PNGs repeatedly during the same ten minutes — and changing
+the render output to chase a rule that is not being enforced would be a change
+with no evidence behind it.
+
+**Reverses if.** The retries stop helping — if the same URL fails three times
+in a row routinely, the fault is not transient and the fetch itself is the thing
+to change, most likely by serving JPEG. The tell is a run of `failed` rows whose
+error all carry 2207052.
