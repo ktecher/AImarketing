@@ -8,6 +8,29 @@ catalog — with a campaign record tying the four together.
 Everything runs on one machine. No catalog row, customer message, or
 unpublished draft reaches an outside service.
 
+## Highlights
+
+- **Excel in, designs out.** An importer reads a messy product sheet and fills brand templates, producing SVG, PNG, JPG and PDF with correct Arabic shaping and right-to-left layout.
+- **Local by default.** Models run on the same machine through Ollama; the app has a check that fails `npm test` if app code reaches the internet. Pointing a feature at a cloud model (OpenAI, Anthropic or Google) is opt-in, off by default, with keys encrypted at rest.
+- **Grounded answers.** Customer questions are answered from the product catalogue with retrieval over `real[]` embeddings, and cited facts are checked against the retrieved rows.
+- **Decisions on record.** `docs/decisions.md` logs 100 design decisions, each with the alternative rejected and the condition that would reverse it.
+- **Tested without a browser.** 26 runnable check scripts cover the importer, templates, layout, content guard, scheduling, Instagram publishing and the cloud-provider routing.
+
+## Stack
+
+TypeScript (about 20k lines), Next.js and React, Postgres 17 with pgvector in Docker, Ollama for local LLMs and embeddings, ExcelJS, resvg, HarfBuzz and bidi-js for Arabic text rendering, PDFKit, ONNX Runtime for background removal, Zod.
+
+## Quick start
+
+```sh
+npm install
+npm run db:up && npm run db:migrate
+npm run dev        # http://localhost:3000
+npm test           # runs every check script
+```
+
+Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
+
 ## Read first
 
 | File | What it covers |
