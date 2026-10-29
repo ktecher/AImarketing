@@ -41,11 +41,13 @@ TypeScript (about 20k lines), Next.js and React, Postgres 17 with pgvector in Do
 ```sh
 npm install
 npm run db:up && npm run db:migrate
+npm run demo:seed   # a demo template and a six-product sheet, no real brand assets needed
 npm run dev        # http://localhost:3000
 npm test           # runs every check script
 ```
 
-Brand templates, brand fonts and product photos are supplied per retailer and are not in this repo, so a fresh clone has no design template until you add one under `data/templates/`. Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
+Then open Products, upload `data/samples/demo-electronics.xlsx`, and open Designs. 
+Real brand templates and product photos are supplied per retailer and are not in this repo. Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
 
 ## Read first
 
