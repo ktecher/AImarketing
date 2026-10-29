@@ -389,7 +389,7 @@ Stage one is built. Stage two is not, and it needs a real decision when it comes
 
 ## D32 — Real catalogue data, and the three problems it exposed in one run
 
-**60 real products** from a Kuwait electronics retailer — `scripts/build-retailer-sheet.mjs` turns the scraped folder into a product sheet with 22 columns and every photo embedded and anchored to its own row. The importer read it with **zero errors and zero warnings**, matched all 60 photos, and `scripts/extract-images.mjs` wrote them back out by SKU. Spot-checked: SKU 657276 really is the iPad Pro. Anchor reading is verified against real data, not a fixture.
+**60 real products** from a Kuwait electronics retailer — a one-off script turned the scraped folder into a product sheet with 22 columns and every photo embedded and anchored to its own row. The importer read it with **zero errors and zero warnings**, matched all 60 photos, and `scripts/extract-images.mjs` wrote them back out by SKU. Spot-checked: SKU 657276 really is the iPad Pro. Anchor reading is verified against real data, not a fixture.
 
 Rendering all 60 takes **1.6 seconds, 27 ms per design**.
 
@@ -1086,7 +1086,7 @@ kept verbatim in `extra`, so `Image`, `Photo` or `File` all work without being
 taught. A key claimed by two products is dropped rather than guessed; silently
 attaching a photo to the wrong product is worse than reporting it.
 
-A URL column was considered and rejected. `docs/retailer-api.md` has `image_url`
+A URL column was considered and rejected. the retailer's product data has an `image_url`
 and it is the obvious thing to reach for, but the app fetching it is a request
 leaving this machine — rule 1. Fetching them yourself and dropping the folder in
 is the same result without the app making the request.

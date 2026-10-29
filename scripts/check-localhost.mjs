@@ -19,8 +19,8 @@
  *      gets written as a literal.
  *
  * scripts/ is deliberately NOT checked. Seeding a catalogue from a retailer's
- * public site happened once, by hand, before the app existed — see
- * docs/retailer-api.md. Keeping that distinction visible is the point: the app may
+ * public site happened once, by hand, before the app existed. Keeping that
+ * distinction visible is the point: the app may
  * not reach the internet; a one-off tool a person runs is not the app.
  *
  * ── the one place inside the app that may reach out (D83) ──

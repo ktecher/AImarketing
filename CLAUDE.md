@@ -23,7 +23,7 @@ Enforcement is structural, not a promise:
 
   Not ESLint, though this was promised as `no-restricted-imports` for months and never existed. It cannot be installed: no published typescript-eslint supports TypeScript 7, and TypeScript 7 is the Go port, which ships no JavaScript compiler API to parse with either. The source goes through esbuild — already installed by `tsx` — to strip comments and types, and the check reads what is left. Switch to ESLint when typescript-eslint supports TS 7.
 
-  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed (`docs/retailer-api.md`). The app may not reach the internet; a one-off tool a person runs is not the app. Two routes may EXECUTE a script in `scripts/`, by fixed path, and do nothing else — a staff click is a person running the tool, and the request code stays where there is one file to read to know what leaves:
+  `scripts/` is deliberately outside the check: seeding a catalogue from a public site happened once, by hand, before the app existed. The app may not reach the internet; a one-off tool a person runs is not the app. Two routes may EXECUTE a script in `scripts/`, by fixed path, and do nothing else — a staff click is a person running the tool, and the request code stays where there is one file to read to know what leaves:
 
   - `/api/kuwait/trends` runs `scripts/pull-trends.mjs` with **no arguments**, never reading the request body (D72).
   - `/api/kuwait/search` runs `scripts/search-trends.mjs <topic>` with **one argument**: a topic a person typed, stripped to letters, digits and spaces and capped at sixty characters, at the route and again in the script. Nothing else reaches the child process (D73).
