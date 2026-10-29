@@ -29,7 +29,7 @@ npm run dev        # http://localhost:3000
 npm test           # runs every check script
 ```
 
-Model setup is under **Machine setup** below. Built by Farouk as a solo project.
+Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
 
 ## Read first
 
