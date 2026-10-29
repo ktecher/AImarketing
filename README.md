@@ -16,6 +16,22 @@ unpublished draft reaches an outside service.
 - **Decisions on record.** `docs/decisions.md` logs 100 design decisions, each with the alternative rejected and the condition that would reverse it.
 - **Tested without a browser.** 26 runnable check scripts cover the importer, templates, layout, content guard, scheduling, Instagram publishing and the cloud-provider routing.
 
+## Screenshots
+
+Synthetic demo data (a made-up "Demo Electronics" shop), running fully locally.
+
+**Designs.** One Excel sheet becomes a finished poster per product, with Arabic names, sale prices and discount labels laid out automatically.
+
+![Designs generated from a product sheet](docs/screenshots/designs.jpg)
+
+**Catalogue.** The same rows live in Postgres, searchable, with stock, prices and photos.
+
+![Product catalogue](docs/screenshots/products.jpg)
+
+**Customer assistant.** Answers come from the catalogue through a local model, so the price it quotes is the price in the database.
+
+![Customer assistant answering from the catalogue](docs/screenshots/assistant.png)
+
 ## Stack
 
 TypeScript (about 20k lines), Next.js and React, Postgres 17 with pgvector in Docker, Ollama for local LLMs and embeddings, ExcelJS, resvg, HarfBuzz and bidi-js for Arabic text rendering, PDFKit, ONNX Runtime for background removal, Zod.
@@ -29,7 +45,7 @@ npm run dev        # http://localhost:3000
 npm test           # runs every check script
 ```
 
-Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
+Brand templates, brand fonts and product photos are supplied per retailer and are not in this repo, so a fresh clone has no design template until you add one under `data/templates/`. Model setup is under **Machine setup** below. Built by Farouk Nuseibeh as a solo project.
 
 ## Read first
 
